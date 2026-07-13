@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Solar Forecast &amp; Optimization Studio</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <h1>Solar Forecast &amp; Optimization Studio</h1>
+    <p>Day-ahead PV power forecasting with an adaptive MOS+KF bias-correction model, inspired by the Chulalongkorn EE-building solar forecasting research.</p>
+  </header>
+
+  <div class="layout">
+    <aside class="panel" id="controls">
+      <h2>Location</h2>
+      <button class="secondary" id="use-location">Use my current location</button>
+      <div class="two-col">
+        <div class="field">
+          <label>Latitude</label>
+          <input type="number" id="lat" value="13.7367" step="0.0001" />
+        </div>
+        <div class="field">
+          <label>Longitude</label>
+          <input type="number" id="lon" value="100.5325" step="0.0001" />
+        </div>
+      </div>
+
+      <h2>PV System</h2>
+      <div class="field">
+        <label>Installed capacity <span id="capacity-val">10 kWp</span></label>
+        <input type="range" id="capacity" min="1" max="500" step="1" value="10" />
+      </div>
+      <div class="field">
+        <label>Module wattage <span id="wattage-val">630 W</span></label>
+        <input type="range" id="wattage" min="300" max="700" step="5" value="630" />
+      </div>
+      <div class="two-col">
+        <div class="field">
+          <label>Tilt <span id="tilt-val">15°</span></label>
+          <input type="range" id="tilt" min="0" max="60" step="1" value="15" />
+        </div>
+        <div class="field">
+          <label>Azimuth <span id="azimuth-val">180°</span></label>
+          <input type="range" id="azimuth" min="0" max="359" step="1" value="180" />
+        </div>
+      </div>
+
+      <h2>System Losses</h2>
+      <div class="field">
+        <label>Shading <span id="shading-val">5%</span></label>
+        <input type="range" id="shading" min="0" max="40" step="1" value="5" />
+      </div>
+      <div class="field">
+        <label>Soiling <span id="soiling-val">3%</span></label>
+        <input type="range" id="soiling" min="0" max="20" step="1" value="3" />
+      </div>
+      <div class="field">
+        <label>Inverter <span id="inverter-val">3%</span></label>
+        <input type="range" id="inverter" min="0" max="15" step="1" value="3" />
+      </div>
+      <div class="field">
+        <label>Mismatch <span id="mismatch-val">2%</span></label>
+        <input type="range" id="mismatch" min="0" max="15" step="1" value="2" />
+      </div>
+      <div class="field">
+        <label>DC wiring <span id="dcwiring-val">2%</span></label>
+        <input type="range" id="dcwiring" min="0" max="15" step="1" value="2" />
+      </div>
+
+      <h2>Forecast Model Backtest</h2>
+      <div class="field">
+        <label>Backtest window <span id="backtest-days-val">30 days</span></label>
+        <input type="range" id="backtest-days" min="7" max="90" step="1" value="30" />
+      </div>
+      <div class="field">
+        <label>Simulated NWP bias <span id="bias-val">15%</span></label>
+        <input type="range" id="bias" min="0" max="40" step="1" value="15" />
+      </div>
+      <div class="field">
+        <label>Simulated NWP noise <span id="noise-val">10%</span></label>
+        <input type="range" id="noise" min="0" max="40" step="1" value="10" />
+      </div>
+
+      <button class="primary" id="run">Run forecast &amp; energy report</button>
+      <p class="status-msg" id="status"></p>
+    </aside>
+
+    <main class="content">
+      <section class="cards-row" id="system-summary-cards">
+        <div class="stat-card">
+          <div class="label">Capacity</div>
+          <div class="value" id="summary-capacity">–<span class="unit">kWp</span></div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Panels</div>
+          <div class="value" id="summary-panels">–</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Roof Area</div>
+          <div class="value" id="summary-roof">–<span class="unit">m²</span></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Day-Ahead Power Forecast (MOS+KF corrected)</h2>
+        <canvas id="forecast-chart" height="90"></canvas>
+      </section>
+
+      <section class="split-2">
+        <div class="panel">
+          <div class="hero-card">
+            <div class="label">Annual Generation (Year 1)</div>
+            <div class="value" id="annual-generation">– MWh</div>
+            <div class="legend-row" style="color:rgba(255,255,255,0.85)">
+              <span>Specific yield: <strong id="specific-yield">–</strong> kWh/kWp</span>
+              <span>Performance ratio: <strong id="performance-ratio">–</strong>%</span>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Losses Breakdown</h2>
+          <div id="losses-breakdown"></div>
+          <div class="total-loss-row">
+            <span>Total System Loss</span>
+            <span id="total-loss">–%</span>
+          </div>
+          <div class="total-loss-row" style="border-top:none;padding-top:0;font-weight:400;">
+            <span>Solar Access</span>
+            <span id="solar-access">–%</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Forecast Accuracy Backtest: Raw NWP vs Persistence vs MOS+KF</h2>
+        <p class="status-msg">Real day-ahead NWP archives aren't publicly replayable, so the "raw NWP" forecast is simulated by perturbing historical actuals with configurable bias/noise (sliders on the left) — the point of the demo is how much the adaptive Kalman filter recovers, matching the comparison methodology in the source research (performance_index_pv.m).</p>
+        <div class="day-scrub">
+          <label for="day-select">Day</label>
+          <input type="range" id="day-select" min="0" max="0" step="1" value="0" />
+          <span id="day-label"></span>
+        </div>
+        <canvas id="backtest-chart" height="90"></canvas>
+        <table class="metrics-table" id="metrics-table">
+          <thead>
+            <tr><th>Model</th><th>RMSE (kW)</th><th>MAE (kW)</th><th>MAPE (%)</th><th>MBE (kW)</th><th>nRMSE (% cap)</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
