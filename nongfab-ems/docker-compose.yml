@@ -55,6 +55,8 @@ services:
 
   api:
     build: ./api
+    environment:
+      API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:5173}
     ports:
       - "8000:8000"
     depends_on:

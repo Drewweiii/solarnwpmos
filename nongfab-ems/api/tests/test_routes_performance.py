@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -19,6 +20,9 @@ def test_get_performance_returns_metrics_for_viewer(app, token_factory):
     assert 0 < body["performance_ratio"] <= 1.0
     assert body["specific_yield_kwh_per_kwp_today"] > 0
     assert "soiling_pct" in body["loss_breakdown"]
+    assert len(body["hourly"]) == 24
+    assert {"timestamp", "ac_kw", "ssrd_w_m2", "temp_c"} <= body["hourly"][0].keys()
+    assert sum(p["ac_kw"] for p in body["hourly"]) == pytest.approx(body["ac_energy_kwh_today"])
 
 
 def test_get_performance_jetty_reports_simulated_zone_true(app, token_factory):

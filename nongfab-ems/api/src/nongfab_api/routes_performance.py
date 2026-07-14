@@ -10,6 +10,8 @@ this route's shape.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from nongfab_forecast.pv_conversion import nong_fab_zone_capacities_kwp
 from nongfab_simulation.dev_data import synthetic_day_irradiance_temp
@@ -22,6 +24,13 @@ from .auth import require_role
 router = APIRouter(tags=["performance"])
 
 
+class HourlyPoint(BaseModel):
+    timestamp: datetime
+    ac_kw: float
+    ssrd_w_m2: float
+    temp_c: float
+
+
 class PerformanceResponse(BaseModel):
     zone: str
     simulated_zone: bool
@@ -30,6 +39,10 @@ class PerformanceResponse(BaseModel):
     performance_ratio: float
     specific_yield_kwh_per_kwp_today: float
     loss_breakdown: dict[str, float]
+    # Today's synthetic baseline, hour by hour - lets a dashboard chart
+    # "generated power" over the day rather than just today's running total
+    # (see /forecast/{zone}/{horizon} for the model's own predicted series).
+    hourly: list[HourlyPoint]
 
 
 def _validate_zone(zone: str) -> str:
@@ -53,9 +66,17 @@ async def get_performance(zone: str, _user=Depends(require_role("viewer"))) -> P
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    hourly = [
+        HourlyPoint(
+            timestamp=ts.to_pydatetime(), ac_kw=float(baseline.ac_power_kw.iloc[i]),
+            ssrd_w_m2=float(ssrd[i]), temp_c=float(temp[i]),
+        )
+        for i, ts in enumerate(idx)
+    ]
+
     return PerformanceResponse(
         zone=zone, simulated_zone=baseline.zone.simulated, ac_energy_kwh_today=ac_energy_kwh,
         poa_irradiance_kwh_per_m2_today=poa_irradiance_kwh_per_m2, performance_ratio=pr,
         specific_yield_kwh_per_kwp_today=ac_energy_kwh / baseline.zone.dc_capacity_kwp,
-        loss_breakdown=baseline.loss_breakdown,
+        loss_breakdown=baseline.loss_breakdown, hourly=hourly,
     )

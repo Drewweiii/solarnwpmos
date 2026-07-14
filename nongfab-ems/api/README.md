@@ -15,6 +15,18 @@ simulate_zone_baseline()` / `what_if` / `monte_carlo`, the same functions
 those modules' own dev APIs call. Behavior can't drift between "the dev API
 I tested" and "the production API a client actually hits".
 
+## CORS
+
+The dashboard (Module 7, `web/`) always runs on a different origin than this
+API (its own Vite dev server port, or its own domain in production), so
+`CORSMiddleware` is required - without it the browser blocks every request
+before it reaches FastAPI at all (not a 401; the request never arrives).
+Allowed origins come from `API_CORS_ORIGINS` (comma-separated, default
+`http://localhost:5173,http://localhost:3000`) - override it with the
+dashboard's real origin(s) in any deployment where `web/` isn't served from
+one of the defaults. See `Settings.cors_origins` / `cors_allow_origins` in
+`config.py`.
+
 ## Auth
 
 OAuth2 password flow: `POST /auth/token` with form fields `username`/
@@ -78,6 +90,10 @@ management, config writes) has somewhere to plug in without a schema change.
 - **`GET /performance/{zone}`** → today's energy/performance-ratio/specific-
   yield snapshot plus the PVWatts-style loss breakdown, via Module 5's
   `pipeline.simulate_zone_baseline()` and `loss_model.performance_ratio()`.
+  Also returns `hourly`: today's synthetic baseline, hour by hour
+  (`ac_kw`/`ssrd_w_m2`/`temp_c`) - added for Module 7's dashboard, which
+  needs a real "generated power" time series to chart, not just a running
+  total.
 - **`GET /ws/live`** → WebSocket. Pushes `{"zones": [{"zone", "current_ac_kw",
   "forecast_hour_ahead_kw"}, ...]}` every `API_LIVE_PUSH_INTERVAL_SECONDS`
   (default 5s) for all 3 zones. `forecast_hour_ahead_kw` is `null` until an
@@ -142,7 +158,7 @@ deliberately never auto-creates tables itself; see `db/migrations/
 
 ## Tests
 
-`pytest` - 55 tests, no real Postgres or MLflow server required:
+`pytest` - 60 tests, no real Postgres or MLflow server required:
 
 - `test_auth.py` (23) - password hashing, `UserStore` CRUD/seeding, JWT
   create/decode (expiry, wrong secret, malformed/missing claims),
@@ -157,6 +173,9 @@ deliberately never auto-creates tables itself; see `db/migrations/
 - `test_ws_live.py` (6) - snapshot shape, repeated pushes, missing/invalid
   token rejection, and a regression test for a real bug caught during live
   verification (see below).
+- `test_cors.py` (3) + `test_config.py` (2) - CORS preflight/actual-response
+  headers for allowed vs disallowed origins, and a real-env-var-parsing
+  regression test for the bug in "Verified live" below.
 
 Route/auth/websocket tests build the app via `create_app(settings, engine)`
 against an in-memory SQLite engine (`tests/conftest.py`) - no live database
@@ -188,3 +207,29 @@ real WebSocket client:
   50.0 kW (correctly clipped at GIS's inverter capacity), and added
   `test_zone_snapshot_uses_the_row_nearest_now_not_always_the_last_row` as a
   regression test.
+
+### Verified live again from Module 7's dashboard (2026-07-14)
+
+Once `web/` (Module 7) existed, ran `uvicorn` + `vite dev` together and
+drove the real login → forecast page flow with a headless browser (see
+`web/README.md`'s own "Verified live" for the dashboard-side detail).
+**Found and fixed two more real bugs this way**, neither of which any
+existing unit test caught:
+
+1. No `CORSMiddleware` at all - the dashboard (a different origin) couldn't
+   call this API; every request was blocked by the browser before it ever
+   reached FastAPI. Added `CORSMiddleware` + `Settings.cors_origins`
+   (env var `API_CORS_ORIGINS`).
+2. That fix's first version didn't actually work: the settings field was
+   named `cors_origins_raw`, which pydantic-settings maps to env var
+   `API_CORS_ORIGINS_RAW` - not the `API_CORS_ORIGINS` the code documented
+   and `docker-compose.yml`/`.env.example` set. Overriding it via env var
+   silently did nothing; curling the live server's preflight response
+   proved the header never changed. Caught only by testing the *actual*
+   deployed behavior against a real env var, not by `test_cors.py`'s
+   existing tests (which construct `Settings(...)` with keyword arguments,
+   sailing right past the env-var-name question). Renamed the field to
+   `cors_origins` and added `test_config.py`, which builds `Settings()`
+   through `monkeypatch.setenv()` specifically so this class of bug - "the
+   field works when constructed directly but not from the env var it's
+   documented to read" - can't silently reappear.

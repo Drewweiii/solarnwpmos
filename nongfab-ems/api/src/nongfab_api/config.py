@@ -23,6 +23,18 @@ class Settings(BaseSettings):
 
     port: int = 8000
 
+    # Browser origins allowed to call this API cross-origin (the dashboard in
+    # web/ runs on its own Vite dev server port, or its own domain in prod -
+    # always a different origin than this API). Comma-separated; kept as a
+    # plain str field (not list[str]) since pydantic-settings otherwise
+    # expects list-typed env vars to be JSON, not a plain comma list. Override
+    # via API_CORS_ORIGINS for a real deployment's dashboard origin(s).
+    cors_origins: str = "http://localhost:5173,http://localhost:3000"
+
+    @property
+    def cors_allow_origins(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
 
 def get_settings() -> Settings:
     return Settings()
