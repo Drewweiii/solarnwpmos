@@ -56,12 +56,56 @@ def test_simulate_curtailment_reduces_adjusted_power(client):
 
 
 def test_simulate_with_monte_carlo_returns_interval(client):
-    resp = client.post("/simulate/GIS", json={"monte_carlo_error_std_kw": 5.0, "monte_carlo_n_samples": 200})
+    resp = client.post("/simulate/GIS", json={"extra_cloud_attenuation_std_pct": 15.0, "monte_carlo_n_samples": 200})
     body = resp.json()
     for point in body["points"]:
         assert point["lower"] is not None
         assert point["upper"] is not None
-        assert point["lower"] <= point["adjusted_ac_kw"] <= point["upper"] + 1e-6
+        assert point["lower"] <= point["upper"] + 1e-6
+
+
+def test_simulate_without_uncertainty_std_omits_interval(client):
+    # no *_std_pct field set -> no Monte Carlo run, lower/upper stay null
+    resp = client.post("/simulate/GIS", json={"curtailment_pct": 10.0})
+    body = resp.json()
+    for point in body["points"]:
+        assert point["lower"] is None
+        assert point["upper"] is None
+
+
+def test_simulate_rejects_invalid_scenario_params_with_422(client):
+    resp = client.post("/simulate/GIS", json={"curtailment_pct": 150.0})
+    assert resp.status_code == 422
+    assert "curtailment_pct" in resp.json()["detail"]
+
+
+def test_simulate_compare_returns_one_series_per_scenario(client):
+    resp = client.post(
+        "/simulate/GIS/compare",
+        json={"scenarios": {"typical": {}, "cloudy_day": {"extra_cloud_attenuation_pct": 40.0}, "curtailed": {"curtailment_pct": 30.0}}},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["zone"] == "GIS"
+    assert set(body["series_kw"]) == {"typical", "cloudy_day", "curtailed"}
+    assert len(body["timestamps"]) == 24
+    for series in body["series_kw"].values():
+        assert len(series) == 24
+
+    # cloudy_day should produce less energy than typical at every hour
+    typical = body["series_kw"]["typical"]
+    cloudy = body["series_kw"]["cloudy_day"]
+    assert all(c <= t + 1e-6 for c, t in zip(cloudy, typical))
+
+
+def test_simulate_compare_rejects_empty_scenarios_with_422(client):
+    resp = client.post("/simulate/GIS/compare", json={"scenarios": {}})
+    assert resp.status_code == 422
+
+
+def test_simulate_compare_rejects_unknown_zone(client):
+    resp = client.post("/simulate/Nowhere/compare", json={"scenarios": {"typical": {}}})
+    assert resp.status_code == 404
 
 
 def test_simulate_gis_ac_power_never_exceeds_inverter_capacity(client):
