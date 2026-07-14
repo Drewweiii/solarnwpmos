@@ -120,7 +120,8 @@ zones:
 
   - id: Jetty
     name_full: "ท่าเรือ (trestle 1.5 km)"
-    status: "design-mode - no live measurement yet, simulation from capacity + coordinates only"
+    status: "design-mode - no panels installed yet (confirmed by satellite imagery, 2026-07-14); simulation from capacity + coordinates only"
+    simulated: true
     ac_capacity_kw: 200  # Phase 1 (current)
     dc_capacity_kwp: 228.8  # Phase 1
     dc_ac_ratio: 1.144  # Phase 1
@@ -128,12 +129,16 @@ zones:
     module_power_w: 715
     inverter_model: "SUN2000-50KTL-M3"
     inverter_count: 4
-    centroid: { lat: 12.67281, lon: 101.11587, note: "design-mode, unverified - flagged in source doc" }
+    # Corners re-measured via Google Maps "Advanced measurements" (per-pin ground
+    # elevation + DMS coordinates), 2026-07-14 - matches the earlier satellite-image
+    # estimate almost exactly (sub-meter). LLjet/LRjet read 0m elevation because
+    # those pins sit over open water on the trestle pier, not on measured ground.
+    centroid: { lat: 12.67281042, lon: 101.11586528, note: "design-mode - no panels installed yet, see status/simulated" }
     corners:
-      UL: { lat: 12.67851, lon: 101.11646 }
-      UR: { lat: 12.67844, lon: 101.11702 }
-      LL: { lat: 12.66719, lon: 101.11470 }
-      LR: { lat: 12.66711, lon: 101.11528 }
+      UL: { lat: 12.67850556, lon: 101.11645833, elevation_m: 2.98 }
+      UR: { lat: 12.67843611, lon: 101.11702222, elevation_m: 6.9 }
+      LL: { lat: 12.66719167, lon: 101.11469722, elevation_m: 0.0, note: "over water (pier) - Google Maps ground elevation reads 0m here" }
+      LR: { lat: 12.66710833, lon: 101.11528333, elevation_m: 0.0, note: "over water (pier) - Google Maps ground elevation reads 0m here" }
     span_north_south_km: 1.25
     tilt_deg: null
     azimuth_deg: null

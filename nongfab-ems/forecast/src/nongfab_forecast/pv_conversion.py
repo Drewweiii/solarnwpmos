@@ -84,3 +84,19 @@ def nong_fab_zone_capacities_kwp() -> dict[str, float]:
 
     registry = load_assets()
     return {zone.id: zone.dc_capacity_kwp for zone in registry.zones}
+
+
+def nong_fab_simulated_zone_ids() -> set[str]:
+    """{zone_id, ...} where config/assets.yaml marks simulated=True - e.g. Jetty,
+    confirmed by satellite imagery to have no panels physically installed yet.
+
+    Forecast/simulation code should treat these zones' output as a permanent
+    capacity-driven projection (`default_params_from_capacity`), never attempt
+    `fit_pv_conversion_model()` against real (I, T, P) sensor history for them -
+    there isn't any to have until the zone is actually built, unlike GIS/ISB
+    (real installed hardware that simply hasn't accumulated history *yet*).
+    """
+    from nongfab_common.assets import load_assets
+
+    registry = load_assets()
+    return {zone.id for zone in registry.zones if zone.simulated}

@@ -109,6 +109,15 @@ class Zone(BaseModel):
     sld_available: bool | str | None = None
     span_north_south_km: float | None = None
 
+    # True where no panels are physically installed yet (design/simulation-only -
+    # e.g. Jetty, confirmed by satellite imagery showing bare trestle, no PV visible).
+    # Forecast/simulation modules should treat these zones' output as a capacity-
+    # driven projection (see forecast.pv_conversion.default_params_from_capacity),
+    # never as something to fit a regression against real (I, T, P) history - there
+    # is no real history to have. False (the default) means real installed hardware,
+    # even if this repo hasn't accumulated enough sensor history to train on yet.
+    simulated: bool = False
+
     # Populated where a Single Line Diagram (or equivalent as-built doc) exists -
     # Jetty and GIS both have one; ISB doesn't yet (source doc only briefly describes it).
     module_detail: ModuleSpec | None = None

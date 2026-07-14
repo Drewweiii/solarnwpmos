@@ -13,6 +13,23 @@ registry layer, and a dev FastAPI wrapper exposing `GET /forecast/{zone}/{horizo
 | Hour-ahead | LightGBM | NWP + lag + clear-sky features | L2 (L1 selectable) | Optuna (Bayesian) + early stopping |
 | Day-ahead | NeuralProphet | trend + seasonality + future regressors (SSRD, T) | MAE | quantile regression for PI |
 
+## Simulated zones (Jetty)
+
+`pv_conversion.nong_fab_simulated_zone_ids()` reads `config/assets.yaml`'s
+per-zone `simulated` flag (`nongfab_common.assets.Zone.simulated`) - `True`
+for Jetty, confirmed by satellite imagery (2026-07-14) to have no panels
+physically installed yet, vs. `False` for GIS/ISB (real installed hardware
+that just hasn't accumulated sensor history yet - a different, temporary
+kind of gap). Callers should treat a simulated zone's PV output as a
+permanent capacity-driven projection (`default_params_from_capacity()`) -
+`fit_pv_conversion_model()` against real (I, T, P) history will never apply
+to Jetty until it's actually built, unlike GIS/ISB where it's just a matter
+of waiting for enough history to accumulate. Not yet wired into the dev
+API's `/train-now` (which trains all three zones identically on synthetic
+data regardless), but the distinction is available for Module 5
+(simulation engine, not started) and any future real-data training path to
+branch on.
+
 ## Design notes / deviations from a literal reading of the spec
 
 - **Minute-ahead "CNN-LSTM (neuralforecast)"**: `neuralforecast` does not ship

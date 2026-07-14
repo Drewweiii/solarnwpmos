@@ -7,6 +7,7 @@ from nongfab_forecast.pv_conversion import (
     STC_TEMP_C,
     default_params_from_capacity,
     fit_pv_conversion_model,
+    nong_fab_simulated_zone_ids,
     nong_fab_zone_capacities_kwp,
     predict_power_kw,
 )
@@ -78,3 +79,8 @@ def test_nong_fab_zone_capacities_matches_config_assets_yaml():
     assert set(capacities) == {"GIS", "ISB", "Jetty"}
     assert capacities["Jetty"] == pytest.approx(228.8)
     assert all(v > 0 for v in capacities.values())
+
+
+def test_nong_fab_simulated_zone_ids_flags_jetty_only():
+    # Jetty has no panels installed yet (confirmed by satellite imagery); GIS/ISB do.
+    assert nong_fab_simulated_zone_ids() == {"Jetty"}

@@ -128,8 +128,17 @@ def test_real_repo_assets_yaml_loads_and_validates():
     assert jetty.optimizer.count == 160
     assert len(jetty.sub_arrays) == 5
     assert len(jetty.interconnection_points) == 3
+    # confirmed by satellite imagery (2026-07-14): no panels physically installed
+    # yet, unlike GIS/ISB - forecast/simulation modules must treat this as a
+    # capacity-driven projection, not something to fit real sensor history against.
+    assert jetty.simulated is True
+    # LLjet/LRjet sit on the trestle pier over open water - Google Maps reads 0m
+    # ground elevation there (not missing data, an accurate "no ground" reading).
+    assert jetty.corners.LL.elevation_m == pytest.approx(0.0)
+    assert jetty.corners.UL.elevation_m == pytest.approx(2.98)
 
     gis = registry.zone("GIS")
+    assert gis.simulated is False  # real installed hardware, unlike Jetty
     assert gis.dc_ac_ratio == 1.20
     # from the GIS Single Line Diagram (PPA25.0008-PTTLNGEE-001): same Trina module
     # as Jetty, but only 84 of them behind a single 50kW inverter / 42 optimizers.
