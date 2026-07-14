@@ -7,7 +7,7 @@ import httpx
 from prometheus_client import start_http_server
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from .compliance import RateLimiter, RobotsChecker
+from .compliance import RateLimiter
 from .config import get_settings
 from .datasource import build_datasource
 from .scheduler import IngestionJob, build_scheduler
@@ -21,15 +21,8 @@ async def run() -> None:
     settings = get_settings()
 
     http_client = httpx.AsyncClient()
-    robots = RobotsChecker(
-        base_url=settings.base_url,
-        user_agent=settings.user_agent,
-        timeout=settings.request_timeout_seconds,
-        cache_ttl=settings.robots_cache_ttl_seconds,
-        fail_open=settings.allow_fetch_if_robots_unreachable,
-    )
     rate_limiter = RateLimiter(settings.min_seconds_between_requests)
-    datasource = build_datasource(settings, http_client, robots, rate_limiter)
+    datasource = build_datasource(settings, http_client, rate_limiter)
 
     engine = create_async_engine(settings.timescale_dsn)
     job = IngestionJob(

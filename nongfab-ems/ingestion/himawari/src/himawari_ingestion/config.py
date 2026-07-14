@@ -7,30 +7,32 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="HIMAWARI_", env_file=".env", extra="ignore")
 
-    # Nong Fab plant location (approximate) - used for both the API query point and
-    # sanity-checking that observations returned by the data source are plausible.
+    # Nong Fab plant location (approximate) - used for both the calibrated pixel lookup
+    # and sanity-checking that observations returned by the data source are plausible.
     site_latitude: float = 12.71
     site_longitude: float = 101.15
 
     # Data source selection: "mock" replays the local fixture (safe default for dev/tests),
-    # "http" calls the real endpoint below. Never defaults to "http" in tests.
+    # "http" reads the real NOAA AHI cloud product. Never defaults to "http" in tests.
     source_mode: str = Field(default="mock", pattern="^(mock|http)$")
 
-    base_url: str = "https://himawari.optemis.space"
-    api_path: str = "/api/v1/latest"  # placeholder: unverified pending live site access, see README
-    user_agent: str = "NongFabEMS-HimawariIngestion/0.1 (+https://github.com/Drewweiii/solarnwpmos; contact=ops@nongfab-ems.example)"
+    # NOAA/NESDIS AHI-L2-FLDK-Clouds product on AWS Open Data (s3://noaa-himawari9),
+    # public domain US government data, no credentials required. See README "Data source".
+    noaa_bucket: str = "noaa-himawari9"
+    noaa_product_prefix: str = "AHI-L2-FLDK-Clouds"
+    noaa_file_prefix: str = "AHI-CMSK"  # Cloud Mask product within that prefix
+    publish_latency_minutes: int = 55  # observed ~40min NOAA processing lag; padded for margin
+    lookback_slots: int = 6  # how many 10-min slots to search backward for a published file
 
-    request_timeout_seconds: float = 15.0
-    min_seconds_between_requests: float = 5.0  # rate limit floor, independent of the schedule interval
+    user_agent: str = "NongFabEMS-HimawariIngestion/0.2 (+https://github.com/Drewweiii/solarnwpmos; contact=ops@nongfab-ems.example)"
 
-    # tenacity retry policy
+    request_timeout_seconds: float = 30.0
+    min_seconds_between_requests: float = 2.0  # applies to the S3 list-objects calls
+
+    # tenacity retry policy (applied to the pixel-read step)
     max_retry_attempts: int = 4
     retry_backoff_base_seconds: float = 2.0
     retry_backoff_max_seconds: float = 30.0
-
-    # Compliance gate: if robots.txt cannot be fetched/parsed, fail closed unless explicitly overridden.
-    allow_fetch_if_robots_unreachable: bool = False
-    robots_cache_ttl_seconds: float = 3600.0
 
     poll_interval_minutes: int = 10
 
