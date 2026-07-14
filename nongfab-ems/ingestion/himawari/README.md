@@ -40,10 +40,21 @@ needs to *see* cloud motion approaching before it arrives, and shading
 analysis needs values across the plant's own footprint (3 zones + a ~1.25km
 jetty), not one averaged point. Fixed in this revision:
 
-- **Bounding box**: 12.61–12.74°N, 101.06–101.18°E (all 3 zones + wind-drift
-  buffer), calibrated live against `geolocation.calibrate_bbox_index()` to
-  `geolocation.NONG_FAB_BBOX` = Rows 2085–2091, Columns 856–860.
-- **Tile shape: 7×5 = 35 pixels.** Verified live 2026-07-14.
+- **Bounding box now comes from `config/assets.yaml`**, not a hardcoded
+  duplicate: `geolocation.py` calls `nongfab_common.assets.target_bbox()` at
+  import time, which unions all 3 zones' corner coordinates and pads by
+  `cloud_tile.buffer_deg` (0.06°). Currently resolves to 12.607–12.744°N,
+  101.055–101.180°E.
+- That lat/lon extent is calibrated live against
+  `geolocation.calibrate_bbox_index()` to `geolocation.NONG_FAB_BBOX` = Rows
+  2085–2091, Columns 855–860 (re-verify against a live file if
+  `config/assets.yaml`'s zone geometry ever changes — the pixel window is a
+  cached constant, not recomputed every run).
+- **Tile shape: 7×6 = 42 pixels.** Verified live 2026-07-14. (An earlier
+  revision of this constant, calibrated before `config/assets.yaml` existed
+  against a slightly narrower hardcoded bbox, was 7×5 — re-verifying against
+  the wider config-derived bbox picked up one more column. This is exactly
+  why it's re-verified against real data rather than assumed unchanged.)
 
 ### ⚠️ Real resolution constraint — read before relying on this for Feature B
 
@@ -77,7 +88,7 @@ mid-run), or a non-positive time interval — never fatal to the ingestion
 cycle (`scheduler.IngestionJob._with_motion` swallows and logs any motion
 error and continues without it).
 
-At this tile size (7×5), phase correlation gives a *dominant regional shift*
+At this tile size (7×6), phase correlation gives a *dominant regional shift*
 for the whole tile, not per-cloud tracking — and on a uniformly overcast sky
 (no spatial texture to correlate against) the result is not meaningful, which
 is exactly what live testing during a monsoon-season overcast period showed
@@ -85,6 +96,29 @@ is exactly what live testing during a monsoon-season overcast period showed
 arbitrary shift). This is expected FFT phase-correlation behavior on a
 featureless field, not a bug — real value shows up once cloud cover is
 partial/textured within the tile.
+
+## Sampling at any coordinate/time — `sampling.py`
+
+Feature B (differential shading along the Jetty, sampled per sub-array) and
+anything else that wants a value at a specific point/time, not just Nong
+Fab's own reference pixel, uses `sampling.py`:
+
+- `sample_cloud_at(arrays, lat, lon) -> CloudSample` — pure nearest-neighbor
+  lookup within one already-loaded tile's own lat/lon grid (no I/O). Returns
+  the matched grid point and how far it actually is from the request
+  (`distance_km`) so callers can judge whether the ~2-3km grid is fine enough
+  for their purpose - it usually won't be for resolving individual sub-arrays
+  a few hundred meters apart (see the resolution constraint above).
+- `sample_cloud_at_time(reader, raw_storage, source, lat, lon, t) -> CloudSample | None`
+  — the full "t" chain: looks up whichever stored `cloud_raster_frames` row is
+  closest to `t` (`storage.TimescaleReader.find_nearest_raster_frame`, capped
+  at `max_delta_minutes`), fetches that frame's `.npz` from raw storage
+  (`storage.RawObjectStorage.get_raw` - new; the reverse of `put_raw`), and
+  samples it. Returns `None` if nothing is close enough to `t`.
+
+Verified live end-to-end: real NOAA fetch → real tile stored → queried back by
+timestamp → sampled at a Jetty mid-trestle coordinate (12.673°N, 101.116°E,
+distance from the matched grid point ≈1.3km).
 
 ## Data source
 
@@ -125,18 +159,18 @@ scientifically equivalent fields.
 ### Tile extraction without downloading the whole file
 
 Full-disk files are large (CMSK ≈ 347MB). Downloading one every 10 minutes
-just to read a 7×5 window would be ~50GB/day for no reason. Instead:
+just to read a 7×6 window would be ~50GB/day for no reason. Instead:
 
 1. **One-time calibration** (`geolocation.calibrate_bbox_index`): pulls the
    full lat/lon grids once, finds every pixel inside the target bbox, caches
    the resulting rectangular window as `geolocation.NONG_FAB_BBOX`.
 2. **Every ingestion cycle**: `fsspec` opens the remote file lazily and reads
-   only the HDF5 chunk(s) (200×200px native chunking) covering that 7×5
+   only the HDF5 chunk(s) (200×200px native chunking) covering that 7×6
    window via HTTP range requests. Verified live: metadata-open + windowed
-   read together take **~8s** against a 347MB source file (up from ~1.5s for
+   read together take **~6-8s** against a 347MB source file (up from ~1.5s for
    the single-pixel version — reading across a chunk boundary now, still far
-   cheaper than the full file), vs. ~112s to pull the full lat/lon grids once
-   for calibration.
+   cheaper than the full file), vs. ~100-112s to pull the full lat/lon grids
+   once for calibration.
 
 Re-run calibration if NOAA ever changes this product's fixed grid — nothing
 else in the pipeline needs to change.
@@ -167,11 +201,14 @@ src/himawari_ingestion/
   config.py       Settings (env-driven, prefix HIMAWARI_)
   schemas.py       CloudObservation, CloudRasterFrame (validated ranges), RawFetchResult
   compliance.py    RobotsChecker (kept for future scrape-based adapters), RateLimiter
-  geolocation.py   CalibratedPixel/BBox, NONG_FAB_PIXEL/BBOX, calibrate_*_index()
+  geolocation.py   CalibratedPixel/BBox, NONG_FAB_PIXEL/BBOX (bbox extent sourced from
+                    config/assets.yaml via nongfab_common), calibrate_*_index()
   motion.py        FFT phase-correlation cloud motion vector
   datasource.py    CloudDataSource interface, HimawariAHICloudSource, MockCloudDataSource,
                     (de)serialize_raster (.npz)
-  storage.py       RawObjectStorage (MinIO), TimescaleWriter (cloud_obs + cloud_raster_frames)
+  sampling.py      sample_cloud_at() / sample_cloud_at_time() - query any coordinate/time
+  storage.py       RawObjectStorage (MinIO, put_raw+get_raw), TimescaleWriter
+                    (cloud_obs + cloud_raster_frames), TimescaleReader (frame lookup by time)
   models.py        SQLAlchemy ORM for both hypertables
   scheduler.py     IngestionJob (fetch -> motion -> store -> derive point) + APScheduler wiring
   metrics.py       Prometheus counters/gauges
@@ -183,8 +220,12 @@ tests/             pytest suite (unit tests run with no external services)
 
 ## Run locally
 
+Depends on the shared `nongfab-common` library (`../../libs/nongfab_common`)
+for `config/assets.yaml` — install it first, into the same venv:
+
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
+pip install -e ../../libs/nongfab_common
 pip install -e ".[dev]"
 cp .env.example .env   # defaults to source_mode=mock, safe to run as-is
 

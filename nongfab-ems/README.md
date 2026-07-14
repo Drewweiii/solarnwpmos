@@ -14,8 +14,9 @@ tests, and `.env.example`.
 | Module | Path | Status |
 |---|---|---|
 | Scaffold (folders, docker-compose, root config) | this repo | ✅ Step 1 done |
-| Asset registry (`config/assets.yaml`) | `config/` | ⏳ blocked — needs real zone/equipment specs, not yet provided |
-| 1. Himawari cloud-observation ingestion | `ingestion/himawari/` | ✅ built, tested; ⚠️ bbox still hardcoded, not read from `config/assets.yaml` yet (blocked on the item above) |
+| Shared asset registry loader | `libs/nongfab_common/` | ✅ built, tested (Pydantic validation + `target_bbox()`) |
+| Asset registry data | `config/assets.yaml` | ✅ real zone/equipment specs from the architecture doc |
+| 1. Himawari cloud-observation ingestion | `ingestion/himawari/` | ✅ built, tested; tile bbox now sourced from `config/assets.yaml`; `sample_cloud_at(lat, lon, t)` added |
 | 2. NCEP/NOAA NWP (GFS) ingestion | `ingestion/nwp/` | ⏳ not started — blocked on explicit go-ahead to check NOMADS ToS/robots.txt |
 | 3. Feature store | `features/` | ⏳ not started |
 | 4. Forecast engine (minute/hour/day-ahead) | `forecast/` | ⏳ not started |
@@ -60,6 +61,5 @@ pytest -v                                             # or `npm run test` for we
 
 See `ingestion/himawari/README.md` for the full picture on Module 1,
 including the known upstream TLS issue on the original Himawari data source
-and how the module works around it (NOAA AWS Open Data instead), the
-cloud-tile/motion-vector design, and its own current limitation (bbox not
-yet driven by `config/assets.yaml`).
+and how the module works around it (NOAA AWS Open Data instead), and the
+cloud-tile/motion-vector/sampling design.

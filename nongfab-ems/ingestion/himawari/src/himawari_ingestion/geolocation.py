@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 import numpy as np
 import xarray as xr
+from nongfab_common.assets import load_assets
+from nongfab_common.assets import target_bbox as _config_target_bbox
 
 
 @dataclass(frozen=True)
@@ -60,9 +62,21 @@ class CalibratedBBox:
         return (self.row_end - self.row_start + 1, self.col_end - self.col_start + 1)
 
 
-# Verified live 2026-07-14 (AHI-CMSK_v1r1_h09_s202607140550210_...) against the bounding
-# box covering all 3 Nong Fab zones + wind-drift buffer (12.61-12.74N, 101.06-101.18E):
-# Rows=2085..2091, Columns=856..860 -> a 7x5 = 35 pixel window.
+# Target lat/lon extent now comes from config/assets.yaml (union of all 3 zones'
+# corners + cloud_tile.buffer_deg), not a hardcoded duplicate - see nongfab_common.
+# assets.target_bbox(). Loaded once at import time; if assets.yaml's zone geometry
+# ever changes, re-run calibrate_bbox_index() against a live file (below) - the
+# row/col pixel window is a cached, live-verified constant, not recomputed here.
+_ASSETS = load_assets()
+_LAT_MIN, _LAT_MAX, _LON_MIN, _LON_MAX = _config_target_bbox(_ASSETS)
+
+# Verified live 2026-07-14 (AHI-CMSK_v1r1_h09_s202607140740209_...) against the bbox
+# above (lat [12.6071, 12.7435], lon [101.0547, 101.1799]):
+# Rows=2085..2091, Columns=855..860 -> a 7x6 = 42 pixel window. (An earlier revision
+# of this constant, calibrated against a slightly narrower hardcoded bbox before
+# config/assets.yaml existed, was 7x5 with col_start=856 - re-verifying against the
+# wider config-derived bbox picked up one more column, confirming this must be
+# re-checked against real data rather than assumed unchanged.)
 #
 # IMPORTANT: local grid spacing here is ~0.0197 deg/row (~2.2km) and ~0.0278 deg/col
 # (~2.8km at this latitude) - COARSER than the ~1.25-1.5km jetty/trestle structure this
@@ -72,8 +86,8 @@ class CalibratedBBox:
 # a complementary technique (e.g. cloud-height + sun-geometry shadow projection, or a
 # ground-based sky camera), out of scope for this ingestion module.
 NONG_FAB_BBOX = CalibratedBBox(
-    row_start=2085, row_end=2091, col_start=856, col_end=860,
-    lat_min=12.61, lat_max=12.74, lon_min=101.06, lon_max=101.18,
+    row_start=2085, row_end=2091, col_start=855, col_end=860,
+    lat_min=_LAT_MIN, lat_max=_LAT_MAX, lon_min=_LON_MIN, lon_max=_LON_MAX,
 )
 
 # Physical pixel spacing at this grid location, derived from the verified degree

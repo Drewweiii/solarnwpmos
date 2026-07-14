@@ -1,0 +1,142 @@
+import textwrap
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+from nongfab_common.assets import AssetRegistry, load_assets, target_bbox
+
+MINIMAL_YAML = textwrap.dedent("""
+    site:
+      name: "Test Site"
+      project_code: "TEST001"
+      district: "Test District"
+      nominal_center: { lat: 12.71, lon: 101.15 }
+      total_ac_capacity_kw_current_phase: 400
+      optimizer_common: "Test Optimizer"
+
+    zones:
+      - id: A
+        name_full: "Zone A"
+        ac_capacity_kw: 50
+        dc_capacity_kwp: 60
+        dc_ac_ratio: 1.2
+        module_count: 84
+        inverter_model: "Test Inverter"
+        inverter_count: 1
+        centroid: { lat: 12.70, lon: 101.10 }
+        corners:
+          UL: { lat: 12.71, lon: 101.09 }
+          UR: { lat: 12.71, lon: 101.11 }
+          LL: { lat: 12.69, lon: 101.09 }
+          LR: { lat: 12.69, lon: 101.11 }
+      - id: B
+        name_full: "Zone B"
+        ac_capacity_kw: 150
+        dc_capacity_kwp: 140
+        dc_ac_ratio: 0.93
+        module_count: 196
+        inverter_model: "Test Inverter"
+        inverter_count: 3
+        centroid: { lat: 12.68, lon: 101.20 }
+        corners:
+          UL: { lat: 12.685, lon: 101.195 }
+          UR: { lat: 12.685, lon: 101.205 }
+          LL: { lat: 12.675, lon: 101.195 }
+          LR: { lat: 12.675, lon: 101.205 }
+
+    environmental:
+      co2_saved_kg_per_kw_per_year: 901
+      trees_equivalent_per_kw_per_year: 101
+      jetty_600kw_co2_saved_tonnes_per_year: 540.6
+      jetty_600kw_trees_equivalent: 60600
+
+    cloud_tile:
+      buffer_deg: 0.05
+    """)
+
+
+@pytest.fixture
+def minimal_registry_path(tmp_path: Path) -> Path:
+    p = tmp_path / "assets.yaml"
+    p.write_text(MINIMAL_YAML)
+    return p
+
+
+def test_load_assets_parses_and_validates(minimal_registry_path):
+    registry = load_assets(minimal_registry_path)
+    assert isinstance(registry, AssetRegistry)
+    assert registry.site.project_code == "TEST001"
+    assert len(registry.zones) == 2
+
+
+def test_load_assets_via_explicit_env_var(minimal_registry_path, monkeypatch):
+    monkeypatch.setenv("NONGFAB_ASSETS_PATH", str(minimal_registry_path))
+    registry = load_assets()
+    assert registry.site.project_code == "TEST001"
+
+
+def test_zone_lookup_by_id(minimal_registry_path):
+    registry = load_assets(minimal_registry_path)
+    zone = registry.zone("A")
+    assert zone.ac_capacity_kw == 50
+
+    with pytest.raises(KeyError):
+        registry.zone("does-not-exist")
+
+
+def test_target_bbox_is_union_of_corners_plus_buffer(minimal_registry_path):
+    registry = load_assets(minimal_registry_path)
+    lat_min, lat_max, lon_min, lon_max = target_bbox(registry)
+
+    # union of corners: lat [12.675, 12.71], lon [101.09, 101.205], buffer 0.05
+    assert lat_min == pytest.approx(12.675 - 0.05)
+    assert lat_max == pytest.approx(12.71 + 0.05)
+    assert lon_min == pytest.approx(101.09 - 0.05)
+    assert lon_max == pytest.approx(101.205 + 0.05)
+
+
+def test_missing_required_field_raises_validation_error(tmp_path):
+    bad_yaml = textwrap.dedent("""
+        site:
+          name: "Test Site"
+        zones: []
+        environmental:
+          co2_saved_kg_per_kw_per_year: 901
+          trees_equivalent_per_kw_per_year: 101
+          jetty_600kw_co2_saved_tonnes_per_year: 540.6
+          jetty_600kw_trees_equivalent: 60600
+        cloud_tile:
+          buffer_deg: 0.05
+        """)
+    p = tmp_path / "bad.yaml"
+    p.write_text(bad_yaml)
+    with pytest.raises(ValidationError):
+        load_assets(p)
+
+
+def test_real_repo_assets_yaml_loads_and_validates():
+    """Not a synthetic fixture - loads the actual config/assets.yaml this repo ships,
+    so a schema/data mismatch fails CI instead of only being caught manually.
+    """
+    registry = load_assets()  # default path resolution -> repo's config/assets.yaml
+    assert {z.id for z in registry.zones} == {"GIS", "ISB", "Jetty"}
+
+    jetty = registry.zone("Jetty")
+    assert jetty.module_detail is not None
+    assert jetty.module_detail.power_w == 715
+    assert jetty.optimizer.count == 160
+    assert len(jetty.sub_arrays) == 5
+    assert len(jetty.interconnection_points) == 3
+
+    gis = registry.zone("GIS")
+    assert gis.dc_ac_ratio == 1.20
+    isb = registry.zone("ISB")
+    assert isb.dc_ac_ratio == 0.93
+
+    lat_min, lat_max, lon_min, lon_max = target_bbox(registry)
+    # sanity: matches the ~12.61-12.74N, 101.06-101.18E region from the architecture doc
+    assert 12.55 < lat_min < 12.65
+    assert 12.70 < lat_max < 12.80
+    assert 101.00 < lon_min < 101.10
+    assert 101.15 < lon_max < 101.25

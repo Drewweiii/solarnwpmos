@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+from datetime import datetime
 
 from minio import Minio
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -44,6 +46,20 @@ class RawObjectStorage:
 
     async def put_raw(self, raw: RawFetchResult) -> str:
         return await asyncio.to_thread(self._put_sync, raw)
+
+    def _get_sync(self, object_key: str) -> bytes:
+        resp = self._client.get_object(self._settings.minio_bucket, object_key)
+        try:
+            return resp.read()
+        finally:
+            resp.close()
+            resp.release_conn()
+
+    async def get_raw(self, object_key: str) -> bytes:
+        """Reads back a previously-stored object (e.g. a raster .npz) - used by
+        sampling.sample_cloud_at_time() to look up a specific historical frame.
+        """
+        return await asyncio.to_thread(self._get_sync, object_key)
 
 
 class TimescaleWriter:
@@ -101,3 +117,34 @@ class TimescaleWriter:
             )
             await session.execute(stmt)
             await session.commit()
+
+
+class TimescaleReader:
+    """Read-only queries against `cloud_raster_frames` - the "t" side of
+    sampling.sample_cloud_at_time(lat, lon, t): given a timestamp, find which
+    stored raster frame is closest to it.
+    """
+
+    def __init__(self, engine: AsyncEngine):
+        self._session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def find_nearest_raster_frame(
+        self, source: str, t: datetime, max_delta_minutes: float = 30.0
+    ) -> tuple[datetime, str] | None:
+        """Returns (actual_time, raster_object_key) for the frame closest to `t`,
+        or None if nothing for `source` falls within `max_delta_minutes`.
+        """
+        session: AsyncSession
+        async with self._session_factory() as session:
+            delta_seconds = func.abs(func.extract("epoch", CloudRasterFrameORM.time - t))
+            stmt = (
+                select(CloudRasterFrameORM.time, CloudRasterFrameORM.raster_object_key)
+                .where(CloudRasterFrameORM.source == source)
+                .where(delta_seconds <= max_delta_minutes * 60)
+                .order_by(delta_seconds)
+                .limit(1)
+            )
+            row = (await session.execute(stmt)).first()
+            if row is None or row.raster_object_key is None:
+                return None
+            return row.time, row.raster_object_key

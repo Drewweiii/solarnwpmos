@@ -182,6 +182,6 @@ async def test_ahi_source_end_to_end_against_real_noaa_bucket(settings, require_
 
     assert 0 <= frame.nong_fab_cloud_opacity_pct <= 100
     assert -0.2 <= frame.nong_fab_cloud_index <= 1.5
-    assert (frame.rows, frame.cols) == (7, 5)
+    assert (frame.rows, frame.cols) == (7, 6)
     arrays = deserialize_raster(raw.body)
-    assert arrays["cloud_probability"].shape == (7, 5)
+    assert arrays["cloud_probability"].shape == (7, 6)

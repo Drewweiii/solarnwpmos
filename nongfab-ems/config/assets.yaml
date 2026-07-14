@@ -1,0 +1,167 @@
+# Nong Fab Solar EMS — Asset Registry (single source of truth for plant geometry)
+#
+# Source: NongFab_EMS_Architecture_and_ClaudeCode_Prompt_2.md
+#   ส่วนที่ 0 (zone corners/centroids) and ส่วนที่ 5 (Jetty equipment spec)
+# Loaded/validated by libs/nongfab_common (Pydantic models in assets.py) - every
+# other module reads plant geometry through that loader, not this file directly.
+
+site:
+  name: "PTT LNG Nong Fab Solar"
+  project_code: "PPA25_0008_PTTLNGEE001"
+  district: "ต.หนองแฟบ อ.เมือง จ.ระยอง"
+  nominal_center: { lat: 12.71, lon: 101.15 }  # approximate; all 3 zones share one NWP grid cell (Module 2)
+  total_ac_capacity_kw_current_phase: 400  # GIS 50 + ISB 150 + Jetty 200
+  optimizer_common: "Huawei MERC-1300W-P (2:1)"  # used by all 3 zones
+
+zones:
+  - id: GIS
+    name_full: "Grid Integrated Substation"
+    ac_capacity_kw: 50
+    dc_capacity_kwp: 60.06
+    dc_ac_ratio: 1.20
+    module_count: 84
+    module_power_w: 715
+    inverter_model: "SUN2000-50KTL-M3"
+    inverter_count: 1
+    strings: ["ST-1", "ST-2", "ST-3", "ST-4"]
+    mppt_count: 4
+    centroid: { lat: 12.68337, lon: 101.11987 }
+    corners:
+      UL: { lat: 12.68351, lon: 101.11979 }
+      UR: { lat: 12.68352, lon: 101.11994 }
+      LL: { lat: 12.68323, lon: 101.11979 }
+      LR: { lat: 12.68323, lon: 101.11994 }
+    tilt_deg: null   # not measured - SLD is electrical-only; looks ground-mount from photos
+    azimuth_deg: null
+    sld_available: true
+    notes: "DC/AC 1.20 - expect midday clipping"
+
+  - id: ISB
+    name_full: "Instrument Substation Building"
+    ac_capacity_kw: 150
+    dc_capacity_kwp: 140.14
+    dc_ac_ratio: 0.93
+    module_count: 196
+    module_power_w: 715
+    inverter_model: "SUN2000-50KTL-M3"
+    inverter_count: 3
+    strings: ["ST-1", "ST-2", "ST-3", "ST-4"]  # per inverter
+    mppt_count: 4  # per inverter
+    centroid: { lat: 12.68134, lon: 101.11832 }
+    corners:
+      UL: { lat: 12.68159, lon: 101.11817 }
+      UR: { lat: 12.68152, lon: 101.11856 }
+      LL: { lat: 12.68117, lon: 101.11807 }
+      LR: { lat: 12.68107, lon: 101.11846 }
+    tilt_deg: null   # not measured - looks like rooftop tilted rows from photos
+    azimuth_deg: null
+    sld_available: true
+    notes: "DC/AC 0.93 - inverter under-loaded; prioritize efficiency curve at low load"
+
+  - id: Jetty
+    name_full: "ท่าเรือ (trestle 1.5 km)"
+    status: "design-mode - no live measurement yet, simulation from capacity + coordinates only"
+    ac_capacity_kw: 200  # Phase 1 (current)
+    dc_capacity_kwp: 228.8  # Phase 1
+    dc_ac_ratio: 1.144  # Phase 1
+    module_count: 320  # Phase 1
+    module_power_w: 715
+    inverter_model: "SUN2000-50KTL-M3"
+    inverter_count: 4
+    centroid: { lat: 12.67281, lon: 101.11587, note: "design-mode, unverified - flagged in source doc" }
+    corners:
+      UL: { lat: 12.67851, lon: 101.11646 }
+      UR: { lat: 12.67844, lon: 101.11702 }
+      LL: { lat: 12.66719, lon: 101.11470 }
+      LR: { lat: 12.66711, lon: 101.11528 }
+    span_north_south_km: 1.25
+    tilt_deg: null
+    azimuth_deg: null
+    sld_available: "phase1"
+    notes: "trestle runs north-south ~1.25km; cloud shadow sweep travels along its length"
+
+    module_detail:
+      name: "Trina Vertex N TSM-NEG21C.20"
+      power_w: 715
+      technology: "N-type i-TOPCon"
+      cells: 132
+      dimensions_mm: [2384, 1303, 33]
+      voc_v: 49.0
+      isc_a: 18.40
+      vmp_v: 40.9
+      imp_a: 17.36
+      efficiency_pct: 22.9
+
+    optimizer:
+      model: "Huawei MERC-1300W-P"
+      count: 160
+      ratio_modules_per_optimizer: 2
+
+    inverter_detail:
+      model: "SUN2000-50KTL-M3"
+      count: 4
+      ac_kw_each: 50
+      mppt_per_inverter: 4
+      mppt_voltage_range_v: [200, 1000]
+      max_dc_voltage_v: 1100
+      efficiency_pct: 99
+
+    sub_arrays:
+      - id: "01A.L"
+        side: left
+        strings: 4
+        optimizers_per_string: 10
+        modules_per_string: 20
+      - id: "02A.L"
+        side: left
+        strings: 4
+        optimizers_per_string: 10
+        modules_per_string: 20
+      - id: "03A.R"
+        side: right
+        strings: 4
+        optimizers_per_string: 10
+        modules_per_string: 20
+      - id: "04A.R"
+        side: right
+        strings: 4
+        optimizers_per_string: 10
+        modules_per_string: 20
+      - id: "05A"
+        note: "Phase 1.5 - inverter A05/A06, at EL05, +100kW - not yet built"
+
+    interconnection_points:
+      - id: EL3
+        distance_from_isb_m: 1130
+        note: "Phase 1 connects here -> JB-016A -> ISB"
+      - id: EL5
+        distance_from_isb_m: 1680
+        note: "Phase 1.5, inverter A05/A06"
+      - id: EL9
+        distance_from_isb_m: 2816
+
+    design_constraints:
+      dc_voltage_drop_max_pct_of_vmp: 3
+      ac_voltage_drop_max_pct: 5
+      string_power_balance_max_kw: 2
+
+    future_phases:
+      - phase: "1.5"
+        additional_ac_capacity_kw: 100
+        note: "inverter A05/A06, sub-array 05, at EL05"
+      - phase: "2"
+        additional_ac_capacity_kw: 300
+        note: "target total 600kW AC"
+
+environmental:
+  co2_saved_kg_per_kw_per_year: 901
+  trees_equivalent_per_kw_per_year: 101
+  jetty_600kw_co2_saved_tonnes_per_year: 540.6
+  jetty_600kw_trees_equivalent: 60600
+
+cloud_tile:
+  # Module 1 (Himawari ingestion) target bbox = union of all 3 zones' corners + this
+  # buffer, computed at runtime by nongfab_common.assets.target_bbox() - not
+  # hardcoded in ingestion/himawari/ anymore. Chosen to comfortably reproduce the
+  # ~12.61-12.74N, 101.06-101.18E region specified for Module 1 (wind-drift lead time).
+  buffer_deg: 0.06

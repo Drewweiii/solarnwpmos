@@ -4,7 +4,23 @@ import pytest
 from sqlalchemy.dialects import postgresql
 
 from himawari_ingestion.schemas import CloudObservation, CloudRasterFrame, RawFetchResult
-from himawari_ingestion.storage import RawObjectStorage, TimescaleWriter
+from himawari_ingestion.storage import RawObjectStorage, TimescaleReader, TimescaleWriter
+
+
+class _FakeMinioResponse:
+    """Mimics urllib3.HTTPResponse enough for RawObjectStorage._get_sync (read/close/release_conn)."""
+
+    def __init__(self, body: bytes):
+        self._body = body
+
+    def read(self) -> bytes:
+        return self._body
+
+    def close(self) -> None:
+        pass
+
+    def release_conn(self) -> None:
+        pass
 
 
 class FakeMinioClient:
@@ -23,6 +39,9 @@ class FakeMinioClient:
     def put_object(self, bucket, object_name, data, length, content_type):
         self.objects[f"{bucket}/{object_name}"] = data.read()
 
+    def get_object(self, bucket, object_name):
+        return _FakeMinioResponse(self.objects[f"{bucket}/{object_name}"])
+
 
 @pytest.mark.asyncio
 async def test_raw_object_storage_creates_bucket_and_puts_object(settings):
@@ -35,6 +54,18 @@ async def test_raw_object_storage_creates_bucket_and_puts_object(settings):
     assert key == raw.object_key
     assert settings.minio_bucket in fake_client.buckets
     assert fake_client.objects[f"{settings.minio_bucket}/{raw.object_key}"] == b'{"a":1}'
+
+
+@pytest.mark.asyncio
+async def test_raw_object_storage_get_raw_roundtrips(settings):
+    fake_client = FakeMinioClient()
+    storage = RawObjectStorage(settings, client=fake_client)
+
+    raw = RawFetchResult(url="mock://x", fetched_at=datetime.now(timezone.utc), content_type="application/octet-stream", body=b"tile-bytes")
+    key = await storage.put_raw(raw)
+
+    fetched = await storage.get_raw(key)
+    assert fetched == b"tile-bytes"
 
 
 def test_timescale_writer_upsert_compiles_to_valid_postgres_sql(settings):
@@ -127,5 +158,14 @@ async def test_timescale_writer_roundtrip_against_real_db(timescale_test_dsn):
         motion_speed_kmh=None, motion_direction_deg=None,
     )
     await writer.write_raster_frame(frame, "some/tile.npz")
+
+    reader = TimescaleReader(engine)
+    found = await reader.find_nearest_raster_frame("integration-test", frame.observed_at)
+    assert found is not None
+    actual_time, object_key = found
+    assert object_key == "some/tile.npz"
+
+    not_found = await reader.find_nearest_raster_frame("no-such-source", frame.observed_at)
+    assert not_found is None
 
     await engine.dispose()
