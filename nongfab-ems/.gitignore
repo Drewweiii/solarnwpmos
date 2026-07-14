@@ -8,3 +8,6 @@ dist/
 .env
 mlruns/
 .dev-minio-data/
+mlflow.db
+.dev-mlflow.db
+lightning_logs/
