@@ -68,12 +68,20 @@ def fit_pv_conversion_model(irradiance_w_m2: pd.Series, temp_c: pd.Series, power
 def predict_power_kw(irradiance_w_m2: pd.Series | np.ndarray | float, temp_c: pd.Series | np.ndarray | float, params: PVConversionParams):
     """Vectorized: accepts scalars, numpy arrays, or pandas Series. Clipped at
     0 (a fitted model can predict small negative power at night-time zero
-    irradiance due to the intercept term, which is not physical).
+    irradiance due to the intercept term, which is not physical), and
+    additionally zeroed wherever irradiance is 0 regardless of what the
+    temperature term alone implies - caught live (Module 5's dev API):
+    `default_params_from_capacity()`'s purely-additive linear form predicts
+    small *positive* power at zero irradiance whenever temp_c < 25 (STC),
+    since the temperature term alone is nonzero there. No irradiance means
+    no power, however cold - real PV modules don't generate at night.
     """
     power = params.beta_kw_per_wm2 * irradiance_w_m2 + params.gamma_kw_per_c * temp_c + params.intercept_kw
     if isinstance(power, pd.Series):
-        return power.clip(lower=0)
-    return np.clip(power, 0, None)
+        power = power.clip(lower=0)
+    else:
+        power = np.clip(power, 0, None)
+    return power * (irradiance_w_m2 > 0)
 
 
 def nong_fab_zone_capacities_kwp() -> dict[str, float]:

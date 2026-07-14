@@ -37,6 +37,27 @@ def test_predict_power_clips_at_zero():
     assert power >= 0
 
 
+def test_predict_power_is_exactly_zero_at_zero_irradiance_regardless_of_temperature():
+    """Regression test: default_params_from_capacity()'s purely-additive linear
+    form (P = beta*I + gamma*T + intercept) predicts small *positive* power at
+    I=0 whenever T < 25degC (STC), since the temperature term alone is nonzero
+    then - caught live via Module 5's dev API showing nonzero GIS output at
+    midnight. A real PV module cannot produce power with zero irradiance no
+    matter how cold it is.
+    """
+    params = default_params_from_capacity(capacity_kwp=100.0)
+    for cold_temp_c in (23.0, 15.0, 0.0, -10.0):
+        assert predict_power_kw(0.0, cold_temp_c, params) == pytest.approx(0.0)
+
+
+def test_predict_power_zero_irradiance_vectorized_over_series():
+    params = default_params_from_capacity(capacity_kwp=100.0)
+    irradiance = pd.Series([0.0, 0.0, 500.0])
+    temp = pd.Series([15.0, 23.0, 25.0])  # cold nights + a normal daytime point
+    power = predict_power_kw(irradiance, temp, params)
+    assert list(power) == pytest.approx([0.0, 0.0, 50.0], abs=1e-6)
+
+
 def test_predict_power_vectorized_over_series():
     params = default_params_from_capacity(capacity_kwp=100.0)
     irradiance = pd.Series([0.0, 500.0, 1000.0])

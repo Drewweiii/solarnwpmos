@@ -20,7 +20,7 @@ tests, and `.env.example`.
 | 2. NCEP/NOAA NWP (GFS) ingestion | `ingestion/nwp/` | ✅ built, tested; NOMADS ToS/robots.txt checked and cleared (public domain, no robots.txt, official filter/subset API); fetches GFS 0.25° GRIB2 via NOMADS filter service, decodes with cfgrib/xarray, stores to `nwp_forecast` |
 | 3. Feature store | `features/` | ✅ built, tested (clear-sky/solar position, lag/EMA/future-regressor features, curtailment/degradation QC, daytime filter, multi-step framing + chronological split); not yet wired to a real data source (Module 1 and 2 both lack accumulated history yet) |
 | 4. Forecast engine (minute/hour/day-ahead) | `forecast/` | ✅ built, tested (minute-ahead CNN-LSTM/torch, hour-ahead LightGBM+Optuna, day-ahead NeuralProphet, PV conversion, RMSE/MAE/MBE/NRMSE+PICP/PINAW metrics, MLflow registry/versioning/A-B-compare, dev `/forecast/{zone}/{horizon}` endpoint); trains on synthetic data (Module 1/2 still lack accumulated history) |
-| 5. Simulation engine | `simulation/` | ⏳ not started |
+| 5. Simulation engine | `simulation/` | ✅ built, tested (what-if scenarios, Monte Carlo PI, PVWatts-style loss model + DC/AC clipping, dev `/simulate/{zone}` endpoint); **no battery/BESS** (confirmed: fully on-grid); trains/simulates on synthetic baseline (same data-accumulation caveat as Modules 3/4) |
 | 6. Backend API | `api/` | ✅ Step 1 scaffold only (`/healthz`); real endpoints not started |
 | 7. Dashboard | `web/` | ✅ Step 1 scaffold only (default Vite template); real pages not started |
 | Cross-cutting: docker-compose | `docker-compose.yml`, `infra/` | ✅ 7 services (timescaledb, minio, mlflow, api, web, prometheus, grafana); config validated (`docker compose config`), **not** live-tested (no Docker daemon available in the dev sandbox that built this) |
@@ -77,3 +77,9 @@ feature set, and loss-function choices against an independent academic
 source, and lists concrete next-step candidates (time-of-day parallel
 models, bias-correction cascades, an explicit linear baseline) it suggests
 but that aren't implemented yet.
+
+See `simulation/README.md` for the full picture on Module 5, including why
+there's no battery/BESS sub-module (confirmed out of scope - the plant is
+fully on-grid) and a real PV-conversion bug (nonzero power predicted at
+midnight) caught by curling the live dev API rather than unit tests alone,
+fixed in Module 4's `pv_conversion.py`.
