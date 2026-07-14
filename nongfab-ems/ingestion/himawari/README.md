@@ -137,6 +137,33 @@ RUN_LIVE_NOAA_TESTS=1 pytest -v -m integration -k noaa
 TIMESCALE_TEST_DSN=postgresql+asyncpg://postgres:postgres@localhost:5432/nongfab_ems pytest -v -m integration -k timescale
 ```
 
+## Dev verification API (optional, not Module 6)
+
+Module 1 is normally headless (scheduler + Prometheus metrics only — see
+`main.py`). For interactively poking it during development, `api.py` wraps the
+same `IngestionJob` in a small FastAPI app:
+
+```bash
+pip install -e ".[dev,api]"
+uvicorn himawari_ingestion.api:app --reload --port 8000
+# open http://localhost:8000/docs
+```
+
+- `GET /health` — source mode, last fetch time/error, where raw/parsed data is going
+- `GET /latest-observation` — the most recently ingested `CloudObservation` (404 if none yet)
+- `POST /fetch-now` — triggers one real ingestion cycle immediately (fetch → validate → store), same code path the cron job uses
+
+Two things about this API are dev-only stand-ins, reported explicitly in
+`/health` so it's never ambiguous:
+- **Raw storage** writes to local disk (`.dev-minio-data/`) instead of a real
+  MinIO server — `main.py` (production) always uses the real `minio.Minio` client.
+- **TimescaleDB** writes go to whatever Postgres `HIMAWARI_TIMESCALE_DSN`
+  points at; if you don't have the TimescaleDB extension installed, apply
+  `db/migrations/0001_cloud_obs.sql` with the `CREATE EXTENSION`/
+  `create_hypertable` lines stripped — the plain table still supports every
+  query this module makes, you just lose hypertable partitioning (irrelevant
+  for a one-row dev check).
+
 ## Database migration
 
 Apply `../../db/migrations/0001_cloud_obs.sql` to the TimescaleDB instance
