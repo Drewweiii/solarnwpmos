@@ -17,8 +17,8 @@ tests, and `.env.example`.
 | Shared asset registry loader | `libs/nongfab_common/` | ✅ built, tested (Pydantic validation + `target_bbox()`) |
 | Asset registry data | `config/assets.yaml` | ✅ real zone/equipment specs from the architecture doc |
 | 1. Himawari cloud-observation ingestion | `ingestion/himawari/` | ✅ built, tested; tile bbox now sourced from `config/assets.yaml`; `sample_cloud_at(lat, lon, t)` added |
-| 2. NCEP/NOAA NWP (GFS) ingestion | `ingestion/nwp/` | ⏳ not started — blocked on explicit go-ahead to check NOMADS ToS/robots.txt |
-| 3. Feature store | `features/` | ✅ built, tested (clear-sky/solar position, lag/EMA/future-regressor features, curtailment/degradation QC, daytime filter, multi-step framing + chronological split); not yet wired to a real data source (Module 1 lacks history, Module 2 doesn't exist) |
+| 2. NCEP/NOAA NWP (GFS) ingestion | `ingestion/nwp/` | ✅ built, tested; NOMADS ToS/robots.txt checked and cleared (public domain, no robots.txt, official filter/subset API); fetches GFS 0.25° GRIB2 via NOMADS filter service, decodes with cfgrib/xarray, stores to `nwp_forecast` |
+| 3. Feature store | `features/` | ✅ built, tested (clear-sky/solar position, lag/EMA/future-regressor features, curtailment/degradation QC, daytime filter, multi-step framing + chronological split); not yet wired to a real data source (Module 1 and 2 both lack accumulated history yet) |
 | 4. Forecast engine (minute/hour/day-ahead) | `forecast/` | ⏳ not started |
 | 5. Simulation engine | `simulation/` | ⏳ not started |
 | 6. Backend API | `api/` | ✅ Step 1 scaffold only (`/healthz`); real endpoints not started |
@@ -63,3 +63,9 @@ See `ingestion/himawari/README.md` for the full picture on Module 1,
 including the known upstream TLS issue on the original Himawari data source
 and how the module works around it (NOAA AWS Open Data instead), and the
 cloud-tile/motion-vector/sampling design.
+
+See `ingestion/nwp/README.md` for the full picture on Module 2, including the
+NOMADS ToS/robots.txt check performed before writing any code, the GFS
+variable-naming gotcha (GRIB `sdswrf` vs. the architecture doc's "SSRD"), and
+a cfgrib coordinate-merge bug caught by decoding a real sample file during
+development rather than assumed to work.
