@@ -14,27 +14,16 @@ Then open: http://localhost:8003/docs
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
-import numpy as np
-import pandas as pd
 from fastapi import FastAPI, HTTPException
 from nongfab_forecast.pv_conversion import nong_fab_zone_capacities_kwp
 from pydantic import BaseModel
 
+from .dev_data import synthetic_day_irradiance_temp as _synthetic_day_irradiance_temp
 from .monte_carlo import ScenarioDistribution, monte_carlo_scenario_simulation
 from .pipeline import simulate_zone_baseline
 from .what_if import ScenarioParams, apply_scenario, compare_scenarios
-
-
-def _synthetic_day_irradiance_temp(n_hours: int = 24, seed: int = 0) -> tuple[pd.DatetimeIndex, np.ndarray, np.ndarray]:
-    rng = np.random.default_rng(seed)
-    start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    idx = pd.date_range(start, periods=n_hours, freq="h", tz="UTC")
-    hour = idx.hour.to_numpy()
-    ssrd = np.clip(1000 * np.sin(np.pi * (hour - 6) / 12), 0, None)
-    temp = 28 + 5 * np.sin(np.pi * (hour - 6) / 12) + rng.normal(0, 0.5, size=n_hours)
-    return idx, ssrd, temp
 
 
 app = FastAPI(

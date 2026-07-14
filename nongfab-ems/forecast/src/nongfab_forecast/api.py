@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -32,40 +32,21 @@ from . import registry
 from .day_ahead import predict_day_ahead, train_day_ahead_model
 from .hour_ahead import predict_hour_ahead, train_hour_ahead_model
 from .metrics import evaluate_point_forecast, evaluate_prediction_interval
-from .minute_ahead import predict_minute_ahead, train_minute_ahead_model
+from .minute_ahead import train_minute_ahead_model
 from .pv_conversion import nong_fab_zone_capacities_kwp
+from .serving import (
+    ModelNotTrainedError,
+    UnknownHorizonError,
+    UnknownZoneError,
+    _synthetic_day_df,
+    _synthetic_hour_df,
+    _synthetic_minute_df,
+    get_latest_forecast,
+)
 
 logger = logging.getLogger(__name__)
 
 VALID_HORIZONS = ("minute", "hour", "day")
-
-
-def _synthetic_minute_df(n: int, seed: int) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    t = np.arange(n)
-    opacity = np.clip(50 + 30 * np.sin(2 * np.pi * t / 40) + 0.01 * t + rng.normal(0, 1.5, size=n), 0, 100)
-    cloud_index = opacity / 100.0 + rng.normal(0, 0.02, size=n)
-    return pd.DataFrame({"cloud_opacity_pct": opacity, "cloud_index": cloud_index})
-
-
-def _synthetic_hour_df(n: int, seed: int) -> tuple[pd.DataFrame, pd.Series]:
-    rng = np.random.default_rng(seed)
-    irradiance = rng.uniform(0, 1000, size=n)
-    temp = rng.uniform(20, 40, size=n)
-    lag_power = rng.uniform(0, 200, size=n)
-    power = 0.2 * irradiance - 0.5 * temp + 0.1 * lag_power + 10 + rng.normal(0, 5, size=n)
-    X = pd.DataFrame({"ssrd_w_m2": irradiance, "temp2m_c": temp, "power_lag1": lag_power})
-    return X, pd.Series(power, name="power_kw")
-
-
-def _synthetic_day_df(n_hours: int, seed: int) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    idx = pd.date_range(datetime.now(timezone.utc) - timedelta(hours=n_hours), periods=n_hours, freq="h", tz="UTC")
-    hour = idx.hour.to_numpy()
-    ssrd = np.clip(800 * np.sin(np.pi * (hour - 6) / 12), 0, None)
-    temp = 28 + 5 * np.sin(np.pi * (hour - 6) / 12) + rng.normal(0, 0.5, size=n_hours)
-    power = 0.15 * ssrd - 0.3 * temp + rng.normal(0, 5, size=n_hours) + 15
-    return pd.DataFrame({"power_kw": power, "ssrd_w_m2": ssrd, "temp2m_c": temp}, index=idx)
 
 
 @asynccontextmanager
@@ -181,44 +162,18 @@ async def train_now(zone: str, horizon: str) -> TrainResponse:
 
 @app.get("/forecast/{zone}/{horizon}", response_model=ForecastResponse)
 async def get_forecast(zone: str, horizon: str) -> ForecastResponse:
-    zone = _validate_zone(zone)
-    horizon = _validate_horizon(horizon)
-
+    """Delegates to serving.get_latest_forecast() - the same function Module
+    6's production API calls, so this dev endpoint and the real one never
+    drift apart in behavior.
+    """
     try:
-        model = registry.load_model(horizon, zone, version="latest")
-    except ValueError as exc:
+        result = get_latest_forecast(zone, horizon)
+    except (UnknownZoneError, UnknownHorizonError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ModelNotTrainedError as exc:
         raise HTTPException(status_code=404, detail=f"{exc} - try POST /train-now/{zone}/{horizon} first") from exc
 
-    client = registry.MlflowClient()
-    versions = client.search_model_versions(f"name='{registry.registered_model_name_for(horizon, zone)}'")
-    latest_version = max(int(v.version) for v in versions)
-
-    now = datetime.now(timezone.utc)
-
-    if horizon == "minute":
-        window = _synthetic_minute_df(n=model.lookback, seed=hash((zone, "minute-now")) % 1000)
-        pred = predict_minute_ahead(model, window)
-        points = [
-            ForecastPointOut(timestamp=now + timedelta(minutes=10 * (i + 1)), pred=float(v))
-            for i, v in enumerate(pred)
-        ]
-
-    elif horizon == "hour":
-        X_now, _ = _synthetic_hour_df(n=1, seed=hash((zone, "hour-now")) % 1000)
-        result = predict_hour_ahead(model, X_now)
-        points = [
-            ForecastPointOut(timestamp=now + timedelta(hours=1), pred=float(row.pred), lower=float(row.lower), upper=float(row.upper))
-            for row in result.itertuples()
-        ]
-
-    else:  # day
-        history_df = _synthetic_day_df(n_hours=24 * 5, seed=hash((zone, "day-history")) % 1000)
-        future_df = _synthetic_day_df(n_hours=24, seed=hash((zone, "day-now")) % 1000)
-        future_df.index = history_df.index[-1] + pd.to_timedelta(np.arange(1, 25), unit="h")
-        result = predict_day_ahead(model, history_df, future_df[["ssrd_w_m2", "temp2m_c"]], periods=24)
-        points = [
-            ForecastPointOut(timestamp=ts.to_pydatetime(), pred=float(row.pred), lower=float(row.lower), upper=float(row.upper))
-            for ts, row in result.iterrows()
-        ]
-
-    return ForecastResponse(zone=zone, horizon=horizon, issued_at=now, model_version=latest_version, points=points)
+    return ForecastResponse(
+        zone=result.zone, horizon=result.horizon, issued_at=result.issued_at, model_version=result.model_version,
+        points=[ForecastPointOut(timestamp=p.timestamp, pred=p.pred, lower=p.lower, upper=p.upper) for p in result.points],
+    )

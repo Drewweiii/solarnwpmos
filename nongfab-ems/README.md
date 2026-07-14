@@ -21,7 +21,7 @@ tests, and `.env.example`.
 | 3. Feature store | `features/` | ✅ built, tested (clear-sky/solar position, lag/EMA/future-regressor features, curtailment/degradation QC, daytime filter, multi-step framing + chronological split); not yet wired to a real data source (Module 1 and 2 both lack accumulated history yet) |
 | 4. Forecast engine (minute/hour/day-ahead) | `forecast/` | ✅ built, tested (minute-ahead CNN-LSTM/torch, hour-ahead LightGBM+Optuna, day-ahead NeuralProphet, PV conversion, RMSE/MAE/MBE/NRMSE+PICP/PINAW metrics, MLflow registry/versioning/A-B-compare, dev `/forecast/{zone}/{horizon}` endpoint); trains on synthetic data (Module 1/2 still lack accumulated history) |
 | 5. Simulation engine | `simulation/` | ✅ built, tested, rechecked/upgraded (what-if scenarios incl. `compare_scenarios()` presets, scenario-uncertainty Monte Carlo, PVWatts-style loss model + DC/AC clipping, `pipeline.py` orchestration, dev `/simulate/{zone}` + `/simulate/{zone}/compare` endpoints, 66 tests); **no battery/BESS** (confirmed twice: fully on-grid, permanently out of scope); simulates on synthetic baseline (same data-accumulation caveat as Modules 3/4) |
-| 6. Backend API | `api/` | ✅ Step 1 scaffold only (`/healthz`); real endpoints not started |
+| 6. Backend API | `api/` | ✅ built, tested, live-verified (REST `/assets`, `/forecast/{zone}/{horizon}`, `/simulate/{zone}`, `/performance/{zone}` + WebSocket `/ws/live`, OAuth2/JWT auth with RBAC admin/operator/viewer, auto OpenAPI docs, 55 tests); reuses Module 4/5's own serving/pipeline functions directly (no logic duplicated); **no battery/BESS**; read routes run on synthetic baseline data (same data-accumulation caveat as Modules 3/4/5) |
 | 7. Dashboard | `web/` | ✅ Step 1 scaffold only (default Vite template); real pages not started |
 | Cross-cutting: docker-compose | `docker-compose.yml`, `infra/` | ✅ 7 services (timescaledb, minio, mlflow, api, web, prometheus, grafana); config validated (`docker compose config`), **not** live-tested (no Docker daemon available in the dev sandbox that built this) |
 | Cross-cutting: CI, Prefect flows | `.github/` | ⏳ not started |
@@ -83,3 +83,9 @@ there's no battery/BESS sub-module (confirmed out of scope - the plant is
 fully on-grid) and a real PV-conversion bug (nonzero power predicted at
 midnight) caught by curling the live dev API rather than unit tests alone,
 fixed in Module 4's `pv_conversion.py`.
+
+See `api/README.md` for the full picture on Module 6 (auth/RBAC design,
+per-route role table, WebSocket payload shape, known gaps) - including
+another real bug caught by live verification rather than unit tests alone:
+`/ws/live` was silently always reporting `0.0 kW` regardless of the actual
+time of day, fixed and covered by a regression test.
