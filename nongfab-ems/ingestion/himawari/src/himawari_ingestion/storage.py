@@ -9,8 +9,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from .config import Settings
-from .models import CloudObsORM
-from .schemas import CloudObservation, RawFetchResult
+from .models import CloudObsORM, CloudRasterFrameORM
+from .schemas import CloudObservation, CloudRasterFrame, RawFetchResult
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,33 @@ class TimescaleWriter:
                     "cloud_opacity_pct": stmt.excluded.cloud_opacity_pct,
                     "cloud_index": stmt.excluded.cloud_index,
                     "raw_object_key": stmt.excluded.raw_object_key,
+                },
+            )
+            await session.execute(stmt)
+            await session.commit()
+
+    async def write_raster_frame(self, frame: CloudRasterFrame, raster_object_key: str | None) -> None:
+        session: AsyncSession
+        async with self._session_factory() as session:
+            stmt = pg_insert(CloudRasterFrameORM).values(
+                time=frame.observed_at,
+                source=frame.source,
+                lat_min=frame.lat_min, lat_max=frame.lat_max, lon_min=frame.lon_min, lon_max=frame.lon_max,
+                rows=frame.rows, cols=frame.cols,
+                nong_fab_cloud_opacity_pct=frame.nong_fab_cloud_opacity_pct,
+                nong_fab_cloud_index=frame.nong_fab_cloud_index,
+                motion_speed_kmh=frame.motion_speed_kmh,
+                motion_direction_deg=frame.motion_direction_deg,
+                raster_object_key=raster_object_key,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=[CloudRasterFrameORM.time, CloudRasterFrameORM.source],
+                set_={
+                    "nong_fab_cloud_opacity_pct": stmt.excluded.nong_fab_cloud_opacity_pct,
+                    "nong_fab_cloud_index": stmt.excluded.nong_fab_cloud_index,
+                    "motion_speed_kmh": stmt.excluded.motion_speed_kmh,
+                    "motion_direction_deg": stmt.excluded.motion_direction_deg,
+                    "raster_object_key": stmt.excluded.raster_object_key,
                 },
             )
             await session.execute(stmt)

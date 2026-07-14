@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from himawari_ingestion.geolocation import calibrate_pixel_index
+from himawari_ingestion.geolocation import calibrate_bbox_index, calibrate_pixel_index
 
 
 def test_calibrate_pixel_index_finds_nearest_grid_point():
@@ -27,3 +27,30 @@ def test_calibrate_pixel_index_ignores_nan_fill_values():
 
     assert pixel.row == 0
     assert pixel.col == 1
+
+
+def test_calibrate_bbox_index_covers_all_points_in_range():
+    lat = np.array(
+        [[12.80, 12.80, 12.80, 12.80], [12.75, 12.75, 12.75, 12.75], [12.70, 12.70, 12.70, 12.70], [12.65, 12.65, 12.65, 12.65]],
+        dtype=np.float32,
+    )
+    lon = np.array(
+        [[101.00, 101.05, 101.10, 101.15]] * 4,
+        dtype=np.float32,
+    )
+    ds = xr.Dataset({"Latitude": (("Rows", "Columns"), lat), "Longitude": (("Rows", "Columns"), lon)})
+
+    bbox = calibrate_bbox_index(ds, lat_min=12.68, lat_max=12.77, lon_min=101.03, lon_max=101.12)
+
+    assert (bbox.row_start, bbox.row_end) == (1, 2)
+    assert (bbox.col_start, bbox.col_end) == (1, 2)
+    assert bbox.shape == (2, 2)
+
+
+def test_calibrate_bbox_index_raises_when_bbox_misses_grid():
+    lat = np.array([[12.71]], dtype=np.float32)
+    lon = np.array([[101.15]], dtype=np.float32)
+    ds = xr.Dataset({"Latitude": (("Rows", "Columns"), lat), "Longitude": (("Rows", "Columns"), lon)})
+
+    with pytest.raises(ValueError):
+        calibrate_bbox_index(ds, lat_min=0, lat_max=1, lon_min=0, lon_max=1)

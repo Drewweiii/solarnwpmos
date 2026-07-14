@@ -1,21 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
-import random
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from xml.etree import ElementTree
 
 import httpx
+import numpy as np
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from .compliance import RateLimiter
 from .config import Settings
-from .geolocation import NONG_FAB_PIXEL, CalibratedPixel
-from .schemas import CloudObservation, RawFetchResult
+from .geolocation import NONG_FAB_BBOX, NONG_FAB_PIXEL, CalibratedBBox, CalibratedPixel, local_index_within_bbox
+from .schemas import CloudRasterFrame, RawFetchResult
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +29,10 @@ class CloudDataSource(ABC):
     """
 
     @abstractmethod
-    async def fetch_latest(self) -> tuple[RawFetchResult, CloudObservation]:
-        """Return the raw payload (for audit/replay storage) and the parsed, validated observation."""
+    async def fetch_latest(self) -> tuple[RawFetchResult, CloudRasterFrame]:
+        """Return the raw tile payload (an .npz - for audit/replay/CNN-LSTM training)
+        and its validated metadata.
+        """
 
 
 class DataUnavailableError(RuntimeError):
@@ -41,44 +44,58 @@ def _parse_list_bucket_keys(xml_text: str) -> list[str]:
     return [el.text for el in root.iter(f"{_S3_LIST_NS}Key") if el.text]
 
 
-def _map_ahi_cmsk_to_observation(
-    cloud_mask: float, cloud_probability: float, lat: float, lon: float, observed_at: datetime, source: str
-) -> CloudObservation:
+def serialize_raster(cloud_mask: np.ndarray, cloud_probability: np.ndarray, latitude: np.ndarray, longitude: np.ndarray) -> bytes:
+    buf = io.BytesIO()
+    np.savez_compressed(buf, cloud_mask=cloud_mask, cloud_probability=cloud_probability, latitude=latitude, longitude=longitude)
+    return buf.getvalue()
+
+
+def deserialize_raster(body: bytes) -> dict[str, np.ndarray]:
+    with np.load(io.BytesIO(body)) as npz:
+        return {k: npz[k] for k in npz.files}
+
+
+def _build_raster_frame(
+    cloud_mask: np.ndarray, cloud_probability: np.ndarray, bbox: CalibratedBBox, nong_fab_local: tuple[int, int],
+    observed_at: datetime, source: str,
+) -> CloudRasterFrame:
     """CloudMask (flag values 0=clear, 1=probably_clear, 2=probably_cloudy, 3=cloudy) and
     CloudProbability (continuous 0-1) are NOAA/NESDIS's real field names in the
     AHI-CMSK product - verified live 2026-07-14 by opening an actual file, not guessed.
     Neither is literally called "opacity", so this maps CloudProbability (the closest
-    continuous analog) to cloud_opacity_pct, and the categorical CloudMask normalized
-    to [0, 1] to cloud_index.
+    continuous analog) to *_cloud_opacity_pct, and the categorical CloudMask normalized
+    to [0, 1] to *_cloud_index.
     """
-    return CloudObservation(
+    lr, lc = nong_fab_local
+    rows, cols = bbox.shape
+    return CloudRasterFrame(
         observed_at=observed_at,
-        latitude=lat,
-        longitude=lon,
-        cloud_opacity_pct=min(100.0, max(0.0, cloud_probability * 100.0)),
-        cloud_index=min(1.5, max(-0.2, cloud_mask / 3.0)),
         source=source,
+        lat_min=bbox.lat_min, lat_max=bbox.lat_max, lon_min=bbox.lon_min, lon_max=bbox.lon_max,
+        rows=rows, cols=cols,
+        nong_fab_cloud_opacity_pct=min(100.0, max(0.0, float(cloud_probability[lr, lc]) * 100.0)),
+        nong_fab_cloud_index=min(1.5, max(-0.2, float(cloud_mask[lr, lc]) / 3.0)),
     )
 
 
-def _read_pixel_sync(url: str, pixel: CalibratedPixel) -> dict:
+def _read_raster_sync(url: str, bbox: CalibratedBBox) -> dict[str, np.ndarray]:
     """Blocking: opens the remote NetCDF lazily (fsspec+h5netcdf) and reads only the
-    HDF5 chunk(s) covering one pixel via HTTP range requests - not the whole file.
-    Verified live 2026-07-14: metadata open + windowed read together took ~1.5s
-    against a 347MB source file, vs. ~93s to pull the full lat/lon grids once for
-    calibration. Must run off the event loop - see HimawariAHICloudSource._read_pixel.
+    HDF5 chunk(s) covering the bbox window via HTTP range requests - not the whole file.
+    Must run off the event loop - see HimawariAHICloudSource._read_raster.
     """
     import fsspec
     import xarray as xr
 
     with fsspec.open(url, mode="rb") as f:
         ds = xr.open_dataset(f, engine="h5netcdf")
-        px = ds[["CloudMask", "CloudProbability"]].isel(Rows=pixel.row, Columns=pixel.col).load()
+        window = ds[["CloudMask", "CloudProbability"]].isel(
+            Rows=slice(bbox.row_start, bbox.row_end + 1), Columns=slice(bbox.col_start, bbox.col_end + 1)
+        ).load()
         return {
-            "cloud_mask": float(px["CloudMask"].item()),
-            "cloud_probability": float(px["CloudProbability"].item()),
-            "latitude": float(px["Latitude"].item()),
-            "longitude": float(px["Longitude"].item()),
+            "cloud_mask": window["CloudMask"].values,
+            "cloud_probability": window["CloudProbability"].values,
+            "latitude": window["Latitude"].values,
+            "longitude": window["Longitude"].values,
         }
 
 
@@ -88,39 +105,37 @@ class HimawariAHICloudSource(CloudDataSource):
     domain US government data, publicly readable over plain HTTPS with no credentials
     and no robots.txt/ToS gate to check (it's a documented open-data distribution
     endpoint, not a scraped website). See module README "Data source" for how the
-    target pixel and field mapping were verified against a live file.
+    target bbox and field mapping were verified against a live file.
     """
 
     SOURCE_NAME = "noaa-himawari9-ahi-cmsk"
 
-    def __init__(self, settings: Settings, client: httpx.AsyncClient, rate_limiter: RateLimiter, pixel: CalibratedPixel = NONG_FAB_PIXEL):
+    def __init__(
+        self, settings: Settings, client: httpx.AsyncClient, rate_limiter: RateLimiter,
+        bbox: CalibratedBBox = NONG_FAB_BBOX, pixel: CalibratedPixel = NONG_FAB_PIXEL,
+    ):
         self._settings = settings
         self._client = client
         self._rate_limiter = rate_limiter
-        self._pixel = pixel
+        self._bbox = bbox
+        self._nong_fab_local = local_index_within_bbox(bbox, pixel)
 
-    async def fetch_latest(self) -> tuple[RawFetchResult, CloudObservation]:
+    async def fetch_latest(self) -> tuple[RawFetchResult, CloudRasterFrame]:
         key, observed_at = await self._find_latest_object_key()
         url = f"https://{self._settings.noaa_bucket}.s3.amazonaws.com/{key}"
 
-        pixel_data = await self._read_pixel_with_retry(url)
+        arrays = await self._read_raster_with_retry(url)
 
-        manifest = {"source_url": url, "row": self._pixel.row, "col": self._pixel.col, **pixel_data}
         raw = RawFetchResult(
             url=url,
             fetched_at=datetime.now(timezone.utc),
-            content_type="application/json",
-            body=json.dumps(manifest).encode("utf-8"),
+            content_type="application/octet-stream",
+            body=serialize_raster(arrays["cloud_mask"], arrays["cloud_probability"], arrays["latitude"], arrays["longitude"]),
         )
-        observation = _map_ahi_cmsk_to_observation(
-            pixel_data["cloud_mask"],
-            pixel_data["cloud_probability"],
-            pixel_data["latitude"],
-            pixel_data["longitude"],
-            observed_at,
-            self.SOURCE_NAME,
+        frame = _build_raster_frame(
+            arrays["cloud_mask"], arrays["cloud_probability"], self._bbox, self._nong_fab_local, observed_at, self.SOURCE_NAME
         )
-        return raw, observation
+        return raw, frame
 
     async def _find_latest_object_key(self) -> tuple[str, datetime]:
         """Walks backward in 10-min steps (starting after the expected publish
@@ -150,7 +165,7 @@ class HimawariAHICloudSource(CloudDataSource):
             f"(searched back from {slot.isoformat()})"
         )
 
-    async def _read_pixel_with_retry(self, url: str) -> dict:
+    async def _read_raster_with_retry(self, url: str) -> dict[str, np.ndarray]:
         settings = self._settings
 
         @retry(
@@ -158,8 +173,8 @@ class HimawariAHICloudSource(CloudDataSource):
             wait=wait_exponential(multiplier=settings.retry_backoff_base_seconds, max=settings.retry_backoff_max_seconds),
             reraise=True,
         )
-        async def _do_read() -> dict:
-            return await asyncio.to_thread(_read_pixel_sync, url, self._pixel)
+        async def _do_read() -> dict[str, np.ndarray]:
+            return await asyncio.to_thread(_read_raster_sync, url, self._bbox)
 
         return await _do_read()
 
@@ -167,38 +182,46 @@ class HimawariAHICloudSource(CloudDataSource):
 class MockCloudDataSource(CloudDataSource):
     """Fixture-backed source for local dev and tests - the default (config.source_mode="mock"),
     so the rest of the pipeline is fully exercisable without depending on a live network call.
+    Synthesizes a small raster the same shape as NONG_FAB_BBOX from the single-value fixture,
+    with independent per-pixel jitter, so it exercises the tile/motion code paths realistically.
     """
 
     SOURCE_NAME = "mock-fixture"
 
-    def __init__(self, settings: Settings, fixture_path: Path | None = None, jitter: bool = True):
+    def __init__(
+        self, settings: Settings, fixture_path: Path | None = None, jitter: bool = True,
+        bbox: CalibratedBBox = NONG_FAB_BBOX, pixel: CalibratedPixel = NONG_FAB_PIXEL,
+    ):
         self._settings = settings
         # himawari/src/himawari_ingestion/datasource.py -> himawari/fixtures/...
         package_root = Path(__file__).resolve().parent.parent.parent
         self._fixture_path = fixture_path or (package_root / "fixtures" / "sample_himawari_response.json")
         self._jitter = jitter
+        self._bbox = bbox
+        self._nong_fab_local = local_index_within_bbox(bbox, pixel)
 
-    async def fetch_latest(self) -> tuple[RawFetchResult, CloudObservation]:
+    async def fetch_latest(self) -> tuple[RawFetchResult, CloudRasterFrame]:
         payload = json.loads(Path(self._fixture_path).read_text())
         now = datetime.now(timezone.utc)
-        payload["timestamp"] = now.isoformat()
-        payload["latitude"] = self._settings.site_latitude
-        payload["longitude"] = self._settings.site_longitude
-        if self._jitter:
-            payload["cloud_opacity"] = min(100, max(0, payload["cloud_opacity"] + random.uniform(-10, 10)))
-            payload["cloud_index"] = min(1.5, max(-0.2, payload["cloud_index"] + random.uniform(-0.1, 0.1)))
+        rows, cols = self._bbox.shape
 
-        body = json.dumps(payload).encode("utf-8")
-        raw = RawFetchResult(url="mock://himawari-fixture", fetched_at=now, content_type="application/json", body=body)
-        observation = CloudObservation(
-            observed_at=datetime.fromisoformat(payload["timestamp"]),
-            latitude=payload["latitude"],
-            longitude=payload["longitude"],
-            cloud_opacity_pct=payload["cloud_opacity"],
-            cloud_index=payload["cloud_index"],
-            source=self.SOURCE_NAME,
-        )
-        return raw, observation
+        base_opacity = payload["cloud_opacity"] / 100.0  # -> probability [0,1]
+        base_mask = round(payload["cloud_index"] * 3.0)  # -> nearest flag value [0,3]
+
+        if self._jitter:
+            cloud_probability = np.clip(base_opacity + np.random.uniform(-0.1, 0.1, size=(rows, cols)), 0.0, 1.0)
+            cloud_mask = np.clip(base_mask + np.random.choice([-1, 0, 0, 0, 1], size=(rows, cols)), 0, 3).astype(float)
+        else:
+            cloud_probability = np.full((rows, cols), base_opacity)
+            cloud_mask = np.full((rows, cols), float(base_mask))
+
+        lat = np.linspace(self._bbox.lat_max, self._bbox.lat_min, rows)[:, None] * np.ones((1, cols))
+        lon = np.linspace(self._bbox.lon_min, self._bbox.lon_max, cols)[None, :] * np.ones((rows, 1))
+
+        body = serialize_raster(cloud_mask, cloud_probability, lat, lon)
+        raw = RawFetchResult(url="mock://himawari-fixture", fetched_at=now, content_type="application/octet-stream", body=body)
+        frame = _build_raster_frame(cloud_mask, cloud_probability, self._bbox, self._nong_fab_local, now, self.SOURCE_NAME)
+        return raw, frame
 
 
 def build_datasource(

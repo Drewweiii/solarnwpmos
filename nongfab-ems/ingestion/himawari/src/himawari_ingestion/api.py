@@ -26,7 +26,7 @@ from .compliance import RateLimiter
 from .config import Settings, get_settings
 from .datasource import build_datasource
 from .scheduler import IngestionJob, build_scheduler
-from .schemas import CloudObservation
+from .schemas import CloudObservation, CloudRasterFrame
 from .storage import RawObjectStorage, TimescaleWriter
 
 logger = logging.getLogger(__name__)
@@ -121,6 +121,12 @@ class ObservationResponse(BaseModel):
     raw_object_key: str | None
 
 
+class RasterFrameResponse(BaseModel):
+    frame: CloudRasterFrame
+    raster_object_key: str | None
+    note: str = "pixel arrays live in MinIO/local-disk raw storage under raster_object_key, not in this response"
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     settings: Settings = app.state.settings
@@ -142,6 +148,14 @@ async def latest_observation() -> ObservationResponse:
     if job.last_observation is None:
         raise HTTPException(status_code=404, detail="no observation ingested yet - try POST /fetch-now")
     return ObservationResponse(observation=job.last_observation, raw_object_key=job.last_raw_object_key)
+
+
+@app.get("/latest-raster", response_model=RasterFrameResponse)
+async def latest_raster() -> RasterFrameResponse:
+    job: IngestionJob = app.state.job
+    if job.last_raster_frame is None:
+        raise HTTPException(status_code=404, detail="no raster tile ingested yet - try POST /fetch-now")
+    return RasterFrameResponse(frame=job.last_raster_frame, raster_object_key=job.last_raw_object_key)
 
 
 @app.post("/fetch-now", response_model=ObservationResponse)

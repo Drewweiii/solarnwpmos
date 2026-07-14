@@ -31,6 +31,11 @@ def test_latest_observation_404_before_any_fetch(client):
     assert resp.status_code == 404
 
 
+def test_latest_raster_404_before_any_fetch(client):
+    resp = client.get("/latest-raster")
+    assert resp.status_code == 404
+
+
 def test_fetch_now_reports_storage_failure_gracefully(client):
     # Datasource (mock) succeeds, but TimescaleDB is unreachable by design here -
     # the endpoint must report that clearly (502) rather than crash or hang.
@@ -41,3 +46,7 @@ def test_fetch_now_reports_storage_failure_gracefully(client):
     health = client.get("/health").json()
     assert health["last_error"] is not None
     assert health["last_fetched_at"] is not None
+
+    # storage never completed, so neither read-back endpoint should report stale/partial data
+    assert client.get("/latest-observation").status_code == 404
+    assert client.get("/latest-raster").status_code == 404

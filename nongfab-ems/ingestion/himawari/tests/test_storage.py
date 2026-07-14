@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy.dialects import postgresql
 
-from himawari_ingestion.schemas import CloudObservation, RawFetchResult
+from himawari_ingestion.schemas import CloudObservation, CloudRasterFrame, RawFetchResult
 from himawari_ingestion.storage import RawObjectStorage, TimescaleWriter
 
 
@@ -71,11 +71,40 @@ def test_timescale_writer_upsert_compiles_to_valid_postgres_sql(settings):
     assert "DO UPDATE SET" in compiled
 
 
+def test_timescale_writer_raster_upsert_compiles_to_valid_postgres_sql():
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from himawari_ingestion.models import CloudRasterFrameORM
+
+    frame = CloudRasterFrame(
+        observed_at=datetime.now(timezone.utc), source="mock-fixture",
+        lat_min=12.61, lat_max=12.74, lon_min=101.06, lon_max=101.18, rows=7, cols=5,
+        nong_fab_cloud_opacity_pct=40.0, nong_fab_cloud_index=0.4,
+        motion_speed_kmh=12.3, motion_direction_deg=180.0,
+    )
+    stmt = pg_insert(CloudRasterFrameORM).values(
+        time=frame.observed_at, source=frame.source,
+        lat_min=frame.lat_min, lat_max=frame.lat_max, lon_min=frame.lon_min, lon_max=frame.lon_max,
+        rows=frame.rows, cols=frame.cols,
+        nong_fab_cloud_opacity_pct=frame.nong_fab_cloud_opacity_pct, nong_fab_cloud_index=frame.nong_fab_cloud_index,
+        motion_speed_kmh=frame.motion_speed_kmh, motion_direction_deg=frame.motion_direction_deg,
+        raster_object_key="some/tile.npz",
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[CloudRasterFrameORM.time, CloudRasterFrameORM.source],
+        set_={"nong_fab_cloud_opacity_pct": stmt.excluded.nong_fab_cloud_opacity_pct},
+    )
+    compiled = str(stmt.compile(dialect=postgresql.dialect()))
+    assert "INSERT INTO cloud_raster_frames" in compiled
+    assert "ON CONFLICT" in compiled
+    assert "DO UPDATE SET" in compiled
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_timescale_writer_roundtrip_against_real_db(timescale_test_dsn):
     """Integration test - skipped unless TIMESCALE_TEST_DSN is set (see conftest.py).
-    Run against the docker-compose TimescaleDB once db/migrations/0001_cloud_obs.sql is applied.
+    Run against the docker-compose TimescaleDB once db/migrations/0001_cloud_obs.sql
+    and 0002_cloud_raster_frames.sql are applied.
     """
     from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -90,4 +119,13 @@ async def test_timescale_writer_roundtrip_against_real_db(timescale_test_dsn):
         source="integration-test",
     )
     await writer.write_observation(observation, "some/key")
+
+    frame = CloudRasterFrame(
+        observed_at=datetime.now(timezone.utc), source="integration-test",
+        lat_min=12.61, lat_max=12.74, lon_min=101.06, lon_max=101.18, rows=7, cols=5,
+        nong_fab_cloud_opacity_pct=20.0, nong_fab_cloud_index=0.2,
+        motion_speed_kmh=None, motion_direction_deg=None,
+    )
+    await writer.write_raster_frame(frame, "some/tile.npz")
+
     await engine.dispose()
