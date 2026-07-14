@@ -131,6 +131,18 @@ def test_real_repo_assets_yaml_loads_and_validates():
 
     gis = registry.zone("GIS")
     assert gis.dc_ac_ratio == 1.20
+    # from the GIS Single Line Diagram (PPA25.0008-PTTLNGEE-001): same Trina module
+    # as Jetty, but only 84 of them behind a single 50kW inverter / 42 optimizers.
+    assert gis.module_detail is not None
+    assert gis.module_detail.power_w == 715
+    assert gis.optimizer.count == 42
+    assert gis.optimizer.ratio_modules_per_optimizer == 2
+    assert gis.inverter_detail.count == 1
+    assert gis.inverter_detail.ac_kw_each == 50
+    # ground elevation from Google Maps advanced measurements - real per-corner survey data
+    assert gis.corners.UL.elevation_m == pytest.approx(6.09)
+    assert gis.corners.LL.elevation_m == pytest.approx(7.04)
+
     isb = registry.zone("ISB")
     assert isb.dc_ac_ratio == 0.93
 

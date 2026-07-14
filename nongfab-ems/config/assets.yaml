@@ -25,16 +25,46 @@ zones:
     inverter_count: 1
     strings: ["ST-1", "ST-2", "ST-3", "ST-4"]
     mppt_count: 4
-    centroid: { lat: 12.68337, lon: 101.11987 }
+    # Corners re-measured via Google Maps "Advanced measurements" (per-pin ground
+    # elevation + DMS coordinates), 2026-07-14 - refines the earlier satellite-image
+    # estimate by ~1-2m, not a material change (see Module 1 README for the live
+    # bbox-pixel re-verification this triggered).
+    centroid: { lat: 12.68336875, lon: 101.11986459 }
     corners:
-      UL: { lat: 12.68351, lon: 101.11979 }
-      UR: { lat: 12.68352, lon: 101.11994 }
-      LL: { lat: 12.68323, lon: 101.11979 }
-      LR: { lat: 12.68323, lon: 101.11994 }
+      UL: { lat: 12.68350556, lon: 101.11978889, elevation_m: 6.09 }
+      UR: { lat: 12.68351667, lon: 101.11993889, elevation_m: 5.44 }
+      LL: { lat: 12.68322500, lon: 101.11978889, elevation_m: 7.04 }
+      LR: { lat: 12.68322778, lon: 101.11994167, elevation_m: 6.28 }
     tilt_deg: null   # not measured - SLD is electrical-only; looks ground-mount from photos
     azimuth_deg: null
     sld_available: true
     notes: "DC/AC 1.20 - expect midday clipping"
+
+    module_detail:
+      name: "Trina Vertex N TSM-NEG21C.20"
+      power_w: 715
+      technology: "N-type i-TOPCon"
+      cells: 132
+      dimensions_mm: [2384, 1303, 33]
+      voc_v: 49.0
+      isc_a: 18.40
+      vmp_v: 40.9
+      imp_a: 17.36
+      efficiency_pct: 22.9
+
+    optimizer:
+      model: "Huawei MERC-1300W-P"
+      count: 42
+      ratio_modules_per_optimizer: 2
+
+    inverter_detail:
+      model: "SUN2000-50KTL-M3"
+      count: 1
+      ac_kw_each: 50
+      mppt_per_inverter: 4
+      mppt_voltage_range_v: [200, 1000]
+      max_dc_voltage_v: 1100
+      efficiency_pct: 99
 
   - id: ISB
     name_full: "Instrument Substation Building"

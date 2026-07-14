@@ -15,7 +15,7 @@ tests, and `.env.example`.
 |---|---|---|
 | Scaffold (folders, docker-compose, root config) | this repo | ✅ Step 1 done |
 | Shared asset registry loader | `libs/nongfab_common/` | ✅ built, tested (Pydantic validation + `target_bbox()`) |
-| Asset registry data | `config/assets.yaml` | ✅ real zone/equipment specs from the architecture doc |
+| Asset registry data | `config/assets.yaml` | ✅ real zone/equipment specs; GIS corners refined to Google Maps survey-grade coordinates + per-corner ground elevation, GIS equipment detail (module/optimizer/inverter) added from the real Single Line Diagram (2026-07-14) |
 | 1. Himawari cloud-observation ingestion | `ingestion/himawari/` | ✅ built, tested; tile bbox now sourced from `config/assets.yaml`; `sample_cloud_at(lat, lon, t)` added |
 | 2. NCEP/NOAA NWP (GFS) ingestion | `ingestion/nwp/` | ✅ built, tested; NOMADS ToS/robots.txt checked and cleared (public domain, no robots.txt, official filter/subset API); fetches GFS 0.25° GRIB2 via NOMADS filter service, decodes with cfgrib/xarray, stores to `nwp_forecast` |
 | 3. Feature store | `features/` | ✅ built, tested (clear-sky/solar position, lag/EMA/future-regressor features, curtailment/degradation QC, daytime filter, multi-step framing + chronological split); not yet wired to a real data source (Module 1 and 2 both lack accumulated history yet) |
@@ -69,3 +69,11 @@ NOMADS ToS/robots.txt check performed before writing any code, the GFS
 variable-naming gotcha (GRIB `sdswrf` vs. the architecture doc's "SSRD"), and
 a cfgrib coordinate-merge bug caught by decoding a real sample file during
 development rather than assumed to work.
+
+See `forecast/README.md` for the full picture on Module 4, including a
+cross-check against Songsiri's "An Introduction to Solar Energy Forecasting"
+(Chula/CUEE) reference deck - confirms this module's horizon taxonomy,
+feature set, and loss-function choices against an independent academic
+source, and lists concrete next-step candidates (time-of-day parallel
+models, bias-correction cascades, an explicit linear baseline) it suggests
+but that aren't implemented yet.

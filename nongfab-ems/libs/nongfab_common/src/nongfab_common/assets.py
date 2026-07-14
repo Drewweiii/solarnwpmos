@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 class LatLon(BaseModel):
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
+    elevation_m: float | None = None  # ground elevation, where surveyed (e.g. Google Maps advanced measurements)
     note: str | None = None
 
 
@@ -30,7 +31,7 @@ class ZoneCorners(BaseModel):
         return [self.UL, self.UR, self.LL, self.LR]
 
 
-class JettyModuleSpec(BaseModel):
+class ModuleSpec(BaseModel):
     name: str
     power_w: float
     technology: str
@@ -43,13 +44,13 @@ class JettyModuleSpec(BaseModel):
     efficiency_pct: float
 
 
-class JettyOptimizer(BaseModel):
+class OptimizerSpec(BaseModel):
     model: str
     count: int
     ratio_modules_per_optimizer: int
 
 
-class JettyInverterDetail(BaseModel):
+class InverterDetail(BaseModel):
     model: str
     count: int
     ac_kw_each: float
@@ -108,10 +109,11 @@ class Zone(BaseModel):
     sld_available: bool | str | None = None
     span_north_south_km: float | None = None
 
-    # Jetty-only detail (None for GIS/ISB, which the source doc only briefly describes)
-    module_detail: JettyModuleSpec | None = None
-    optimizer: JettyOptimizer | None = None
-    inverter_detail: JettyInverterDetail | None = None
+    # Populated where a Single Line Diagram (or equivalent as-built doc) exists -
+    # Jetty and GIS both have one; ISB doesn't yet (source doc only briefly describes it).
+    module_detail: ModuleSpec | None = None
+    optimizer: OptimizerSpec | None = None
+    inverter_detail: InverterDetail | None = None
     sub_arrays: list[SubArray] = Field(default_factory=list)
     interconnection_points: list[InterconnectionPoint] = Field(default_factory=list)
     design_constraints: JettyDesignConstraints | None = None

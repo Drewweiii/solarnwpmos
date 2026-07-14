@@ -106,6 +106,56 @@ https://download.pytorch.org/whl/cpu` before `pip install -e ".[dev,api]"`.
   `registry.compare_versions()` covers the "A/B compare" half.
 - 59 tests passing (`pytest -v`, ~2 min). `ruff check` clean.
 
+## Reference: Songsiri, "An Introduction to Solar Energy Forecasting" (Chula/CUEE)
+
+`http://jitkomut.eng.chula.ac.th/pdf/solarforecast_intro.pdf` (Jitkomut
+Songsiri, Chula EE/Smart Grid Research Unit Center, "NIDA lecture" deck, read
+2026-07-14; not vendored into this repo - it's a third-party course PDF, ~12MB,
+cite the URL rather than committing the binary) - a course deck on solar
+forecasting fundamentals. Cross-checked against this module's existing
+design, not a from-scratch redesign prompt:
+
+- **Horizon taxonomy matches**: the deck's "nowcasting" (5-60min, spinning
+  reserve/demand response), "intra-day" (1-6h, load-following), "short-term"
+  (1-3 days, planning/unit commitment) map directly onto this module's minute/
+  hour/day-ahead - confirms the architecture doc's 3-horizon split isn't
+  arbitrary, it's the standard framing.
+- **Feature set matches** Module 3's existing `nongfab_features` output
+  (lagged I/P, previous-day same-time value, T/RH, solar zenith angle,
+  clear-sky irradiance, EMA of irradiance) almost field-for-field against the
+  deck's "typical features" slide.
+- **Loss function guidance matches**: "selecting the cost objective function:
+  ℓ1 or ℓ2" for neural nets - same choice already exposed in `hour_ahead.py`
+  (`loss="l1"|"l2"`) and `minute_ahead.py` (`loss="l1"|"huber"`).
+- **Prediction-interval rationale matches**: "the lower bound tells us to
+  reserve some other source of generation" - the same "สำรองกำลัง" (reserve
+  capacity) rationale the architecture doc gives for PICP/PINAW, now with an
+  independent source confirming it's standard practice, not a one-off requirement.
+
+Concrete refinements the deck suggests that **aren't** implemented yet -
+listed here as next-step candidates, not applied speculatively this round:
+
+- **Parallel models by time-of-day**: the deck's CUEE example splits into
+  sub-models per hour-of-day bucket (e.g. 6-9am, 9:30am-12pm, ...) since
+  irradiance variance differs sharply by hour, using simpler/fewer features
+  in low-variance early-morning/late-evening buckets. `hour_ahead.py`
+  currently trains one LightGBM model across the whole day - Module 3's
+  `filter_daytime()` + `evaluate_by_group()`'s hourly breakdown are already
+  in place to support this split if/when real data shows it's worth the
+  added complexity.
+- **Bias-correction cascade**: a second model learns the residual error of a
+  first (e.g. NWP-driven) model rather than predicting the target directly.
+  Conceptually close to what `day_ahead.py` already does (NeuralProphet
+  regresses on NWP's SSRD/T directly) but not a literal two-stage cascade -
+  worth revisiting once Module 2 has enough real NWP-vs-actual history to
+  measure whether a correction stage earns its complexity.
+- **Baseline linear regression** as an explicit comparison point ("simplest
+  model, typically used as a baseline") - not currently logged anywhere;
+  `registry.compare_versions()` already supports comparing arbitrary logged
+  models, so a trivial linear baseline could be logged alongside each
+  horizon's real model once real data exists, to make "is the ML model
+  actually earning its complexity" a checkable question instead of an assumption.
+
 ## Known gaps / next steps
 
 - **Not wired to real data** - same caveat as Module 3: Module 1/2 haven't
