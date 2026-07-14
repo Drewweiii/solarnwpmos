@@ -18,7 +18,7 @@ tests, and `.env.example`.
 | Asset registry data | `config/assets.yaml` | ✅ real zone/equipment specs from the architecture doc |
 | 1. Himawari cloud-observation ingestion | `ingestion/himawari/` | ✅ built, tested; tile bbox now sourced from `config/assets.yaml`; `sample_cloud_at(lat, lon, t)` added |
 | 2. NCEP/NOAA NWP (GFS) ingestion | `ingestion/nwp/` | ⏳ not started — blocked on explicit go-ahead to check NOMADS ToS/robots.txt |
-| 3. Feature store | `features/` | ⏳ not started |
+| 3. Feature store | `features/` | ✅ built, tested (clear-sky/solar position, lag/EMA/future-regressor features, curtailment/degradation QC, daytime filter, multi-step framing + chronological split); not yet wired to a real data source (Module 1 lacks history, Module 2 doesn't exist) |
 | 4. Forecast engine (minute/hour/day-ahead) | `forecast/` | ⏳ not started |
 | 5. Simulation engine | `simulation/` | ⏳ not started |
 | 6. Backend API | `api/` | ✅ Step 1 scaffold only (`/healthz`); real endpoints not started |
