@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # api has no /metrics route yet (Step 1 scaffold only) - this target will
+  # show as "down" in Prometheus until the API is instrumented; expected, not a bug.
+  - job_name: nongfab-api
+    static_configs:
+      - targets: ["api:8000"]
+
+  # Not started via this compose file yet (Module 1 has its own dev workflow -
+  # see ingestion/himawari/README.md) - scrape target for when it is:
+  - job_name: himawari-ingestion
+    static_configs:
+      - targets: ["himawari-ingestion:9101"]
