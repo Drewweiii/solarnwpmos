@@ -104,3 +104,43 @@ export interface SimulateResponse {
   points: SimulatePointOut[]
   loss_breakdown: Record<string, number>
 }
+
+export interface SolarPosition {
+  azimuth_deg: number
+  elevation_deg: number
+}
+
+export interface Panel {
+  block_id: string
+  row: number
+  col: number
+  east_m: number
+  north_m: number
+  width_m: number
+  slant_height_m: number
+  solar_access_pct: number
+}
+
+export interface GeometryResponse {
+  zone: string
+  simulated_zone: boolean
+  at: string
+  tilt_deg: number
+  azimuth_deg: number
+  row_pitch_m: number
+  sun: SolarPosition
+  average_solar_access_pct: number
+  panels: Panel[]
+}
+
+export interface SunPathPoint {
+  time: string
+  azimuth_deg: number
+  elevation_deg: number
+}
+
+export interface SunPathResponse {
+  zone: string
+  date: string
+  points: SunPathPoint[]
+}

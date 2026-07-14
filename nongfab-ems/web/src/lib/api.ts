@@ -2,9 +2,11 @@ import type {
   AssetRegistry,
   ForecastHorizon,
   ForecastResponse,
+  GeometryResponse,
   PerformanceResponse,
   SimulateRequest,
   SimulateResponse,
+  SunPathResponse,
   Zone,
 } from './types'
 
@@ -66,3 +68,9 @@ export const getPerformance = (zone: string, token: string): Promise<Performance
 
 export const postSimulate = (zone: string, body: SimulateRequest, token: string): Promise<SimulateResponse> =>
   request(`/simulate/${zone}`, token, { method: 'POST', body: JSON.stringify(body) })
+
+export const getGeometry = (zone: string, at: string | undefined, token: string): Promise<GeometryResponse> =>
+  request(`/geometry/${zone}${at ? `?at=${encodeURIComponent(at)}` : ''}`, token)
+
+export const getSunPath = (zone: string, date: string | undefined, token: string): Promise<SunPathResponse> =>
+  request(`/sun-path/${zone}${date ? `?date=${encodeURIComponent(date)}` : ''}`, token)

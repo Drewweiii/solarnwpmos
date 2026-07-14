@@ -1,0 +1,148 @@
+.solar3d-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.solar3d-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.view-mode-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px;
+}
+
+.view-mode-tab {
+  font: inherit;
+  font-size: 14px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.view-mode-tab.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.solar3d-sweep-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.solar3d-sweep-controls input[type='date'] {
+  font: inherit;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+.solar3d-sweep-controls input[type='range'] {
+  flex: 1 1 200px;
+}
+
+.solar3d-time-readout {
+  font-variant-numeric: tabular-nums;
+  min-width: 3.5em;
+}
+
+.solar3d-sweep-controls button {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-h);
+  cursor: pointer;
+}
+
+.solar3d-readouts {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.compass {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.compass-dial {
+  width: 56px;
+  height: 56px;
+  color: var(--text);
+}
+
+.compass-readout {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+}
+
+.compass-azimuth {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.solar-access-readout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+}
+
+.solar-access-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.solar-access-label {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.solar3d-simulated-badge {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.solar3d-canvas-wrapper {
+  height: 520px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #0b1220;
+}
+
+.solar3d-canvas-wrapper canvas {
+  display: block;
+}

@@ -64,6 +64,7 @@ Three roles, ordered least-to-most privileged: `viewer < operator < admin`.
 | `GET /performance/{zone}` | viewer | read-only |
 | `POST /simulate/{zone}` | operator | heavier what-if computation, not a plain read |
 | `GET /ws/live` | viewer | read-only (JWT passed as `?token=`) |
+| `GET /geometry/{zone}`, `GET /sun-path/{zone}` | viewer | read-only |
 
 `admin` isn't used to gate any route yet (no mutating endpoints exist in
 this module) - it's provisioned so a future admin-only action (user
@@ -99,6 +100,19 @@ management, config writes) has somewhere to plug in without a schema change.
   (default 5s) for all 3 zones. `forecast_hour_ahead_kw` is `null` until an
   hour-ahead model has been registered for that zone. Closes with code 1008
   if `?token=` is missing, invalid, or expired.
+- **`GET /geometry/{zone}?at=<ISO datetime>`** → per-panel 3D layout (east/
+  north meters, tilt/azimuth) plus that panel's solar-access % at `at`
+  (defaults to now), the sun's azimuth/elevation at that instant, and the
+  zone's average solar access. Built on Module 3's `nongfab_features.
+  panel_geometry`/`shading` (added for this route, not duplicated here) -
+  see `features/README.md`'s own section on them for the tilt/azimuth
+  defaults and shading-model assumptions.
+- **`GET /sun-path/{zone}?date=<YYYY-MM-DD>`** → that day's azimuth/
+  elevation arc at 15-minute resolution, filtered to daylight only. Solar
+  position comes from the plant's one shared site location (same as every
+  other module), not a true per-zone calculation - identical across all 3
+  zones today, kept under `/{zone}` only for path consistency with the rest
+  of the API (an unknown zone still 404s).
 
 ## Known gaps (same caveat as every other module)
 
@@ -158,7 +172,7 @@ deliberately never auto-creates tables itself; see `db/migrations/
 
 ## Tests
 
-`pytest` - 60 tests, no real Postgres or MLflow server required:
+`pytest` - 72 tests, no real Postgres or MLflow server required:
 
 - `test_auth.py` (23) - password hashing, `UserStore` CRUD/seeding, JWT
   create/decode (expiry, wrong secret, malformed/missing claims),
@@ -167,9 +181,10 @@ deliberately never auto-creates tables itself; see `db/migrations/
 - `test_login.py` (5) - `/auth/token` against the seeded demo users, wrong
   password/unknown username → 401.
 - `test_routes_assets.py`, `test_routes_forecast.py`,
-  `test_routes_simulate.py`, `test_routes_performance.py` - per-route auth
-  requirement, RBAC enforcement, unknown-zone/horizon 404s, invalid-scenario
-  422, Monte Carlo interval bounds.
+  `test_routes_simulate.py`, `test_routes_performance.py`,
+  `test_routes_solar3d.py` (12) - per-route auth requirement, RBAC
+  enforcement, unknown-zone/horizon 404s, invalid-scenario 422, Monte Carlo
+  interval bounds, day/night solar-access behavior, malformed-date 422.
 - `test_ws_live.py` (6) - snapshot shape, repeated pushes, missing/invalid
   token rejection, and a regression test for a real bug caught during live
   verification (see below).
@@ -233,3 +248,17 @@ existing unit test caught:
    through `monkeypatch.setenv()` specifically so this class of bug - "the
    field works when constructed directly but not from the env var it's
    documented to read" - can't silently reappear.
+
+### Verified live a third time - Module 7's 3D view (2026-07-14)
+
+`/geometry/{zone}` and `/sun-path/{zone}` (added for Feature B/C) were
+exercised the same way: real `uvicorn` + `vite dev`, headless Chromium with
+software WebGL (`--use-gl=swiftshader`). GIS/ISB/Jetty all rendered real
+panel counts (84/196/320) correctly colored by solar access, the sun-path
+arc line matched the compass readout, day/night transitions correctly drove
+`average_solar_access_pct` from 0% (night) to 100% (clear midday), and
+Jetty's `simulated_zone: true` flag correctly triggered the dashboard's
+"no panels installed yet" badge. No backend bug this round - the one real
+bug found (a default 3D camera framed on the geometric center of Jetty's
+4 widely-spread sub-arrays, showing empty space instead of any panels) was
+in `web/`'s `Solar3DScene.tsx`, not this module - see `web/README.md`.

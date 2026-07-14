@@ -52,6 +52,43 @@ also checking for a flatlined power signal (near-zero rolling std) against
 still-varying irradiance, and flagging on either signal. Both paths have
 dedicated tests (`test_quality_control.py`).
 
+## Panel geometry & shading (Module 7's 3D view, added later)
+
+`panel_geometry.py`/`shading.py` weren't part of the original forecasting
+pipeline above - they were added to back Module 7's Feature B/C (3D panel-
+level shading/solar-access view + sun-path sweep), reusing this module's
+existing `compute_clearsky_and_position()` for solar position rather than
+duplicating it. Kept in `features/` (not `api/`) because they're the same
+kind of thing as everything else here: pure, DB-independent geometry/physics
+functions, unit-tested on their own, that a caller (Module 6's API) wires up.
+
+```
+generate_zone_layout(zone_id)                     # config/assets.yaml -> per-panel (east_m, north_m, tilt, azimuth)
+        │
+        ▼
+zone_solar_access(layout, sun_elevation, sun_azimuth)   # per-panel row-shading fraction -> solar access %
+```
+
+- `panel_geometry.py`: converts each zone's surveyed corners into a local
+  (east, north) meter grid, then places panels. Only Jetty (`sub_arrays` in
+  config/assets.yaml) has a real per-string layout; GIS/ISB are a
+  visualization-approximation rectangular block sized to `module_count`.
+  `tilt_deg`/`azimuth_deg` are unmeasured for every zone (see `Zone`'s own
+  docstring) - `DEFAULT_TILT_DEG`/`DEFAULT_AZIMUTH_DEG` are literature-typical
+  assumptions for this latitude, documented inline, not measurements. Jetty
+  gets its own azimuth default (`JETTY_DEFAULT_AZIMUTH_DEG`, east/west-
+  facing) rather than GIS/ISB's south-facing default - its ~1.25km
+  north-south trestle physically requires facing across its own width, not
+  along its length (a south-facing default would swing each string ~48m off
+  the side of the catwalk - see the constant's own comment for the full
+  derivation).
+- `shading.py`: standard fixed-tilt row-to-row self-shading (front row
+  shades the row behind it once the sun is roughly aligned with the array's
+  own facing azimuth) - inter-row self-shading only, no obstacle survey
+  (trees/structures) exists in config/assets.yaml so that's out of scope,
+  not fabricated. A 2D cross-section approximation, visualization-grade, not
+  a bankable energy-yield calculation.
+
 ## Layout
 
 ```
@@ -61,6 +98,8 @@ src/nongfab_features/
   lag_features.py       add_auto_lags(), add_ema(), add_future_regressors()
   quality_control.py    flag_curtailment_or_degradation(), rolling_power_irradiance_correlation()
   framing.py             make_multistep_targets(), build_training_frame(), chronological_split()
+  panel_geometry.py      generate_zone_layout() - per-zone 3D panel positions (Module 7 Feature B/C)
+  shading.py              row_shaded_fraction(), zone_solar_access() - analytical row self-shading
 tests/                pytest suite, no external services or network needed
 ```
 
@@ -87,3 +126,9 @@ pytest -v
 - No persisted "feature store" table yet (the architecture doc mentions Feast
   or custom TimescaleDB tables as an option) — out of scope for this step,
   which was the pandas-level feature engineering pipeline specifically.
+- `shading.py` models inter-row self-shading only - no obstacle survey
+  (trees/structures) exists in `config/assets.yaml`, so external shading
+  isn't modeled (not fabricated as zero, simply out of scope until a survey
+  exists). `panel_geometry.py`'s GIS/ISB block layout is a visualization
+  approximation (near-square factorization of `module_count`), not a claim
+  about real physical string boundaries - only Jetty's layout is real.

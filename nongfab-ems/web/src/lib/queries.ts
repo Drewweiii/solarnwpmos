@@ -1,5 +1,5 @@
 import { useQueries, useQuery } from '@tanstack/react-query'
-import { getAssets, getForecast, getPerformance } from './api'
+import { getAssets, getForecast, getGeometry, getPerformance, getSunPath } from './api'
 import type { ForecastHorizon } from './types'
 import { useAuth } from './auth'
 
@@ -59,5 +59,27 @@ export function useAllZonesForecast(horizon: ForecastHorizon) {
       enabled: Boolean(token),
       retry: false,
     })),
+  })
+}
+
+/** `at`: ISO timestamp to evaluate the sun/shading at - omit for "now".
+ * Kept out of the query key's identity when unset vs a specific instant so
+ * "now" queries still get react-query's normal staleTime/refetch behavior. */
+export function useGeometry(zone: string, at?: string) {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['geometry', zone, at ?? 'now'],
+    queryFn: () => getGeometry(zone, at, token!),
+    enabled: Boolean(token) && zone !== ALL_ZONES_ID,
+  })
+}
+
+export function useSunPath(zone: string, date?: string) {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['sun-path', zone, date ?? 'today'],
+    queryFn: () => getSunPath(zone, date, token!),
+    enabled: Boolean(token) && zone !== ALL_ZONES_ID,
+    staleTime: 60 * 60 * 1000, // a whole day's sun-path arc doesn't change within the same UTC day
   })
 }

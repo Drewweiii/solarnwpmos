@@ -21,8 +21,8 @@ tests, and `.env.example`.
 | 3. Feature store | `features/` | ✅ built, tested (clear-sky/solar position, lag/EMA/future-regressor features, curtailment/degradation QC, daytime filter, multi-step framing + chronological split); not yet wired to a real data source (Module 1 and 2 both lack accumulated history yet) |
 | 4. Forecast engine (minute/hour/day-ahead) | `forecast/` | ✅ built, tested (minute-ahead CNN-LSTM/torch, hour-ahead LightGBM+Optuna, day-ahead NeuralProphet, PV conversion, RMSE/MAE/MBE/NRMSE+PICP/PINAW metrics, MLflow registry/versioning/A-B-compare, dev `/forecast/{zone}/{horizon}` endpoint); trains on synthetic data (Module 1/2 still lack accumulated history) |
 | 5. Simulation engine | `simulation/` | ✅ built, tested, rechecked/upgraded (what-if scenarios incl. `compare_scenarios()` presets, scenario-uncertainty Monte Carlo, PVWatts-style loss model + DC/AC clipping, `pipeline.py` orchestration, dev `/simulate/{zone}` + `/simulate/{zone}/compare` endpoints, 66 tests); **no battery/BESS** (confirmed twice: fully on-grid, permanently out of scope); simulates on synthetic baseline (same data-accumulation caveat as Modules 3/4) |
-| 6. Backend API | `api/` | ✅ built, tested, live-verified twice (REST `/assets`, `/forecast/{zone}/{horizon}`, `/simulate/{zone}`, `/performance/{zone}` + WebSocket `/ws/live`, OAuth2/JWT auth with RBAC admin/operator/viewer, CORS, auto OpenAPI docs, 60 tests); reuses Module 4/5's own serving/pipeline functions directly (no logic duplicated); **no battery/BESS**; read routes run on synthetic baseline data (same data-accumulation caveat as Modules 3/4/5) |
-| 7. Dashboard | `web/` | 🟡 in progress - STEP 8 (Feature A, "CU Solar Forecast" style) done: zone selector (GIS/ISB/Jetty/รวม), Day-ahead/Intra-day toggle, Recharts power chart (generated/forecast/PI band), weather strip, KPI cards, JWT login, 22 tests, live-verified with a real headless browser. STEP 8B (3D shading + sun-path) and 8C (Energy Report + irradiance map) not started |
+| 6. Backend API | `api/` | ✅ built, tested, live-verified 3x (REST `/assets`, `/forecast/{zone}/{horizon}`, `/simulate/{zone}`, `/performance/{zone}`, `/geometry/{zone}`, `/sun-path/{zone}` + WebSocket `/ws/live`, OAuth2/JWT auth with RBAC admin/operator/viewer, CORS, auto OpenAPI docs, 72 tests); reuses Module 3/4/5's own serving/pipeline functions directly (no logic duplicated); **no battery/BESS**; read routes run on synthetic baseline data (same data-accumulation caveat as Modules 3/4/5) |
+| 7. Dashboard | `web/` | 🟡 in progress - STEP 8 (Feature A, "CU Solar Forecast" style) + STEP 8B (Feature B+C, 3D shading/solar-access + sun-path sweep, react-three-fiber) done: zone selector, Day-ahead/Intra-day toggle, Recharts power chart, weather strip, KPI cards, JWT login, `/3d` 3D panel view (colored by solar access or string, compass readout, sun-path arc, date/time scrubber + auto-play), 38 tests, live-verified twice with a real headless browser (incl. software-WebGL rendering). STEP 8C (Energy Report + irradiance map) not started |
 | Cross-cutting: docker-compose | `docker-compose.yml`, `infra/` | ✅ 7 services (timescaledb, minio, mlflow, api, web, prometheus, grafana); config validated (`docker compose config`), **not** live-tested (no Docker daemon available in the dev sandbox that built this) |
 | Cross-cutting: CI, Prefect flows | `.github/` | ⏳ not started |
 
@@ -97,3 +97,15 @@ that no existing unit test had: a completely missing CORS policy (the
 dashboard's requests never reached FastAPI at all), and then a second bug
 in the first fix itself (a settings field name that didn't match the env
 var its own docs promised), both now covered by regression tests.
+
+See `web/README.md`'s STEP 8B section and `features/README.md`'s own
+section on `panel_geometry.py`/`shading.py` for Feature B/C (the 3D
+solar-access view + sun-path sweep): reuses Module 3's existing pvlib solar
+position rather than duplicating it, models fixed-tilt row self-shading
+analytically (documented as visualization-grade, not a bankable yield
+calculation), and gives Jetty its own array azimuth default since its
+~1.25km north-south trestle makes GIS/ISB's south-facing default
+physically nonsensical there. Live verification (real headless Chromium
+with software WebGL, since no unit test can render an actual WebGL canvas)
+caught a real default-camera bug specific to Jetty's widely-spread real
+sub-array layout, fixed and documented in `web/README.md`.

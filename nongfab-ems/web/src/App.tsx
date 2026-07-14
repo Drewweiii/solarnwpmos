@@ -5,6 +5,7 @@ import { Layout } from './components/Layout'
 import { Login } from './components/Login'
 import { AuthProvider, useAuth } from './lib/auth'
 import { ForecastPage } from './pages/ForecastPage'
+import { Solar3DPage } from './pages/Solar3DPage'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
@@ -19,6 +20,7 @@ function RequireAuth() {
       <Route element={<Layout />}>
         <Route index element={<Navigate to="/forecast" replace />} />
         <Route path="/forecast" element={<ForecastPage />} />
+        <Route path="/3d" element={<Solar3DPage />} />
         <Route path="*" element={<Navigate to="/forecast" replace />} />
       </Route>
     </Routes>
