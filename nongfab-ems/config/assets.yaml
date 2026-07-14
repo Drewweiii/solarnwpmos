@@ -77,16 +77,46 @@ zones:
     inverter_count: 3
     strings: ["ST-1", "ST-2", "ST-3", "ST-4"]  # per inverter
     mppt_count: 4  # per inverter
-    centroid: { lat: 12.68134, lon: 101.11832 }
+    # Corners re-measured via Google Maps "Advanced measurements" (per-pin ground
+    # elevation + DMS coordinates), 2026-07-14 - refines the earlier satellite-image
+    # estimate by ~1-2m, not a material change (see Module 1 README for the live
+    # bbox-pixel re-verification this triggered).
+    centroid: { lat: 12.68133611, lon: 101.11831666 }
     corners:
-      UL: { lat: 12.68159, lon: 101.11817 }
-      UR: { lat: 12.68152, lon: 101.11856 }
-      LL: { lat: 12.68117, lon: 101.11807 }
-      LR: { lat: 12.68107, lon: 101.11846 }
+      UL: { lat: 12.68159444, lon: 101.11817222, elevation_m: 11.57 }
+      UR: { lat: 12.68151667, lon: 101.11856111, elevation_m: 9.95 }
+      LL: { lat: 12.68116667, lon: 101.11807222, elevation_m: 11.02 }
+      LR: { lat: 12.68106667, lon: 101.11846111, elevation_m: 10.15 }
     tilt_deg: null   # not measured - looks like rooftop tilted rows from photos
     azimuth_deg: null
     sld_available: true
     notes: "DC/AC 0.93 - inverter under-loaded; prioritize efficiency curve at low load"
+
+    module_detail:
+      name: "Trina Vertex N TSM-NEG21C.20"
+      power_w: 715
+      technology: "N-type i-TOPCon"
+      cells: 132
+      dimensions_mm: [2384, 1303, 33]
+      voc_v: 49.0
+      isc_a: 18.40
+      vmp_v: 40.9
+      imp_a: 17.36
+      efficiency_pct: 22.9
+
+    optimizer:
+      model: "Huawei MERC-1300W-P"
+      count: 98
+      ratio_modules_per_optimizer: 2
+
+    inverter_detail:
+      model: "SUN2000-50KTL-M3"
+      count: 3
+      ac_kw_each: 50
+      mppt_per_inverter: 4
+      mppt_voltage_range_v: [200, 1000]
+      max_dc_voltage_v: 1100
+      efficiency_pct: 99
 
   - id: Jetty
     name_full: "ท่าเรือ (trestle 1.5 km)"

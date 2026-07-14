@@ -145,6 +145,16 @@ def test_real_repo_assets_yaml_loads_and_validates():
 
     isb = registry.zone("ISB")
     assert isb.dc_ac_ratio == 0.93
+    # from the ISB Single Line Diagram (PPA25.0008-PTTLNGEE-001): same Trina module,
+    # 196 of them behind 3x 50kW inverters / 98 optimizers.
+    assert isb.module_detail is not None
+    assert isb.module_detail.power_w == 715
+    assert isb.optimizer.count == 98
+    assert isb.optimizer.ratio_modules_per_optimizer == 2
+    assert isb.inverter_detail.count == 3
+    assert isb.inverter_detail.ac_kw_each == 50
+    assert isb.corners.UL.elevation_m == pytest.approx(11.57)
+    assert isb.corners.LR.elevation_m == pytest.approx(10.15)
 
     lat_min, lat_max, lon_min, lon_max = target_bbox(registry)
     # sanity: matches the ~12.61-12.74N, 101.06-101.18E region from the architecture doc
