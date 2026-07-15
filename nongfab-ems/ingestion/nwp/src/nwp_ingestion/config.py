@@ -5,7 +5,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 def _default_forecast_hours() -> list[int]:
     # Hourly out to 24h (hour-ahead LightGBM's near-term regressors), then 3-hourly
     # out to 48h (day-ahead NeuralProphet doesn't need finer granularity that far out).
-    return list(range(0, 25)) + list(range(27, 49, 3))
+    # Starts at 1, not 0: GFS's f000 (the analysis) has no DSWRF field - downward
+    # shortwave radiation is a forecast-accumulated/averaged quantity that only
+    # starts existing at f001 - verified live against a real NOMADS GRIB2 file's
+    # .idx listing (f000's index has no DSWRF entry at all; f001's has "DSWRF:
+    # surface:0-1 hour ave fcst"). Requesting DSWRF at f000 silently gets back
+    # whatever else matched the same var/level filter (surface skin temperature)
+    # instead, which then fails to decode as sdswrf.
+    return list(range(1, 25)) + list(range(27, 49, 3))
 
 
 class Settings(BaseSettings):
