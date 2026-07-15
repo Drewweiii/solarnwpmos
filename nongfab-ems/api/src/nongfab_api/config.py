@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     # table on startup if it's empty - dev/demo convenience only, see README.
     seed_demo_users: bool = True
 
+    # Create the ORM tables (the `users` table - models.Base) on startup if
+    # they don't already exist. On the docker-compose Postgres path the
+    # db/migrations SQL is the source of truth and this is a harmless
+    # idempotent no-op (checkfirst); it exists so a zero-setup deployment
+    # (e.g. an ephemeral SQLite auth store for a public demo, where running a
+    # separate migration step isn't worth it) still has its auth table.
+    create_tables_on_startup: bool = True
+
     # /ws/live push interval
     live_push_interval_seconds: float = 5.0
 

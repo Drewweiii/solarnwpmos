@@ -19,6 +19,7 @@ dependencies = [
   "websockets>=12.0",
   "python-multipart>=0.0.9",
   "prometheus-client>=0.20",
+  "aiosqlite>=0.20",  # SQLite async driver - the zero-setup auth store for a public demo deploy (see config.create_tables_on_startup)
   "nongfab-common",
   "nongfab-features",
   "nongfab-forecast",

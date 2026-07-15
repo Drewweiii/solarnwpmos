@@ -37,4 +37,8 @@ COPY config/assets.yaml ./config/assets.yaml
 ENV NONGFAB_ASSETS_PATH=/app/config/assets.yaml
 
 EXPOSE 8000
-CMD ["uvicorn", "nongfab_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Shell form (not exec form) so ${PORT} expands: platforms like Railway inject
+# a PORT env var the app must bind to, while docker-compose leaves it unset and
+# falls back to 8000. --proxy-headers so the app trusts the platform's
+# X-Forwarded-* headers (correct scheme/host behind Railway's TLS proxy).
+CMD uvicorn nongfab_api.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers

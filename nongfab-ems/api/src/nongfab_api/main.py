@@ -31,6 +31,7 @@ from . import (
 )
 from .auth import UserStore, create_access_token, verify_password
 from .config import Settings, get_settings
+from .models import Base
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,9 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         eng = engine or create_async_engine(settings.timescale_dsn)
+        if settings.create_tables_on_startup:
+            async with eng.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
         user_store = UserStore(eng)
         if settings.seed_demo_users:
             await user_store.seed_demo_users_if_empty()
