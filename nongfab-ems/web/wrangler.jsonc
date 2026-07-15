@@ -1,0 +1,14 @@
+{
+  // Static-assets-only Worker (Cloudflare's current recommended way to host
+  // a Vite SPA - the "Pages" product is being folded into Workers). No
+  // Worker script needed: `npm run build` outputs a plain static site to
+  // dist/, and `not_found_handling: "single-page-application"` makes every
+  // unmatched path fall back to index.html so react-router-dom's
+  // client-side routes (e.g. a hard refresh on /forecast) don't 404.
+  "name": "solarnwpmos",
+  "compatibility_date": "2026-07-15",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}
