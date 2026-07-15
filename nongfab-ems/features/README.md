@@ -89,6 +89,46 @@ zone_solar_access(layout, sun_elevation, sun_azimuth)   # per-panel row-shading 
   not fabricated. A 2D cross-section approximation, visualization-grade, not
   a bankable energy-yield calculation.
 
+## SLD topology & irradiance grid (Module 7's Energy Report + map, STEP 8C)
+
+`sld.py`/`irradiance_map.py` back Module 7's Feature D (Energy Report's
+"Auto-SLD viewer") and Feature E (MapLibre irradiance map), the same "pure,
+DB-independent, unit-tested here, wired up by Module 6's API" pattern as
+everything else in this file.
+
+- `sld.py`: `build_sld(zone)` turns a zone's real equipment fields
+  (`module_detail`/`optimizer`/`inverter_detail`/`strings`/`mppt_count`/
+  `sub_arrays`) into a module -> string -> inverter -> AC topology, the same
+  underlying data already transcribed from the plant's real Single Line
+  Diagrams (config/assets.yaml's own header comment) - not a scanned image
+  of the original PDF (none is bundled in this repo). Only Jetty
+  (`sub_arrays`) has a real per-string module count; GIS/ISB have no
+  per-string survey, so their strings get `module_count` split as evenly as
+  possible across (inverter x string) slots - flagged via
+  `approximate_string_distribution`, same spirit as `panel_geometry.py`'s
+  own GIS/ISB visualization approximation. Jetty's blocks use the sub-
+  array's own real id (e.g. `"01A.L"`) rather than an assumed `"INV-N"`
+  label, since config/assets.yaml doesn't record which physical inverter
+  each sub-array is wired to.
+- `irradiance_map.py`: `irradiance_grid()` builds a plant-wide lat/lon grid
+  (`grid_points()`, spanning the same `target_bbox()` Module 1's cloud-tile
+  fetch targets) and applies a cloud-attenuation factor to one shared clear-
+  sky GHI value. Solar position/clear-sky GHI are computed ONCE at the
+  plant's nominal center by the caller (reusing `clearsky.
+  compute_clearsky_and_position()`, not duplicated here) rather than per
+  grid point - a deliberate simplification, not a shortcut, since the 3
+  zones span under ~2km and solar geometry is effectively identical across
+  that distance (the same assumption `/sun-path/{zone}` already relies on).
+  `cloud_factor` is a **documented synthetic placeholder** (deterministic
+  sine-wave field seeded by grid position + timestamp, NOT a real Himawari
+  sample) since no live cloud-tile store exists in this dev environment yet
+  (Module 1's own "Known gaps" - MinIO/TimescaleDB rasters aren't
+  accumulated/queryable here) - same convention as `nongfab_simulation.
+  dev_data.synthetic_day_irradiance_temp()`. Swapping in a real
+  `himawari_ingestion.sampling.sample_cloud_at()` call per grid point is a
+  follow-up once Module 1 has a live raster store, not a redesign of this
+  module's shape.
+
 ## Layout
 
 ```
@@ -100,6 +140,8 @@ src/nongfab_features/
   framing.py             make_multistep_targets(), build_training_frame(), chronological_split()
   panel_geometry.py      generate_zone_layout() - per-zone 3D panel positions (Module 7 Feature B/C)
   shading.py              row_shaded_fraction(), zone_solar_access() - analytical row self-shading
+  sld.py                    build_sld() - real-equipment-derived SLD topology (Module 7 Feature D)
+  irradiance_map.py        grid_points(), irradiance_grid() - plant-wide irradiance grid (Module 7 Feature E)
 tests/                pytest suite, no external services or network needed
 ```
 

@@ -3,31 +3,12 @@ import { Compass } from '../components/Compass'
 import { Solar3DScene } from '../components/Solar3DScene'
 import { ZoneSelector } from '../components/ZoneSelector'
 import { useGeometry, useSunPath } from '../lib/queries'
+import { buildAtIso, minutesToHhMm, todayIso } from '../lib/timeScrub'
 import './Solar3DPage.css'
 
 const REAL_ZONE_IDS = ['GIS', 'ISB', 'Jetty'] as const
 const AUTO_PLAY_STEP_MINUTES = 15
 const AUTO_PLAY_INTERVAL_MS = 400
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function minutesToHhMm(minutes: number): string {
-  const h = Math.floor(minutes / 60)
-    .toString()
-    .padStart(2, '0')
-  const m = (minutes % 60).toString().padStart(2, '0')
-  return `${h}:${m}`
-}
-
-function buildAtIso(date: string, minutes: number): string {
-  const hh = Math.floor(minutes / 60)
-    .toString()
-    .padStart(2, '0')
-  const mm = (minutes % 60).toString().padStart(2, '0')
-  return `${date}T${hh}:${mm}:00Z`
-}
 
 export function Solar3DPage() {
   const [zone, setZone] = useState<string>(REAL_ZONE_IDS[0])

@@ -115,10 +115,35 @@ src/nongfab_simulation/
   monte_carlo.py       monte_carlo_prediction_interval() (generic), ScenarioDistribution +
                        monte_carlo_scenario_simulation() (scenario-uncertainty-driven, preferred),
                        evaluate_monte_carlo_interval() (reuses nongfab_forecast.metrics)
-  pipeline.py            simulate_zone_baseline() - orchestrates PV conversion + loss model + clipping
+  pipeline.py            simulate_zone_baseline() - orchestrates PV conversion + loss model + clipping;
+                           estimate_annual_ac_energy_kwh(), loss_breakdown_with_temperature() (Module 7's
+                           Energy Report, STEP 8C)
   api.py                  dev-only FastAPI: POST /simulate/{zone}, POST /simulate/{zone}/compare
 tests/                pytest suite - synthetic baseline (see "Known gaps"), no live services needed
 ```
+
+## Annual energy + temperature loss (Module 7's Energy Report, STEP 8C)
+
+Added to `pipeline.py`, next to `simulate_zone_baseline()`, since both need
+its `ZoneBaseline` output rather than duplicating the fetch/convert/derate
+chain:
+
+- `estimate_annual_ac_energy_kwh(baseline)`: `baseline`'s one synthetic day
+  summed to kWh, x 365 - a **flat extrapolation**, not a real annual
+  simulation with weather variability or seasonality (no accumulated daily
+  generation history exists yet to average over - same caveat as every
+  other module's dev-time behavior).
+- `loss_breakdown_with_temperature(baseline, irradiance, temp)`:
+  `baseline.loss_breakdown` plus a `temperature_pct` entry. `loss_model.py`
+  deliberately excludes temperature (see that module's own docstring - it's
+  already baked into DC power by `pv_conversion.predict_power_kw`'s
+  temperature-coefficient term, not a separate multiplicative derate like
+  soiling/shading/etc.), but Module 7's Energy Report wants temperature
+  alongside those in one loss table. Estimated by comparing DC energy at the
+  actual temperature profile against DC energy at STC (25degC) for the same
+  irradiance - the gap is what temperature alone cost. This doesn't change
+  `loss_model.py`'s own invariant (still temperature-free) - it's a report-
+  side overlay computed from the `pv_conversion` side instead.
 
 ## Run locally
 

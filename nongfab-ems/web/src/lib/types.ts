@@ -144,3 +144,77 @@ export interface SunPathResponse {
   date: string
   points: SunPathPoint[]
 }
+
+export interface SystemSummary {
+  ac_capacity_kw: number
+  dc_capacity_kwp: number
+  dc_ac_ratio: number
+  module_count: number
+  module_power_w: number
+  array_area_m2: number | null
+  inverter_model: string
+  inverter_count: number
+}
+
+export interface AnnualSummary {
+  ac_energy_kwh: number
+  specific_yield_kwh_per_kwp: number
+  performance_ratio: number
+}
+
+export interface SLDString {
+  id: string
+  modules: number
+}
+
+export interface SLDBlock {
+  id: string
+  inverter_model: string
+  inverter_ac_kw: number
+  mppt_count: number
+  strings: SLDString[]
+}
+
+export interface SLDData {
+  module_model: string | null
+  module_power_w: number
+  optimizer_model: string | null
+  optimizer_ratio_modules_per_optimizer: number | null
+  blocks: SLDBlock[]
+  approximate_string_distribution: boolean
+}
+
+export interface EnergyReportResponse {
+  zone: string
+  simulated_zone: boolean
+  system_summary: SystemSummary
+  annual: AnnualSummary
+  loss_breakdown_pct: Record<string, number>
+  co2_saved_kg_per_year: number
+  trees_equivalent_per_year: number
+  sld: SLDData
+}
+
+export interface IrradianceGridPoint {
+  lat: number
+  lon: number
+  ghi_w_m2: number
+  cloud_factor: number
+}
+
+export interface ZonePin {
+  id: string
+  name_full: string
+  lat: number
+  lon: number
+  ac_capacity_kw: number
+  simulated: boolean
+}
+
+export interface IrradianceMapResponse {
+  at: string
+  sun: SolarPosition
+  clearsky_ghi_w_m2: number
+  grid: IrradianceGridPoint[]
+  zones: ZonePin[]
+}

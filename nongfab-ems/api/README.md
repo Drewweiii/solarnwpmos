@@ -65,6 +65,7 @@ Three roles, ordered least-to-most privileged: `viewer < operator < admin`.
 | `POST /simulate/{zone}` | operator | heavier what-if computation, not a plain read |
 | `GET /ws/live` | viewer | read-only (JWT passed as `?token=`) |
 | `GET /geometry/{zone}`, `GET /sun-path/{zone}` | viewer | read-only |
+| `GET /energy-report/{zone}`, `GET /irradiance-map` | viewer | read-only |
 
 `admin` isn't used to gate any route yet (no mutating endpoints exist in
 this module) - it's provisioned so a future admin-only action (user
@@ -113,6 +114,26 @@ management, config writes) has somewhere to plug in without a schema change.
   other module), not a true per-zone calculation - identical across all 3
   zones today, kept under `/{zone}` only for path consistency with the rest
   of the API (an unknown zone still 404s).
+- **`GET /energy-report/{zone}`** → Module 7's Feature D: system summary
+  (capacity, module count, array area), annual generation (AC energy,
+  specific yield, performance ratio - a **flat extrapolation** of one
+  synthetic day, see `simulation/README.md`), a full loss breakdown
+  including temperature (soiling/shading/mismatch/DC-wiring/connections/
+  availability/inverter, Jetty's soiling correctly higher than GIS/ISB's),
+  CO2 saved + trees-equivalent (from `config/assets.yaml`'s `environmental`
+  block), and a real-equipment-derived interactive SLD topology
+  (`nongfab_features.sld.build_sld()`). 404 for an unknown zone.
+- **`GET /irradiance-map?at=<ISO datetime>`** → Module 7's Feature E: a
+  10x10 plant-wide irradiance grid (0-1000 W/m^2) plus the 3 zones' own
+  pins, for a MapLibre overlay with a time scrubber. Built on
+  `nongfab_features.irradiance_map` - solar position/clear-sky GHI computed
+  once at the plant's nominal center (reusing `nongfab_features.clearsky`,
+  same simplification `/sun-path/{zone}` already relies on), with a
+  **documented synthetic cloud factor** per grid point (no live Himawari
+  raster store exists in this dev environment yet - see that module's own
+  docstring for the follow-up path once one does). Not zone-scoped (`at`
+  only, no `{zone}` in the path) since the grid spans the whole plant, not
+  one zone.
 
 ## Known gaps (same caveat as every other module)
 
@@ -132,6 +153,25 @@ simulation READMEs' own "Known gaps"). So:
   registry, but nothing in this module trains a model - see Module 4's dev
   API `/train-now/{zone}/{horizon}` to populate the registry before trying
   this route.
+- `/energy-report/{zone}`'s annual figures are a flat extrapolation of one
+  synthetic day (x365), not a real annual simulation with weather
+  variability/seasonality - see `simulation/README.md`'s "Annual energy +
+  temperature loss" section.
+- `/irradiance-map`'s per-grid-point `cloud_factor` is a documented
+  synthetic placeholder (no live Himawari raster store exists in this dev
+  environment yet) - see `features/README.md`'s "SLD topology & irradiance
+  grid" section.
+- **Found but not fixed this pass** (pre-existing, unrelated to STEP 8C):
+  `test_ws_live.py::test_zone_snapshot_uses_the_row_nearest_now_not_always_the_last_row`
+  fails when run on a day after the test's hardcoded monkeypatched date
+  (currently `2026-07-14`) - `nongfab_simulation.dev_data.
+  synthetic_day_irradiance_temp()` anchors its synthetic day to the *real*
+  wall-clock date via its own internal `datetime.now()` call, which the
+  test doesn't (can't, from outside) monkeypatch, so the synthetic index
+  drifts out of sync with the test's fixed "now" as real time passes past
+  the hardcoded date. Confirmed via `git stash` that this fails identically
+  on the pre-STEP-8C code, so it's environmental clock drift, not a
+  regression introduced here.
 
 ## Running
 
@@ -172,7 +212,7 @@ deliberately never auto-creates tables itself; see `db/migrations/
 
 ## Tests
 
-`pytest` - 72 tests, no real Postgres or MLflow server required:
+`pytest` - 87 tests, no real Postgres or MLflow server required:
 
 - `test_auth.py` (23) - password hashing, `UserStore` CRUD/seeding, JWT
   create/decode (expiry, wrong secret, malformed/missing claims),
@@ -185,6 +225,12 @@ deliberately never auto-creates tables itself; see `db/migrations/
   `test_routes_solar3d.py` (12) - per-route auth requirement, RBAC
   enforcement, unknown-zone/horizon 404s, invalid-scenario 422, Monte Carlo
   interval bounds, day/night solar-access behavior, malformed-date 422.
+- `test_routes_energy_report.py` (9) + `test_routes_irradiance_map.py` (6) -
+  system-summary/annual-figure sanity, temperature present in the loss
+  breakdown, Jetty's soiling higher than GIS's, CO2-saved arithmetic, SLD
+  module-count totals matching `module_count` for both the approximate
+  (GIS/ISB) and real (Jetty sub-array) cases, grid-value display-range
+  bounds, night-time all-zero grid.
 - `test_ws_live.py` (6) - snapshot shape, repeated pushes, missing/invalid
   token rejection, and a regression test for a real bug caught during live
   verification (see below).
@@ -262,3 +308,22 @@ Jetty's `simulated_zone: true` flag correctly triggered the dashboard's
 bug found (a default 3D camera framed on the geometric center of Jetty's
 4 widely-spread sub-arrays, showing empty space instead of any panels) was
 in `web/`'s `Solar3DScene.tsx`, not this module - see `web/README.md`.
+
+### Verified live a fourth time - STEP 8C, Energy Report + irradiance map (2026-07-15)
+
+`/energy-report/{zone}` and `/irradiance-map` (added for Feature D/E) were
+exercised the same way: real `uvicorn` + `vite dev`, headless Chromium with
+software WebGL. `curl`-verified both routes directly first (real physics:
+GIS's PR ≈ 0.84, temperature loss ≈ 2.67% at the synthetic day's profile,
+Jetty's soiling 6.0% vs GIS's 2.5%, CO2 saved = capacity_kw x the
+`environmental` constant exactly), then drove the dashboard end to end:
+system summary/annual/losses/CO2/SLD all render for GIS, switching to Jetty
+correctly shows the simulated badge, higher soiling, and the SLD's real
+sub-array ids (`01A.L`/`02A.L`/`03A.R`/`04A.R`); the SLD's string/inverter
+nodes are click-interactive (a details panel updates per click). The
+irradiance map's MapLibre canvas renders 100 grid points plus 3 zone pins,
+the clear-sky GHI readout tracks the time scrubber (correctly 0 at night),
+and the layer-toggle checkboxes hide/show each layer. No backend bug this
+round - see `web/README.md`'s own "Verified live" for a real frontend bug
+this same pass caught (a MapLibre canvas remount that silently reset the
+layer-toggle state on every time-scrubber tick).

@@ -1,8 +1,10 @@
 import type {
   AssetRegistry,
+  EnergyReportResponse,
   ForecastHorizon,
   ForecastResponse,
   GeometryResponse,
+  IrradianceMapResponse,
   PerformanceResponse,
   SimulateRequest,
   SimulateResponse,
@@ -74,3 +76,9 @@ export const getGeometry = (zone: string, at: string | undefined, token: string)
 
 export const getSunPath = (zone: string, date: string | undefined, token: string): Promise<SunPathResponse> =>
   request(`/sun-path/${zone}${date ? `?date=${encodeURIComponent(date)}` : ''}`, token)
+
+export const getEnergyReport = (zone: string, token: string): Promise<EnergyReportResponse> =>
+  request(`/energy-report/${zone}`, token)
+
+export const getIrradianceMap = (at: string | undefined, token: string): Promise<IrradianceMapResponse> =>
+  request(`/irradiance-map${at ? `?at=${encodeURIComponent(at)}` : ''}`, token)

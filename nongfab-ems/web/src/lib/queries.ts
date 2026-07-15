@@ -1,5 +1,5 @@
-import { useQueries, useQuery } from '@tanstack/react-query'
-import { getAssets, getForecast, getGeometry, getPerformance, getSunPath } from './api'
+import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query'
+import { getAssets, getEnergyReport, getForecast, getGeometry, getIrradianceMap, getPerformance, getSunPath } from './api'
 import type { ForecastHorizon } from './types'
 import { useAuth } from './auth'
 
@@ -64,13 +64,20 @@ export function useAllZonesForecast(horizon: ForecastHorizon) {
 
 /** `at`: ISO timestamp to evaluate the sun/shading at - omit for "now".
  * Kept out of the query key's identity when unset vs a specific instant so
- * "now" queries still get react-query's normal staleTime/refetch behavior. */
+ * "now" queries still get react-query's normal staleTime/refetch behavior.
+ * `placeholderData: keepPreviousData` - each `at` is a distinct query key
+ * (a distinct cache entry), so without it `data` would go `undefined`
+ * between every time-scrubber tick; the 3D page only renders `Solar3DScene`
+ * while `data` is defined, so that gap was unmounting/remounting the whole
+ * WebGL canvas on every tick, discarding the user's camera pan/zoom - found
+ * via this page's own live verification (see web/README.md). */
 export function useGeometry(zone: string, at?: string) {
   const { token } = useAuth()
   return useQuery({
     queryKey: ['geometry', zone, at ?? 'now'],
     queryFn: () => getGeometry(zone, at, token!),
     enabled: Boolean(token) && zone !== ALL_ZONES_ID,
+    placeholderData: keepPreviousData,
   })
 }
 
@@ -81,5 +88,31 @@ export function useSunPath(zone: string, date?: string) {
     queryFn: () => getSunPath(zone, date, token!),
     enabled: Boolean(token) && zone !== ALL_ZONES_ID,
     staleTime: 60 * 60 * 1000, // a whole day's sun-path arc doesn't change within the same UTC day
+  })
+}
+
+export function useEnergyReport(zone: string) {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['energy-report', zone],
+    queryFn: () => getEnergyReport(zone, token!),
+    enabled: Boolean(token) && zone !== ALL_ZONES_ID,
+    staleTime: 5 * 60 * 1000, // annual/loss/SLD figures don't change within a session
+  })
+}
+
+/** `at`: ISO timestamp to evaluate the irradiance grid at - omit for "now",
+ * same convention as `useGeometry`. `placeholderData: keepPreviousData` for
+ * the same reason as `useGeometry`: without it, `IrradianceMapView` (the
+ * MapLibre canvas) would unmount/remount on every time-scrubber tick,
+ * silently resetting the layer-visibility toggles back to their default -
+ * caught live (see web/README.md). */
+export function useIrradianceMap(at?: string) {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['irradiance-map', at ?? 'now'],
+    queryFn: () => getIrradianceMap(at, token!),
+    enabled: Boolean(token),
+    placeholderData: keepPreviousData,
   })
 }

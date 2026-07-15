@@ -16,7 +16,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-from . import routes_assets, routes_forecast, routes_performance, routes_simulate, routes_solar3d, ws_live
+from . import (
+    routes_assets,
+    routes_energy_report,
+    routes_forecast,
+    routes_irradiance_map,
+    routes_performance,
+    routes_simulate,
+    routes_solar3d,
+    ws_live,
+)
 from .auth import UserStore, create_access_token, verify_password
 from .config import Settings, get_settings
 
@@ -87,6 +96,8 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     app.include_router(routes_simulate.router)
     app.include_router(routes_performance.router)
     app.include_router(routes_solar3d.router)
+    app.include_router(routes_energy_report.router)
+    app.include_router(routes_irradiance_map.router)
     app.include_router(ws_live.router)
 
     return app

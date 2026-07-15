@@ -11,9 +11,27 @@ STEP 8B (Feature B+C, Aurora/SolarTH-style 3D view) is also built, at `/3d`:
 a real Three.js scene (`@react-three/fiber`) showing each zone's panel grid
 colored by solar-access % (or by string, toggle-able), a compass/altitude
 readout, a sun-path arc line, and a date + time scrubber (with auto-play)
-that drives both the sun position and every panel's shading live. Still to
-come (STEP 8C, not started): Energy Report + interactive SLD viewer,
-MapLibre irradiance map.
+that drives both the sun position and every panel's shading live.
+
+STEP 8C (Feature D+E) is also built:
+
+- **`/energy-report`** - a per-zone Energy Report: system summary
+  (capacity, module count, array area, inverter), annual generation
+  (energy, specific yield, performance ratio - a flat extrapolation, see
+  `simulation/README.md`), a full loss breakdown including temperature
+  (Jetty's soiling correctly higher than GIS/ISB's), CO2 saved/trees
+  equivalent, and an interactive SLD viewer (`SLDViewer.tsx`) built from the
+  zone's real equipment data (not a scanned image) - click any string or
+  inverter node to see its specs.
+- **`/irradiance-map`** - a MapLibre GL map (`IrradianceMapView.tsx`)
+  showing all 3 zones' pins plus a plant-wide irradiance overlay (0-1000
+  W/m^2, with a documented synthetic cloud factor - see `features/README.md`),
+  a date + time scrubber (with auto-play, same pattern as `/3d`), and
+  layer-toggle checkboxes for the irradiance overlay and zone pins
+  independently.
+
+Both pages, plus `/3d`, are now code-split (`React.lazy`) into their own
+chunks fetched on navigation - see "Known gaps" below.
 
 ## Auth
 
@@ -57,6 +75,28 @@ here is a security boundary by itself.
   visual depth. This is deliberate - the panels are simplified box meshes,
   and a real-time shadow map from them would be *less* accurate than the
   purpose-built geometric model already backing the color.
+- **SLD viewer is generated, not scanned** (`SLDViewer.tsx`,
+  `EnergyReportPage.tsx`): plain HTML buttons/divs laid out as a topology
+  diagram (string -> inverter -> AC), built from the zone's own real
+  equipment counts (`nongfab_features.sld.build_sld()`) - not an image of
+  the original SLD PDF (none is bundled in this repo). Every node is a
+  `<button>` so it's keyboard-operable and click-testable without
+  simulating hover.
+- **Irradiance map has no real basemap tiles** (`IrradianceMapView.tsx`):
+  MapLibre is initialized with a self-contained blank style (a solid
+  background color, no external source) rather than a real tile provider,
+  since picking one means an API-key/ToS decision this session didn't make
+  (see the "stop and ask before deciding on external-source ToS" rule in
+  root instructions) - the irradiance overlay and zone pins are functionally
+  complete without real street/satellite tiles underneath. Swapping in a
+  real basemap style URL is a follow-up, not a redesign.
+- **Time-scrubber queries use `placeholderData: keepPreviousData`**
+  (`lib/queries.ts`'s `useGeometry`/`useIrradianceMap`): each scrubbed `at`
+  is a distinct query-cache key, so without this, `data` would go
+  `undefined` between every tick, unmounting/remounting the whole WebGL/
+  MapLibre canvas underneath (discarding camera pan/zoom, and - for the
+  irradiance map - silently resetting the layer-toggle checkboxes back to
+  their default). Found live this pass - see "Verified live" below.
 
 ## Known gaps
 
@@ -74,11 +114,22 @@ page shows a plain status message rather than fabricating a forecast line.
   visual distinction, not a designed palette - can land on a dark, low-
   contrast color against the night scene's dark background (a cosmetic gap,
   not a data-correctness one).
-- The production bundle is ~1.6MB (~450KB gzipped) after adding Three.js -
-  no code-splitting yet. Deferred until Feature D/E (MapLibre) also lands,
-  since a single code-splitting pass across all the heavy per-page
-  dependencies (Three.js, Recharts, MapLibre) makes more sense than three
-  separate passes.
+- Code-splitting landed with STEP 8C: adding MapLibre grew the single
+  bundle to ~2.6MB (~720KB gzipped), which was the trigger to do the pass
+  deferred in STEP 8B (see the old note this replaced). `/3d`,
+  `/energy-report`, and `/irradiance-map` are now `React.lazy` route
+  chunks fetched on navigation; `/forecast` (Recharts) stays eager since
+  it's the default landing page anyway. The initial login/forecast load is
+  now ~677KB (~200KB gzipped); Three.js and MapLibre (~245KB/~275KB
+  gzipped each) only load when their route is visited.
+- `SLD viewer` (GIS/ISB) shows an even-split approximation of per-string
+  module counts, not a real per-string survey - same caveat and same
+  `approximate_string_distribution` flag as `panel_geometry.py`'s own
+  GIS/ISB visualization approximation (only Jetty has real per-string data).
+- Irradiance map's `cloud_factor` is a documented synthetic placeholder
+  (deterministic sine-wave field, not a real Himawari sample) - see
+  `features/README.md`'s "SLD topology & irradiance grid" section for why
+  and what the real follow-up looks like.
 
 ## Verified live (2026-07-14)
 
@@ -129,6 +180,48 @@ panels visible at all. Fixed `Solar3DScene.tsx` to frame the default camera
 on the *first block* specifically (still rendering every other block, still
 reachable by scrolling out) - re-verified live that Jetty now shows real
 panels by default.
+
+### Verified live - STEP 8C, Energy Report + irradiance map (2026-07-15)
+
+Same real `uvicorn` + `vite dev` pair, headless Chromium with software
+WebGL (needed for MapLibre's canvas too, not just Three.js). Confirmed:
+`/energy-report` renders system summary/annual/losses(incl. temperature)/
+CO2/SLD for GIS with real numbers; switching to Jetty shows the simulated
+badge, higher soiling (6.0% vs GIS's 2.5%), and the SLD's real sub-array
+ids (`01A.L`/`02A.L`/`03A.R`/`04A.R`) instead of synthetic `INV-N` labels;
+clicking a string or inverter node in the SLD viewer updates the detail
+panel. `/irradiance-map` renders a MapLibre canvas with 100 grid points and
+3 labeled zone pins, the clear-sky GHI readout tracks the time scrubber
+(0 W/m² at night), and both layer-toggle checkboxes work. No console/WebGL
+errors; the only 404s seen were `/forecast/*/day` (pre-existing, documented
+"no model trained yet" behavior, unrelated to this pass).
+
+**Found and fixed two real bugs, both in `web/`, neither in the backend**:
+
+1. Toggling "Irradiance overlay" off, then moving the time scrubber, made
+   the overlay **reappear** even though the checkbox stayed unchecked.
+   Root cause: `useIrradianceMap`'s query key includes `at`, so every
+   scrubber tick was a *new* cache entry - `data` went `undefined` during
+   each refetch, which unmounted `IrradianceMapView` (its containing
+   `{map.data && ...}` block), destroying the whole MapLibre instance and
+   recreating it from scratch with default (visible) layer visibility,
+   silently discarding the toggle state. The same class of bug already
+   existed in `useGeometry` (`/3d`'s scrubber), just less visible there
+   since a remounted Three.js camera happens to reset to the same
+   deterministic framing rather than a wrong one - but it was still
+   discarding any user pan/zoom on every tick, including every 400ms during
+   auto-play. Fixed both hooks with `placeholderData: keepPreviousData`
+   (`lib/queries.ts`) so `data` stays defined across a refetch instead of
+   going through `undefined`.
+2. Independently, the layer-visibility effect could run *before* MapLibre's
+   async `'load'` event had actually added the layers (`map.getLayer(id)`
+   returns undefined until then), silently no-op-ing a toggle clicked in
+   that window with no way to recover once the layers did appear (the
+   effect never re-runs unless the toggle props themselves change again).
+   Fixed `IrradianceMapView.tsx` with a `layersReady` state flag set inside
+   the `'load'` handler, added to the visibility effect's dependency array,
+   so it correctly re-applies the current toggle state once the layers
+   actually exist.
 
 ## Run locally
 

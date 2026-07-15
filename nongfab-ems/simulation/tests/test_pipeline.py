@@ -2,7 +2,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nongfab_simulation.pipeline import simulate_zone_baseline
+from nongfab_simulation.pipeline import (
+    DAYS_PER_YEAR,
+    estimate_annual_ac_energy_kwh,
+    loss_breakdown_with_temperature,
+    simulate_zone_baseline,
+)
 
 
 def _synthetic_day():
@@ -61,3 +66,41 @@ def test_simulate_zone_baseline_rejects_unknown_zone():
     idx, ssrd, temp = _synthetic_day()
     with pytest.raises(KeyError):
         simulate_zone_baseline("Nowhere", ssrd, temp, idx)
+
+
+def test_estimate_annual_ac_energy_kwh_is_daily_energy_times_days_per_year():
+    idx, ssrd, temp = _synthetic_day()
+    baseline = simulate_zone_baseline("GIS", ssrd, temp, idx)
+    annual = estimate_annual_ac_energy_kwh(baseline)
+    assert annual == pytest.approx(float(baseline.ac_power_kw.sum()) * DAYS_PER_YEAR)
+
+
+def test_estimate_annual_ac_energy_kwh_is_positive_for_a_sunny_day():
+    idx, ssrd, temp = _synthetic_day()
+    baseline = simulate_zone_baseline("ISB", ssrd, temp, idx)
+    assert estimate_annual_ac_energy_kwh(baseline) > 0
+
+
+def test_loss_breakdown_with_temperature_adds_temperature_pct_alongside_existing_keys():
+    idx, ssrd, temp = _synthetic_day()
+    baseline = simulate_zone_baseline("GIS", ssrd, temp, idx)
+    breakdown = loss_breakdown_with_temperature(baseline, ssrd, temp)
+    assert "temperature_pct" in breakdown
+    for key in baseline.loss_breakdown:
+        assert breakdown[key] == baseline.loss_breakdown[key]
+
+
+def test_loss_breakdown_with_temperature_is_zero_at_stc_temperature():
+    idx, ssrd, _temp = _synthetic_day()
+    stc_temp = np.full(24, 25.0)
+    baseline = simulate_zone_baseline("GIS", ssrd, stc_temp, idx)
+    breakdown = loss_breakdown_with_temperature(baseline, ssrd, stc_temp)
+    assert breakdown["temperature_pct"] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_loss_breakdown_with_temperature_is_positive_above_stc_temperature():
+    idx, ssrd, _temp = _synthetic_day()
+    hot_temp = np.full(24, 40.0)
+    baseline = simulate_zone_baseline("GIS", ssrd, hot_temp, idx)
+    breakdown = loss_breakdown_with_temperature(baseline, ssrd, hot_temp)
+    assert breakdown["temperature_pct"] > 0
