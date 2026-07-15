@@ -41,4 +41,13 @@ EXPOSE 8000
 # a PORT env var the app must bind to, while docker-compose leaves it unset and
 # falls back to 8000. --proxy-headers so the app trusts the platform's
 # X-Forwarded-* headers (correct scheme/host behind Railway's TLS proxy).
-CMD uvicorn nongfab_api.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers
+#
+# `cd /data` first (silently no-op if it doesn't exist, e.g. docker-compose
+# local dev with no volume attached): registry.py's MLflow tracking URI and
+# API_TIMESCALE_DSN's sqlite file are resolved relative to the process's cwd
+# at startup, not relative to each other - verified empirically that
+# mlflow.pyfunc.log_model()'s artifact ("mlruns/") lands under cwd regardless
+# of the sqlite DB's own path. Without this, both the auth DB and every
+# trained model would be wiped on every redeploy/restart (Railway containers
+# have no persistent disk outside an attached Volume).
+CMD cd /data 2>/dev/null; uvicorn nongfab_api.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers
