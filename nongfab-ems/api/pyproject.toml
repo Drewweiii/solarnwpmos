@@ -24,6 +24,9 @@ dependencies = [
   "nongfab-features",
   "nongfab-forecast",
   "nongfab-simulation",
+  "nwp-ingestion",
+  "himawari-ingestion",
+  "nasa-power-ingestion",
 ]
 
 [project.optional-dependencies]

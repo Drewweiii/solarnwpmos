@@ -194,6 +194,33 @@ Default mode is **`mock`**, which synthesizes a small raster (same shape as
 per-pixel jitter. The rest of the pipeline (motion, MinIO, TimescaleDB,
 scheduler, metrics) is fully implemented and tested against this mock.
 
+## Backfill (historical)
+
+`backfill.py`, alongside `datasource.HimawariAHICloudSource.fetch_at(anchor)`
+(generalized from the old `fetch_latest`-only `_find_latest_object_key()` into
+`_find_object_key_at_or_before(anchor)`, which now takes an arbitrary
+timestamp instead of always walking back from "now") - seeds cold-start
+training history the same way `ingestion/nwp/backfill.py` does for GFS, and
+for the same reason (Module 4 needs real accumulated data, not just
+live-forward polling from here on - see root README "Known gaps"):
+
+- `fetch_latest()` is now just `fetch_at(now - publish_latency_minutes)` -
+  no behavior change for the live poll loop (`scheduler.py`), same NOAA
+  bucket, same walk-back-through-slots logic.
+- `backfill.backfill_range()` loops `historical_slots()` (every
+  `Settings.backfill_cadence_minutes`-spaced timestamp over
+  `Settings.backfill_lookback_days`, default hourly over 30 days = 720
+  slots) and yields one `(raw, frame)` pair per successfully-fetched slot,
+  or `None` for a slot that failed after retries (logged, not raised - same
+  per-slot failure isolation as the NWP backfill).
+- **Hourly, not native 10-min, cadence for the 30-day window**: 4320
+  10-min-cadence fetches would be impractical for a one-shot boot-time job;
+  hourly (720) is enough to give Module 3's lag/EMA features a real
+  multi-week baseline. The live poll loop still runs at native 10-min
+  cadence going forward, so the minute-ahead CNN-LSTM's short lookback gets
+  dense data too, just accumulated from deploy time onward rather than
+  backfilled at that density.
+
 ## Layout
 
 ```
@@ -204,8 +231,9 @@ src/himawari_ingestion/
   geolocation.py   CalibratedPixel/BBox, NONG_FAB_PIXEL/BBOX (bbox extent sourced from
                     config/assets.yaml via nongfab_common), calibrate_*_index()
   motion.py        FFT phase-correlation cloud motion vector
-  datasource.py    CloudDataSource interface, HimawariAHICloudSource, MockCloudDataSource,
-                    (de)serialize_raster (.npz)
+  datasource.py    CloudDataSource interface, HimawariAHICloudSource (fetch_latest +
+                    fetch_at(anchor)), MockCloudDataSource, (de)serialize_raster (.npz)
+  backfill.py      backfill_range(), historical_slots() - historical seeding via fetch_at()
   sampling.py      sample_cloud_at() / sample_cloud_at_time() - query any coordinate/time
   storage.py       RawObjectStorage (MinIO, put_raw+get_raw), TimescaleWriter
                     (cloud_obs + cloud_raster_frames), TimescaleReader (frame lookup by time)
@@ -241,7 +269,25 @@ RUN_LIVE_NOAA_TESTS=1 pytest -v -m integration -k noaa
 
 # Needs db/migrations/0001_cloud_obs.sql AND 0002_cloud_raster_frames.sql applied:
 TIMESCALE_TEST_DSN=postgresql+asyncpg://postgres:postgres@localhost:5432/nongfab_ems pytest -v -m integration -k timescale
+
+# real historical fetch_at() + a small real backfill_range() window (~30-60s):
+RUN_LIVE_NOAA_TESTS=1 pytest -v -m integration -k "fetch_at_against_real or backfill_range_against_real"
 ```
+
+## Verified live (2026-07-15) - backfill path
+
+- `fetch_at()` with a 3-days-ago anchor returned a real historical frame
+  (`observed_at` 2026-07-12 16:20 UTC, cloud opacity ~100%, index 1.0 -
+  plausible for a rainy monsoon-season day at Nong Fab) - confirming the
+  generalized `_find_object_key_at_or_before(anchor)` walk-back correctly
+  targets the *anchor's* slot, not "now".
+- A real 1-day/3-hourly (9-slot) `backfill_range()` run against the live
+  bucket succeeded on all 9 slots in ~30s
+  (`test_backfill_range_against_real_noaa_bucket_small_window`) - proving the
+  full `historical_slots()` → `fetch_at()` × N → yield loop, not just one
+  isolated fetch, mirroring the same small-scale-real-proxy approach used to
+  verify `ingestion/nwp/backfill.py`.
+- `ruff check` clean; full suite (63 tests, 4 integration-gated) passes.
 
 ## Dev verification API (optional, not Module 6)
 

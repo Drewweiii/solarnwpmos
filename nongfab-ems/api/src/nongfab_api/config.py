@@ -1,4 +1,13 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _default_nwp_poll_forecast_hours() -> list[int]:
+    # Near-term hourly (feeds hour-ahead's lag/regressor features), sparser further
+    # out (day-ahead's future regressors don't need finer than this) - a smaller set
+    # than nwp_ingestion.config.Settings' own default (this runs every poll tick
+    # in-process, not as a separate scheduled job, so kept light).
+    return [1, 2, 3, 4, 5, 6, 12, 18, 24]
 
 
 class Settings(BaseSettings):
@@ -28,6 +37,23 @@ class Settings(BaseSettings):
 
     # /ws/live push interval
     live_push_interval_seconds: float = 5.0
+
+    # Real-data background ingestion (ingestion_scheduler.py) - runs inside this
+    # API process rather than as separate deployed services, since this
+    # deployment has no persistent TimescaleDB for ingestion/nwp's and
+    # ingestion/himawari's own storage.py to write to (see root README "Known
+    # gaps" and forecast/local_store.py's docstring). Defaults ON so a fresh
+    # deploy actually produces real forecasts without a manual step; the
+    # `settings` test fixture (api/tests/conftest.py) explicitly disables it so
+    # the test suite stays hermetic/fast, matching how live_push_interval_seconds
+    # is already overridden there.
+    enable_background_ingestion: bool = True
+    real_data_db_path: str = ""  # empty -> forecast.local_store.RealDataStore's own default (:memory:, single app-lifetime instance)
+    backfill_lookback_days: int = 30
+    himawari_poll_interval_seconds: float = 600.0  # 10 min, matches Himawari's native product cadence
+    nwp_poll_interval_seconds: float = 3600.0  # 1h - GFS only publishes every 6h, hourly is already generous
+    nwp_poll_forecast_hours: list[int] = Field(default_factory=_default_nwp_poll_forecast_hours)
+    retrain_interval_seconds: float = 21600.0  # 6h - one retrain per real GFS cycle
 
     port: int = 8000
 

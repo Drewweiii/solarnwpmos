@@ -36,6 +36,14 @@ class Settings(BaseSettings):
 
     poll_interval_minutes: int = 10
 
+    # Historical backfill (backfill.py) - seeds cold-start training history instead
+    # of waiting for live polling to accumulate it. Native 10-min cadence over 30
+    # days would be 4320 fetches (each a list-objects + a range-read), too many for
+    # a one-shot boot-time job - backfill_cadence_minutes samples coarser than
+    # poll_interval_minutes on purpose; see backfill.py's own docstring.
+    backfill_lookback_days: int = 30
+    backfill_cadence_minutes: int = 60
+
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"

@@ -80,7 +80,11 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install ruff -e ./libs/nongfab_common -e ./features -e ./forecast -e ./simulation -e "./api[dev]"
+      - run: >
+          pip install ruff
+          -e ./libs/nongfab_common -e ./features -e ./forecast -e ./simulation
+          -e ./ingestion/nwp -e ./ingestion/himawari -e ./ingestion/nasa_power
+          -e "./api[dev]"
       - run: ruff check api/src api/tests
       - run: pytest api -v
 

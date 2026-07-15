@@ -30,6 +30,28 @@ class Settings(BaseSettings):
     nomads_prod_dir_template: str = "/gfs.{date:%Y%m%d}/{cycle:02d}/atmos"
     gfs_file_template: str = "gfs.t{cycle:02d}z.pgrb2.0p25.f{fhour:03d}"
 
+    # NOAA GFS mirror on AWS Open Data - same public-domain, no-credential,
+    # no-ToS-gate profile as ingestion.himawari's noaa-himawari9 bucket (see
+    # registry.opendata.aws/noaa-gfs-bdp-pds). Used for *historical* backfill
+    # (S3GfsBackfillDataSource): unlike the NOMADS filter/subset service, plain
+    # S3 has no server-side subregion clipping, so this fetches each field's
+    # whole-globe GRIB2 message via an .idx-guided HTTP byte-range GET and
+    # crops to Nong Fab client-side after decoding - more bytes per field
+    # (~0.5-1MB vs NOMADS's pre-clipped response) but reaches arbitrary past
+    # cycles, which NOMADS's rolling ~2-week retention doesn't guarantee.
+    # Chosen over NOMADS for backfill specifically because this sandbox's
+    # egress policy allows *.s3.amazonaws.com but blocks nomads.ncep.noaa.gov
+    # outright (live-verified 2026-07-15 - see README "Data source & ToS").
+    gfs_aws_bucket: str = "noaa-gfs-bdp-pds"
+    gfs_aws_base_url: str = "https://noaa-gfs-bdp-pds.s3.amazonaws.com"
+
+    backfill_lookback_days: int = 30
+    # One forecast hour per cycle (a short-lead "nowcast") rather than a full
+    # 0-6h sweep - keeps a 30-day x 4-cycle backfill at ~120 fetches x 5
+    # fields instead of ~720x5, since this seeds cold-start training history,
+    # not a research-grade reanalysis archive.
+    backfill_forecast_hour: int = 1
+
     # bbox padding beyond the plant's own bounding box (config/assets.yaml), in degrees.
     # GFS 0.25deg grid spacing is ~27km - this pads enough to guarantee at least one
     # full surrounding grid cell for future spatial interpolation, not just a single point.

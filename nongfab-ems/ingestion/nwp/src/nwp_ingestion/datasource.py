@@ -121,6 +121,80 @@ def _decode_grib_sync(grib_bytes: bytes, target_lat: float, target_lon: float, s
         )
 
 
+_S3_BACKFILL_FIELDS: dict[str, tuple[str, str]] = {
+    # name -> (shortName, level), matched exactly against one .idx line's own
+    # ":shortName:level:" fields - NOT the step-type suffix (e.g. "0-1 hour ave
+    # fcst", "6-12 hour ave fcst"), which is forecast-hour-dependent and would
+    # never match beyond f001 if included (see README "Backfill" - caught live
+    # 2026-07-15 by actually fetching f002/f003/f006/f012/f024, not assumed from
+    # f001 alone). Same five fields as _decode_grib_sync's NOMADS path (surface
+    # DSWRF + 2m TMP/RH + 10m UGRD/VGRD), just fetched one whole-globe message
+    # at a time instead of one pre-clipped multi-field file - see
+    # config.Settings.gfs_aws_base_url docstring.
+    "ssrd_w_m2": ("DSWRF", "surface"),
+    "temp2m_c": ("TMP", "2 m above ground"),
+    "relative_humidity_pct": ("RH", "2 m above ground"),
+    "wind10m_u_ms": ("UGRD", "10 m above ground"),
+    "wind10m_v_ms": ("VGRD", "10 m above ground"),
+}
+
+
+def _parse_grib_idx(idx_text: str) -> list[tuple[int, int, str, str]]:
+    """Parses a NOMADS/AWS-style .idx sidecar (`<msg_num>:<byte_offset>:d=<date><cycle>
+    :<shortName>:<level>:<step>:`, one GRIB2 message per line, in file order) into
+    (msg_num, byte_offset, short_name, level) tuples - same format on the AWS mirror
+    as on NOMADS itself. The step-type field (4th colon-segment, e.g. "6 hour fcst")
+    is deliberately dropped here, not just unused by callers - see
+    _S3_BACKFILL_FIELDS's docstring for why matching against it breaks past f001.
+    """
+    rows = []
+    for line in idx_text.strip().splitlines():
+        if not line:
+            continue
+        msg_num_s, offset_s, rest = line.split(":", 2)
+        # rest = "d=<date><cycle>:<shortName>:<level>:<step>:" - split(":") drops the
+        # leading "d=..." token and any trailing empty string from the final colon.
+        parts = rest.split(":")
+        short_name, level = parts[1], parts[2]
+        rows.append((int(msg_num_s), int(offset_s), short_name, level))
+    return rows
+
+
+def _byte_range_for_field(idx: list[tuple[int, int, str, str]], short_name: str, level: str) -> tuple[int, int | None]:
+    """A message's byte range is [its own offset, the *next* message's offset - 1]
+    (or open-ended for the last message in the file) - .idx files don't record
+    length directly, only start offsets, so the range is always derived from the
+    following entry. Exact (short_name, level) match, not a substring search - a
+    substring match on shortName alone is ambiguous (e.g. "TMP" also matches
+    "APTMP", which sorts *after* TMP in some files and before in others - caught
+    live 2026-07-15 comparing f006's real message order, not assumed safe).
+    """
+    for i, (_, offset, msg_short_name, msg_level) in enumerate(idx):
+        if msg_short_name == short_name and msg_level == level:
+            end = idx[i + 1][1] - 1 if i + 1 < len(idx) else None
+            return offset, end
+    raise ValueError(f"no GRIB2 message matching shortName={short_name!r} level={level!r} in .idx")
+
+
+def _decode_single_field_grib_sync(grib_bytes: bytes, target_lat: float, target_lon: float) -> float:
+    """Blocking: decodes one whole-globe, single-field GRIB2 message (as fetched by
+    S3GfsBackfillDataSource's byte-range GET) and samples the grid point nearest Nong
+    Fab. Simpler than _decode_grib_sync: since each byte range already isolates one
+    field, there's no typeOfLevel/shortName merge conflict to route around with
+    filter_by_keys - see that function's docstring for what that conflict looks like
+    when multiple fields share one file (the NOMADS path).
+    """
+    import xarray as xr
+
+    with tempfile.NamedTemporaryFile(suffix=".grib2") as tmp:
+        tmp.write(grib_bytes)
+        tmp.flush()
+        ds = xr.open_dataset(tmp.name, engine="cfgrib", backend_kwargs={"indexpath": ""})
+        (var_name,) = ds.data_vars
+        val = ds[var_name].sel(latitude=target_lat, longitude=target_lon % 360, method="nearest")
+        return float(val.item())
+
+
 def _most_recent_published_cycle(now: datetime, cycles: list[int], publish_latency_minutes: int) -> datetime:
     """Cycle hours are 00/06/12/18 UTC; a cycle is only assumed published
     `publish_latency_minutes` after its run time (GFS 0.25deg typically finishes
@@ -227,6 +301,128 @@ class NomadsGfsDataSource(NWPDataSource):
             issue_time=cycle_issue_time,
             forecast_hour=forecast_hour,
         )
+
+
+class S3GfsBackfillDataSource(NWPDataSource):
+    """Historical-backfill adapter: same GFS 0.25deg product as NomadsGfsDataSource,
+    fetched from NOAA's AWS Open Data mirror instead of the NOMADS filter/subset CGI
+    service. Public domain, no credentials, no robots.txt/ToS gate - registered at
+    registry.opendata.aws/noaa-gfs-bdp-pds, the same compliance profile already
+    documented for ingestion.himawari's noaa-himawari9 bucket.
+
+    Exists specifically for backfill/replay (`fetch_cycle` takes an explicit
+    `issue_time`, unlike `fetch_latest_cycle`'s "walk back from now"), and because
+    this sandbox's egress policy allows *.s3.amazonaws.com but rejects
+    nomads.ncep.noaa.gov outright (live-verified 2026-07-15 against both hosts - see
+    README "Data source & ToS"). NomadsGfsDataSource remains the live/production
+    source for `fetch_latest_cycle` polling; this class is additive, not a
+    replacement.
+    """
+
+    SOURCE_NAME = "noaa-gfs-aws-0p25"
+
+    def __init__(
+        self, settings: Settings, client: httpx.AsyncClient, rate_limiter: RateLimiter,
+        target_latitude: float | None = None, target_longitude: float | None = None,
+    ):
+        self._settings = settings
+        self._client = client
+        self._rate_limiter = rate_limiter
+        self._target_lat = target_latitude if target_latitude is not None else settings.site_latitude
+        self._target_lon = target_longitude if target_longitude is not None else settings.site_longitude
+
+    async def fetch_latest_cycle(self) -> list[tuple[RawFetchResult, NWPForecastPoint]]:
+        settings = self._settings
+        cycle_issue_time = _most_recent_published_cycle(
+            datetime.now(timezone.utc), settings.gfs_cycles, settings.publish_latency_minutes
+        )
+        raw, point = await self.fetch_cycle(cycle_issue_time, settings.backfill_forecast_hour)
+        return [(raw, point)]
+
+    async def fetch_cycle(self, issue_time: datetime, forecast_hour: int) -> tuple[RawFetchResult, NWPForecastPoint]:
+        """Fetches one (cycle, forecast_hour) pair for an arbitrary past issue_time -
+        the primitive backfill.backfill_range() loops over to build a training window.
+        """
+        settings = self._settings
+        cycle = issue_time.hour
+        base_url = (
+            f"{settings.gfs_aws_base_url}/gfs.{issue_time:%Y%m%d}/{cycle:02d}/atmos/"
+            f"gfs.t{cycle:02d}z.pgrb2.0p25.f{forecast_hour:03d}"
+        )
+
+        idx = await self._fetch_idx_with_retry(base_url)
+
+        values: dict[str, float] = {}
+        raw_field_bytes: list[bytes] = []
+        for field_name, (short_name, level) in _S3_BACKFILL_FIELDS.items():
+            start, end = _byte_range_for_field(idx, short_name, level)
+            body = await self._fetch_range_with_retry(base_url, start, end)
+            raw_field_bytes.append(body)
+            values[field_name] = await asyncio.to_thread(_decode_single_field_grib_sync, body, self._target_lat, self._target_lon)
+
+        valid_time = issue_time + timedelta(hours=forecast_hour)
+        point = NWPForecastPoint(
+            issue_time=issue_time,
+            valid_time=valid_time,
+            latitude=self._target_lat,
+            longitude=self._target_lon,
+            ssrd_w_m2=values["ssrd_w_m2"],
+            temp2m_c=values["temp2m_c"] - _KELVIN_TO_CELSIUS,
+            wind10m_u_ms=values["wind10m_u_ms"],
+            wind10m_v_ms=values["wind10m_v_ms"],
+            relative_humidity_pct=values["relative_humidity_pct"],
+            source=self.SOURCE_NAME,
+        )
+        raw = RawFetchResult(
+            url=base_url,
+            fetched_at=datetime.now(timezone.utc),
+            content_type="application/x-grib2",
+            # concatenation of the 5 separately-fetched single-field GRIB2 messages,
+            # in _S3_BACKFILL_FIELDS order - preserves a real sha256 identity/audit
+            # trail (RawFetchResult.object_key) even though, unlike the NOMADS path's
+            # one-file response, this isn't reopenable as a single cfgrib dataset as-is.
+            body=b"".join(raw_field_bytes),
+            issue_time=issue_time,
+            forecast_hour=forecast_hour,
+        )
+        return raw, point
+
+    async def _fetch_idx_with_retry(self, base_url: str) -> list[tuple[int, int, str]]:
+        settings = self._settings
+
+        @retry(
+            stop=stop_after_attempt(settings.max_retry_attempts),
+            wait=wait_exponential(multiplier=settings.retry_backoff_base_seconds, max=settings.retry_backoff_max_seconds),
+            reraise=True,
+        )
+        async def _do_fetch() -> httpx.Response:
+            await self._rate_limiter.wait()
+            resp = await self._client.get(f"{base_url}.idx", timeout=settings.request_timeout_seconds, headers={"User-Agent": settings.user_agent})
+            resp.raise_for_status()
+            return resp
+
+        resp = await _do_fetch()
+        return _parse_grib_idx(resp.text)
+
+    async def _fetch_range_with_retry(self, base_url: str, start: int, end: int | None) -> bytes:
+        settings = self._settings
+        range_header = f"bytes={start}-{end}" if end is not None else f"bytes={start}-"
+
+        @retry(
+            stop=stop_after_attempt(settings.max_retry_attempts),
+            wait=wait_exponential(multiplier=settings.retry_backoff_base_seconds, max=settings.retry_backoff_max_seconds),
+            reraise=True,
+        )
+        async def _do_fetch() -> httpx.Response:
+            await self._rate_limiter.wait()
+            resp = await self._client.get(
+                base_url, headers={"Range": range_header, "User-Agent": settings.user_agent}, timeout=settings.request_timeout_seconds
+            )
+            resp.raise_for_status()
+            return resp
+
+        resp = await _do_fetch()
+        return resp.content
 
 
 class MockNWPDataSource(NWPDataSource):

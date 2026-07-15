@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
@@ -7,6 +8,7 @@ import pytest
 import respx
 
 from himawari_ingestion.compliance import RateLimiter
+from himawari_ingestion.config import Settings
 from himawari_ingestion.datasource import (
     DataUnavailableError,
     HimawariAHICloudSource,
@@ -166,6 +168,65 @@ async def test_ahi_source_walks_back_through_slots_until_file_found(settings):
 
     assert route.call_count == 2
     assert frame.nong_fab_cloud_opacity_pct == pytest.approx(30.0)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_fetch_at_reads_the_slot_nearest_the_given_anchor_not_now(settings):
+    """fetch_at(anchor) with a past anchor must query the *anchor's* 10-min slot,
+    not "now" - this is what backfill.py relies on to fetch arbitrary history.
+    """
+    settings.source_mode = "http"
+    route = respx.get(url__startswith=f"{BUCKET_URL}/?list-type=2")
+    route.mock(return_value=httpx.Response(200, text=LIST_BUCKET_XML))  # matches .../13/0200/ prefix
+
+    fake_arrays = {
+        "cloud_mask": np.full(TEST_BBOX.shape, 2.0),
+        "cloud_probability": np.full(TEST_BBOX.shape, 0.5),
+        "latitude": np.full(TEST_BBOX.shape, 12.7),
+        "longitude": np.full(TEST_BBOX.shape, 101.1),
+    }
+    anchor = datetime(2026, 7, 13, 2, 7, tzinfo=timezone.utc)  # a past timestamp, not "now"
+    async with httpx.AsyncClient() as client:
+        source = HimawariAHICloudSource(settings, client, RateLimiter(0.0), bbox=TEST_BBOX, pixel=TEST_PIXEL)
+        with patch("himawari_ingestion.datasource.asyncio.to_thread", new=AsyncMock(return_value=fake_arrays)):
+            raw, frame = await source.fetch_at(anchor)
+
+    requested_prefix = route.calls[0].request.url.params["prefix"]
+    assert "2026/07/13/0200" in requested_prefix  # anchor rounds down to its own 10-min slot, not today's
+    assert frame.observed_at == datetime(2026, 7, 13, 2, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_fetch_latest_delegates_to_fetch_at_with_publish_latency_applied(settings):
+    settings.publish_latency_minutes = 55
+    async with httpx.AsyncClient() as client:
+        source = HimawariAHICloudSource(settings, client, RateLimiter(0.0), bbox=TEST_BBOX, pixel=TEST_PIXEL)
+        with patch.object(source, "fetch_at", new=AsyncMock(return_value=("raw", "frame"))) as mocked:
+            result = await source.fetch_latest()
+
+    assert result == ("raw", "frame")
+    (called_anchor,) = mocked.call_args.args
+    lag = datetime.now(timezone.utc) - called_anchor
+    assert 54 <= lag.total_seconds() / 60 <= 56  # ~publish_latency_minutes ago, not "now"
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(os.environ.get("RUN_LIVE_NOAA_TESTS") != "1", reason="set RUN_LIVE_NOAA_TESTS=1 to hit the real NOAA S3 bucket")
+@pytest.mark.asyncio
+async def test_fetch_at_against_real_noaa_bucket_for_a_past_date():
+    from datetime import timedelta
+
+    settings = Settings(source_mode="http", min_seconds_between_requests=0.5)
+    async with httpx.AsyncClient() as client:
+        source = HimawariAHICloudSource(settings, client, RateLimiter(0.5))
+        anchor = datetime.now(timezone.utc) - timedelta(days=3)
+        raw, frame = await source.fetch_at(anchor)
+
+    assert frame.observed_at <= anchor
+    assert (anchor - frame.observed_at) < timedelta(hours=1)
+    assert 0 <= frame.nong_fab_cloud_opacity_pct <= 100
+    assert len(raw.body) > 0
 
 
 @pytest.mark.integration

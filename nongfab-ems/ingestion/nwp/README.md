@@ -61,6 +61,46 @@ separate times with explicit `filter_by_keys` (`surface`/`sdswrf`,
 `_decode_grib_sync()` in `datasource.py`. This was caught by decoding a real
 sample file during development, not discovered later in production.
 
+## Backfill (historical, via AWS Open Data)
+
+`backfill.py` + `datasource.S3GfsBackfillDataSource` seed cold-start training
+history (Module 4 needs real accumulated data, not just live-forward
+polling - see root README "Known gaps"). Fetches the **same** GFS 0.25°
+product as `NomadsGfsDataSource`, but from NOAA's AWS Open Data mirror
+(`noaa-gfs-bdp-pds`, registered at registry.opendata.aws/noaa-gfs-bdp-pds -
+same public-domain/no-credential/no-ToS-gate profile already documented
+above and in Module 1's README) instead of the NOMADS filter CGI service:
+
+- **Why a second source for the same data**: plain S3 has no server-side
+  subregion clipping (unlike NOMADS's filter script), so this fetches each
+  field's whole-globe GRIB2 message via an `.idx`-guided HTTP byte-range GET
+  and crops to Nong Fab client-side after decoding - more bytes per field
+  (~0.5-1MB vs NOMADS's few-KB pre-clipped response) but reaches arbitrary
+  past cycles, which NOMADS's rolling ~2-week retention doesn't guarantee.
+  Also, practically: this dev sandbox's egress policy allows
+  `*.s3.amazonaws.com` but returns a hard 403 for `nomads.ncep.noaa.gov`
+  outright (verified live 2026-07-15 against both hosts), so this was the
+  only NWP path actually live-testable from here - `NomadsGfsDataSource`
+  remains the production/live-polling source (`scheduler.py`), unchanged.
+- **Byte-range mechanics**: an `.idx` sidecar (`<url>.idx`) lists every GRIB2
+  message in the file as `<msg_num>:<byte_offset>:<descriptor>`; a message's
+  byte range is `[its own offset, the next message's offset - 1]` (open-ended
+  for the last message). `_parse_grib_idx`/`_byte_range_for_field` implement
+  this; `_decode_single_field_grib_sync` decodes one such isolated-field
+  message (simpler than `_decode_grib_sync`'s three-way `filter_by_keys`
+  split, since a byte-range fetch already isolates one field - no
+  `heightAboveGround` merge conflict to route around).
+- **`backfill.backfill_range()`** loops `historical_cycles()` (every
+  configured GFS cycle hour over `Settings.backfill_lookback_days`, default
+  30) and yields one `(raw, point)` pair per successfully-fetched cycle, or
+  `None` for a cycle that failed after retries (logged, not raised - a gap
+  in a 30-day backfill shouldn't abort the whole job).
+- **One forecast hour per cycle** (`Settings.backfill_forecast_hour`,
+  default `f001`, a short-lead "nowcast"), not a full 0-6h sweep - keeps a
+  30-day × 4-cycle backfill at ~120 fetches × 5 fields instead of ~720×5,
+  since this seeds cold-start history, not a research-grade reanalysis
+  archive.
+
 ## Design
 
 - **Point subset, not a tile**: unlike Module 1 (which needs a raster for
@@ -102,7 +142,10 @@ src/nwp_ingestion/
   metrics.py               Prometheus counters/gauges
   main.py                   production entrypoint (headless worker)
   api.py                    dev-only FastAPI wrapper for interactive verification
-fixtures/sample_gfs_nongfab.grib2   real ~1KB GFS subset (gfs.20260714/00z f001)
+  backfill.py               backfill_range(), historical_cycles() - historical seeding via S3GfsBackfillDataSource
+fixtures/sample_gfs_nongfab.grib2   real ~1KB GFS subset (gfs.20260714/00z f001, via NOMADS)
+fixtures/sample_gfs_aws_f001.idx    real .idx sidecar (gfs.20260714/00z f001, via AWS S3)
+fixtures/sample_gfs_aws_dswrf.grib2 real ~800KB single-field DSWRF message (same cycle, via AWS S3)
 tests/                pytest suite - hermetic by default, integration tests
                       gated behind NWP_LIVE_TEST=1 / TIMESCALE_TEST_DSN
 ```
@@ -117,6 +160,10 @@ pytest -v                                     # hermetic suite, no network/DB ne
 
 # live NOMADS fetch (real network call, ~1-3s):
 NWP_LIVE_TEST=1 pytest -v -m integration -k nomads
+
+# live AWS S3 backfill fetch, single cycle (~2-4s) and a real 2-day/8-cycle
+# window (~30s) - see "Verified live" below:
+NWP_LIVE_TEST=1 pytest -v -m integration -k aws
 
 # real Postgres roundtrip (needs db/migrations/0003_nwp_forecast.sql applied):
 TIMESCALE_TEST_DSN="postgresql+asyncpg://postgres:postgres@localhost:5432/nongfab_ems" \
@@ -142,6 +189,33 @@ libeccodes0` (Debian/Ubuntu) before `pip install cfgrib`.
   → validate → local-disk MinIO stand-in → Postgres upsert → `GET
   /latest-cycle` returns the persisted row.
 - `ruff check` clean.
+
+## Verified live (2026-07-15) - AWS backfill path
+
+- Confirmed via the agent-proxy status endpoint that this dev sandbox's
+  egress policy allows `*.s3.amazonaws.com` (both `noaa-gfs-bdp-pds` and
+  Module 1's `noaa-himawari9`) but rejects `nomads.ncep.noaa.gov`,
+  `www.noaa.gov`, `api.open-meteo.com`, and `power.larc.nasa.gov` outright
+  (403 at the CONNECT tunnel) - this is a sandbox-specific policy, not a
+  statement about those hosts' own availability (the existing NOMADS path
+  was verified live 2026-07-14 in a differently-configured environment; the
+  production Railway deployment's own egress is unconfirmed either way).
+- `S3GfsBackfillDataSource.fetch_cycle()` run for real against
+  `gfs.20260714/00/atmos/gfs.t00z.pgrb2.0p25.f001`: idx-guided byte-range
+  GETs for all 5 fields succeeded (206 Partial Content, 0.5-1MB each),
+  decoded to real Nong Fab values - DSWRF 36.3 W/m², 2m temp 26.1°C, 2m RH
+  80.8%, 10m wind (u,v) (4.88, 3.08) m/s - physically sane for 08:00 ICT
+  (01:00 UTC) on an overcast-humid Rayong morning.
+- A real 2-day/8-cycle backfill (`backfill_range(..., lookback_days=2)`,
+  `test_backfill_range_against_real_aws_bucket_small_window`) completed in
+  ~34s against the live bucket with zero gaps, proving the full
+  `historical_cycles()` → `fetch_cycle()` × N → yield loop, not just one
+  isolated fetch.
+- `fixtures/sample_gfs_aws_f001.idx` and `fixtures/sample_gfs_aws_dswrf.grib2`
+  are real captured bytes from this run (not fabricated), used by
+  `test_decode_single_field_grib_sync_extracts_dswrf_from_real_fixture` and
+  `test_byte_range_for_field_uses_next_messages_offset_as_end`.
+- `ruff check` clean; full suite (38 tests, 3 integration-gated) passes.
 
 ## Known gaps / next steps
 

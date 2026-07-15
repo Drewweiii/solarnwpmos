@@ -1,0 +1,45 @@
+{
+  "type": "Feature",
+  "geometry": {
+    "type": "Point",
+    "coordinates": [101.15, 12.71, 0]
+  },
+  "properties": {
+    "parameter": {
+      "ALLSKY_SFC_UV_INDEX": {
+        "20260701": 8.9,
+        "20260702": 7.4,
+        "20260703": 6.1,
+        "20260704": 9.2,
+        "20260705": 5.8,
+        "20260706": 8.1,
+        "20260707": 7.9,
+        "20260708": 6.4,
+        "20260709": 9.5,
+        "20260710": 4.9
+      }
+    }
+  },
+  "header": {
+    "title": "NASA/POWER Source Native Resolution Daily Data",
+    "api": {
+      "version": "v2.7.1",
+      "name": "POWER Daily API"
+    },
+    "sources": ["MERRA2", "CERES"],
+    "fill_value": -999
+  },
+  "messages": [
+    "NOTE: this is a hand-constructed fixture matching NASA POWER's documented daily point API response shape (power.larc.nasa.gov/docs/services/api/temporal/daily/) - it was NOT captured from a live API call. This dev sandbox's egress policy blocks power.larc.nasa.gov outright, so the real endpoint could not be reached to capture a genuine sample. See ingestion/nasa_power/README.md 'Data source & ToS' for the exact gap and how to close it."
+  ],
+  "parameters": {
+    "ALLSKY_SFC_UV_INDEX": {
+      "units": "index (dimensionless, WHO scale)",
+      "longname": "All Sky Surface UV Index"
+    }
+  },
+  "times": {
+    "data": 0.62,
+    "process": 0.01
+  }
+}

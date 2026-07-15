@@ -27,7 +27,12 @@ async def engine():
 
 @pytest.fixture
 def settings():
-    return Settings(jwt_secret_key="test-secret", seed_demo_users=True, live_push_interval_seconds=0.05)
+    # enable_background_ingestion=False: the test suite must stay hermetic/fast
+    # (no real network calls, no multi-second model retraining loop) - real
+    # deployments get it on by default, see config.Settings' own docstring.
+    return Settings(
+        jwt_secret_key="test-secret", seed_demo_users=True, live_push_interval_seconds=0.05, enable_background_ingestion=False
+    )
 
 
 @pytest.fixture

@@ -15,6 +15,76 @@ simulate_zone_baseline()` / `what_if` / `monte_carlo`, the same functions
 those modules' own dev APIs call. Behavior can't drift between "the dev API
 I tested" and "the production API a client actually hits".
 
+## Real-data background ingestion (`ingestion_scheduler.py`)
+
+Added to close this repo's biggest standing gap: **no model was ever
+actually trained on real data, and nothing ever ran ingestion continuously**
+(see forecast/README.md's now-resolved "not wired to real data" entry, and
+this module's own former "Known gaps" text below, kept as history in git).
+`/forecast/{zone}/{horizon}` used to 404 "not trained yet" on every fresh
+deploy - a public dashboard visitor saw a permanent error, not a forecast.
+
+The production deployment (Railway) hosts only this one API container - no
+separate ingestion services, no persistent TimescaleDB (Module 1/2's own
+`storage.py` needs real Postgres for `pg_insert`'s `ON CONFLICT`, which
+isn't provisioned here). Rather than requiring new infrastructure this
+session had no credentials to provision, `ingestion_scheduler.py` runs real
+ingestion **inside this API process** as plain `asyncio` background tasks
+(no new scheduler dependency - APScheduler is already used by the
+standalone `ingestion/*` modules for their own separate-deploy path, but a
+handful of sleep loops didn't need it here), writing into
+`nongfab_forecast.local_store.RealDataStore` - a SQLite-backed store with
+the same ephemeral-per-container durability as the already-accepted
+`mlflow.db` pattern, not TimescaleDB (see `forecast/README.md`'s "Real-data
+feature layer" section for the full store design).
+
+On startup (`main.py`'s `lifespan`, gated by `Settings.
+enable_background_ingestion`, **on by default** - the `settings` test
+fixture explicitly turns it off so the suite stays hermetic/fast):
+
+1. **One-shot backfill** (`run_startup_backfill`): NWP via
+   `ingestion.nwp.backfill` (real GFS data from NOAA's AWS Open Data mirror
+   - reachable from more environments than the NOMADS filter service this
+   dev sandbox's egress policy blocks outright, see `ingestion/nwp/
+   README.md`'s "Backfill" section) and Himawari cloud data via `ingestion.
+   himawari.backfill`, both for `Settings.backfill_lookback_days` (default
+   30). NASA POWER UV backfill is attempted too, but wrapped so its known
+   unreachability from this dev sandbox (`ingestion/nasa_power/README.md`'s
+   "Data source & ToS") can never take down the rest of ingestion - a bare
+   `except Exception` around just that one call, logged and skipped.
+   Skipped entirely (not re-run) if the store already has a reasonable
+   amount of data, so a redeploy with a persistent store (`API_REAL_DATA_DB_
+   PATH` pointed at a real volume) doesn't re-backfill from scratch on every
+   restart.
+2. **Continuous live polling**: Himawari every `API_HIMAWARI_POLL_INTERVAL_
+   SECONDS` (default 600s, matching its native 10-min product cadence), GFS
+   every `API_NWP_POLL_INTERVAL_SECONDS` (default 3600s - GFS only
+   publishes every 6h, hourly is already generous) across
+   `API_NWP_POLL_FORECAST_HOURS` (default `[1,2,3,4,5,6,12,18,24]`, near-
+   term hourly + sparser further out for day-ahead's future regressors).
+3. **Periodic retraining**: every `API_RETRAIN_INTERVAL_SECONDS` (default
+   21600s/6h), calls `nongfab_forecast.training.train_now(zone, horizon,
+   store)` for all 3 zones x 3 horizons via `asyncio.to_thread` (LightGBM/
+   NeuralProphet/torch training is synchronous and CPU-bound - must not
+   block the event loop). `train_now()` itself already prefers real data
+   over synthetic once enough has accumulated (see forecast/README.md) -
+   this loop just calls it on a schedule.
+
+Every network/training call is wrapped so one failure never crashes the
+loop or the app - logged and retried next tick, not propagated.
+
+`/forecast/{zone}/{horizon}` now calls `nongfab_forecast.serving.
+get_forecast_with_fallback()` (not the raw `get_latest_forecast()`) with
+this process's shared `RealDataStore` (`request.app.state.real_data_store`)
+- **never 404s "not trained yet" anymore**: while too little real history
+has accumulated to train an ML model, it serves a real-weather physics
+baseline instead (pvlib clear-sky x live cloud attenuation x the zone's PV
+model), tagged `model_type: "physics_baseline"` in the response
+(`ForecastResponse` gained `data_source`/`model_type` fields) so a client
+can tell it apart from an actual ML forecast rather than it being silently
+ambiguous. See `forecast/README.md`'s "Real-data feature layer" section for
+`get_forecast_with_fallback()` itself.
+
 ## CORS
 
 The dashboard (Module 7, `web/`) always runs on a different origin than this
@@ -78,11 +148,14 @@ management, config writes) has somewhere to plug in without a schema change.
 - **`GET /assets/{zone_id}`** → one zone's full detail (equipment specs,
   corners, `simulated` flag). 404 for an unknown zone.
 - **`GET /forecast/{zone}/{horizon}`** → latest MLflow-registered model's
-  forecast for `horizon` in `{minute, hour, day}`. 404 if the zone/horizon
-  is unknown, or if no model has been trained yet for that (zone, horizon) -
-  this module doesn't expose a `/train-now` route (that's Module 4's dev API
-  only); training happens out-of-band (a scheduled retraining job, not yet
-  built - see root README's module table).
+  forecast for `horizon` in `{minute, hour, day}`, or - since
+  `ingestion_scheduler.py` landed - a real-weather physics baseline
+  (`model_type: "physics_baseline"`) instead of a 404 while too little real
+  history has accumulated to train one yet. Still 404s only for a genuinely
+  unknown zone/horizon. This module doesn't expose a `/train-now` route
+  (that's Module 4's dev API only); production training happens out-of-band
+  via this process's own background retrain loop - see "Real-data background
+  ingestion" above.
 - **`POST /simulate/{zone}`** → what-if scenario (cloud/curtailment/
   degradation) applied to a baseline day, with an optional scenario-
   uncertainty Monte Carlo interval. Same request/response shape as Module
@@ -172,22 +245,24 @@ their own) this app already serves HTTP:
 
 ## Known gaps (same caveat as every other module)
 
-No real accumulated (irradiance, temperature, power) history exists yet
-(Modules 1-3 haven't been running in production long enough - see forecast/
-simulation READMEs' own "Known gaps"). So:
+No real accumulated (irradiance, temperature, power) history existed until
+this pass's `ingestion_scheduler.py` (see "Real-data background ingestion"
+above) - `/forecast/{zone}/{horizon}` now trains and serves on real data
+once enough has accumulated. `/simulate/{zone}`, `/performance/{zone}`, and
+`/ws/live` are **not yet wired to the same real-data store** - still worth
+tracking as the next piece, listed below:
 
 - `/simulate/{zone}` and `/performance/{zone}` build their baseline day from
   `nongfab_simulation.dev_data.synthetic_day_irradiance_temp()`, not a real
-  TimescaleDB query. Swapping in a real query is a follow-up to this
-  module's shape, not a rewrite of it (the pipeline call underneath doesn't
-  care where `irradiance_w_m2`/`temp_c` come from).
+  TimescaleDB query or `RealDataStore` query. Swapping in a real query is a
+  follow-up to this module's shape, not a rewrite of it (the pipeline call
+  underneath doesn't care where `irradiance_w_m2`/`temp_c` come from) -
+  `real_data.py`'s existing frame builders (forecast/README.md) are a
+  natural source once this route is updated to use them.
 - `/ws/live`'s `current_ac_kw` is today's synthetic baseline's row nearest
   the current wall-clock time (not literally "the last received sensor
-  reading" - there isn't one yet).
-- `/forecast/{zone}/{horizon}` genuinely round-trips through the MLflow
-  registry, but nothing in this module trains a model - see Module 4's dev
-  API `/train-now/{zone}/{horizon}` to populate the registry before trying
-  this route.
+  reading" - there isn't one yet, and this route doesn't consult
+  `real_data_store` either).
 - `/energy-report/{zone}`'s annual figures are a flat extrapolation of one
   synthetic day (x365), not a real annual simulation with weather
   variability/seasonality - see `simulation/README.md`'s "Annual energy +
@@ -247,7 +322,10 @@ deliberately never auto-creates tables itself; see `db/migrations/
 
 ## Tests
 
-`pytest` - 94 tests, no real Postgres or MLflow server required:
+`pytest` - 99 tests, no real Postgres or MLflow server required
+(`enable_background_ingestion=False` in the `settings` test fixture keeps
+`ingestion_scheduler.py`'s real network/training calls out of the suite -
+see "Real-data background ingestion" above):
 
 - `test_auth.py` (23) - password hashing, `UserStore` CRUD/seeding, JWT
   create/decode (expiry, wrong secret, malformed/missing claims),
@@ -434,6 +512,39 @@ All four matched the intended design exactly on the first real run - no bug
 found this time, but worth confirming live given the middleware sits in
 front of every route in the app.
 
+### Verified live (2026-07-15) - real-data background ingestion
+
+Booted a real `uvicorn`-equivalent app (`TestClient` entering the actual
+`lifespan`, `enable_background_ingestion=True`, a short `backfill_lookback_
+days=1` so the run finished quickly) with real network access:
+
+- Startup log showed all 4 background tasks spawned
+  (`ingestion-startup-backfill`, `ingestion-poll-himawari`,
+  `ingestion-poll-nwp`, `ingestion-retrain`); within ~10s the
+  `RealDataStore` had real rows in both `nwp_history` and `cloud_history`.
+- A focused second run (himawari polling disabled, nwp polling every 5s)
+  showed `nwp_history` growing row-by-row as the live poll loop fetched
+  each configured forecast hour for real, and the retrain loop firing
+  immediately on startup (not waiting for its first interval) - registered
+  real `nongfab-minute-GIS`, `nongfab-hour-GIS`, and `nongfab-day-GIS`
+  model versions in MLflow during the same run.
+- `GET /forecast/GIS/hour` after that: **`{"data_source": "real",
+  "model_type": "ml", "points": [{"pred": 34.52, "lower": 23.63, "upper":
+  52.99, ...}]}`** - a real LightGBM model, trained on real GFS-derived
+  weather (via the physics-based PV conversion, see forecast/README.md),
+  serving a physically plausible forecast for GIS's ~60kWp capacity. Before
+  this session's changes, this same call would have been a 404.
+
+**Found and fixed a real bug during this same live run**: the S3 backfill
+datasource's field-matching (`ingestion/nwp/datasource.py`) only worked for
+forecast hour 1 - `_poll_nwp_forever`'s multi-forecast-hour fetch (fhour
+2/3/4/5/6/...) raised `ValueError: no GRIB2 message matching...` on every
+hour past the first. Root cause and fix documented in `ingestion/nwp/
+README.md`'s "Backfill" section (GFS's flux-field step-type text is
+forecast-hour-dependent, e.g. "0-1 hour ave fcst" vs "6-12 hour ave fcst" -
+the fix matches on `(shortName, level)` only, verified live across fhour
+2/6/12/24 after the fix, not just re-trusting f001 again).
+
 ### STEP 10: api/Dockerfile was broken and unbuildable
 
 `api/Dockerfile` previously only `COPY`'d files from `api/` itself (`build:
@@ -447,6 +558,12 @@ versions nongfab-common` → "No matching distribution found"). This had
 never been caught because no Docker daemon exists in the dev sandbox that
 built any of this - a working Dockerfile was never actually required until
 STEP 10's CI/deployment work needed one.
+
+**Update (2026-07-15)**: three more siblings (`nwp-ingestion`,
+`himawari-ingestion`, `nasa-power-ingestion`) were added for real-data
+background ingestion (see above) - the Dockerfile's `COPY`/install list was
+extended the same way, and re-verified with the same throwaway-venv
+technique below (still no Docker daemon available in this dev sandbox).
 
 Fixed by pointing `docker-compose.yml`'s `api` service at a repo-root build
 context (`context: ., dockerfile: api/Dockerfile`) and rewriting the

@@ -15,10 +15,12 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
+from nongfab_forecast.local_store import RealDataStore
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from . import (
+    ingestion_scheduler,
     metrics,
     routes_assets,
     routes_energy_report,
@@ -56,7 +58,21 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
             await user_store.seed_demo_users_if_empty()
         app.state.settings = settings
         app.state.user_store = user_store
+
+        # Real-data ingestion (ingestion_scheduler.py) - one store for this
+        # process's whole lifetime, not per-request, so its in-memory default
+        # (RealDataStore's own default when real_data_db_path is unset) still
+        # accumulates real history across requests - see that module's docstring.
+        app.state.real_data_store = RealDataStore(db_path=settings.real_data_db_path or None)
+        background_tasks: list = []
+        if settings.enable_background_ingestion:
+            background_tasks = ingestion_scheduler.start_background_ingestion(app.state.real_data_store, settings)
+        app.state.background_ingestion_tasks = background_tasks
+
         yield
+
+        if background_tasks:
+            await ingestion_scheduler.stop_background_ingestion(background_tasks)
         if owns_engine:
             await eng.dispose()
 

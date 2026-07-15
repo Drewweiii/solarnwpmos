@@ -121,7 +121,17 @@ class HimawariAHICloudSource(CloudDataSource):
         self._nong_fab_local = local_index_within_bbox(bbox, pixel)
 
     async def fetch_latest(self) -> tuple[RawFetchResult, CloudRasterFrame]:
-        key, observed_at = await self._find_latest_object_key()
+        anchor = datetime.now(timezone.utc) - timedelta(minutes=self._settings.publish_latency_minutes)
+        return await self.fetch_at(anchor)
+
+    async def fetch_at(self, anchor: datetime) -> tuple[RawFetchResult, CloudRasterFrame]:
+        """Fetches the most recent published frame at-or-before `anchor` - `fetch_latest`
+        is just `fetch_at(now - publish_latency)`. The separate entry point is what
+        `backfill.py` calls with a past timestamp to seed cold-start history (Module 4
+        needs real accumulated data, not just live-forward polling from here on - see
+        root README "Known gaps").
+        """
+        key, observed_at = await self._find_object_key_at_or_before(anchor)
         url = f"https://{self._settings.noaa_bucket}.s3.amazonaws.com/{key}"
 
         arrays = await self._read_raster_with_retry(url)
@@ -137,12 +147,14 @@ class HimawariAHICloudSource(CloudDataSource):
         )
         return raw, frame
 
-    async def _find_latest_object_key(self) -> tuple[str, datetime]:
-        """Walks backward in 10-min steps (starting after the expected publish
-        latency) until a folder containing a CMSK file is found.
+    async def _find_object_key_at_or_before(self, anchor: datetime) -> tuple[str, datetime]:
+        """Walks backward in 10-min steps from `anchor` until a folder containing a
+        CMSK file is found. `fetch_latest`'s anchor is `now - publish_latency`
+        (the file may not be published yet); `backfill.py`'s anchor is an arbitrary
+        past timestamp (always published by now, but the exact 10-min slot the
+        product landed in can still be off by one step - same walk-back handles both).
         """
         settings = self._settings
-        anchor = datetime.now(timezone.utc) - timedelta(minutes=settings.publish_latency_minutes)
         slot = anchor.replace(minute=anchor.minute - anchor.minute % 10, second=0, microsecond=0)
 
         for i in range(settings.lookback_slots):

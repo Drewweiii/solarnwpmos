@@ -1,9 +1,13 @@
 # Build context is the repo root (see docker-compose.yml: `context: .`,
 # `dockerfile: api/Dockerfile`), not api/ itself. nongfab-api's pyproject.toml
 # depends on bare package names (nongfab-common, nongfab-features,
-# nongfab-forecast, nongfab-simulation) that are only published inside this
-# monorepo, not on PyPI - so every sibling is copied in and they're all
-# installed together in ONE pip command below.
+# nongfab-forecast, nongfab-simulation, nwp-ingestion, himawari-ingestion,
+# nasa-power-ingestion) that are only published inside this monorepo, not on
+# PyPI - so every sibling is copied in and they're all installed together in
+# ONE pip command below. The three ingestion packages were added so the API
+# process can run real background ingestion in-process (ingestion_scheduler.py)
+# - this deployment has no separate persistent TimescaleDB for their own
+# storage.py to write to, see forecast/local_store.py's docstring.
 #
 # One command, not one-per-package: a per-package sequential install lets a
 # later package (forecast's heavy ML stack) downgrade a shared compiled dep
@@ -26,9 +30,18 @@ COPY forecast/pyproject.toml ./forecast/pyproject.toml
 COPY forecast/src ./forecast/src
 COPY simulation/pyproject.toml ./simulation/pyproject.toml
 COPY simulation/src ./simulation/src
+COPY ingestion/nwp/pyproject.toml ./ingestion/nwp/pyproject.toml
+COPY ingestion/nwp/src ./ingestion/nwp/src
+COPY ingestion/himawari/pyproject.toml ./ingestion/himawari/pyproject.toml
+COPY ingestion/himawari/src ./ingestion/himawari/src
+COPY ingestion/nasa_power/pyproject.toml ./ingestion/nasa_power/pyproject.toml
+COPY ingestion/nasa_power/src ./ingestion/nasa_power/src
 COPY api/pyproject.toml ./api/pyproject.toml
 COPY api/src ./api/src
-RUN pip install --no-cache-dir ./libs/nongfab_common ./features ./forecast ./simulation ./api
+RUN pip install --no-cache-dir \
+      ./libs/nongfab_common ./features ./forecast ./simulation \
+      ./ingestion/nwp ./ingestion/himawari ./ingestion/nasa_power \
+      ./api
 
 # libs/nongfab_common's load_assets() falls back to a repo-relative path
 # derived from its own installed __file__ location, which is fragile across
