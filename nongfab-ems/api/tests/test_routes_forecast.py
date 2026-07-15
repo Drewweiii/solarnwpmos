@@ -35,4 +35,4 @@ def test_get_forecast_no_model_trained_falls_back_to_physics_baseline(app, token
     body = resp.json()
     assert body["model_type"] == "physics_baseline"
     assert body["model_version"] == 0
-    assert len(body["points"]) == 1
+    assert len(body["points"]) == 6  # one per k-step lead hour (+1h..+6h) - see forecast/serving.py's HOUR_LEAD_HOURS

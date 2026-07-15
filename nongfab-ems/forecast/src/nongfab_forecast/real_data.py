@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import numpy as np
 import pandas as pd
 
 from . import pv_conversion
@@ -85,6 +86,80 @@ def real_hour_frame(zone: str, store: RealDataStore) -> tuple[pd.DataFrame, pd.S
     )
     y = pd.Series(power.to_numpy(), name="power_kw")
     return X, y
+
+
+MIN_HOUR_ROWS_PER_LEAD = 8  # lower than MIN_HOUR_ROWS: k-step data is split across 6 lead-hour buckets, not pooled
+
+
+def _nwp_history_with_lead_hours(store: RealDataStore) -> pd.DataFrame:
+    """Real NWP history with an added `lead_hours` column (valid_time - issue_time,
+    whole hours) - deliberately NOT deduped by valid_time alone (unlike
+    _deduped_nwp_history): k-step training needs to tell apart "this row was
+    originally a 2-hour-ahead forecast" from "this row was originally a 6-hour-
+    ahead forecast" for the *same* valid_time, which valid_time-only dedup would
+    collapse into a single row and lose (see real_hour_frame_kstep's docstring for
+    why that distinction is the whole point of k-step models).
+    """
+    df = store.nwp_history_df()
+    if len(df) == 0:
+        return df
+    df = df.sort_values(["valid_time", "issue_time"]).reset_index(drop=True)
+    df["lead_hours"] = ((df["valid_time"] - df["issue_time"]).dt.total_seconds() / 3600).round().astype(int)
+    return df
+
+
+def real_hour_frame_kstep(zone: str, store: RealDataStore, lead_hour: int) -> tuple[pd.DataFrame, pd.Series]:
+    """(X, y) for training one of HourAheadKStepModel's per-lead sub-models: X
+    has ssrd_w_m2/temp2m_c (the real NWP forecast originally issued `lead_hour`
+    hours before its own valid_time - not "whatever the latest forecast for that
+    valid_time happens to be now", see _nwp_history_with_lead_hours) plus
+    power_lag1 (physics power of the previous row *within this same lead_hour's
+    own series* - a same-lead persistence anchor), y is power_kw at that lead.
+    """
+    df = _nwp_history_with_lead_hours(store)
+    at_lead = df[df["lead_hours"] == lead_hour].reset_index(drop=True) if len(df) else df
+    if len(at_lead) < MIN_HOUR_ROWS_PER_LEAD:
+        raise InsufficientHistoryError(f"only {len(at_lead)} real NWP rows at lead_hour={lead_hour}, need >= {MIN_HOUR_ROWS_PER_LEAD}")
+
+    params = pv_params_for_zone(zone)
+    power = pv_conversion.predict_power_kw(at_lead["ssrd_w_m2"], at_lead["temp2m_c"], params)
+    X = pd.DataFrame(
+        {
+            "ssrd_w_m2": at_lead["ssrd_w_m2"].to_numpy(),
+            "temp2m_c": at_lead["temp2m_c"].to_numpy(),
+            "power_lag1": power.shift(1).bfill().to_numpy(),
+        }
+    )
+    y = pd.Series(power.to_numpy(), name="power_kw")
+    return X, y
+
+
+def current_hour_conditions_kstep(zone: str, store: RealDataStore, lead_hour: int, now: datetime | None = None) -> pd.DataFrame:
+    """Single-row serving-time input for HourAheadKStepModel's lead_hour
+    sub-model: the real NWP row at that same lead_hour bucket whose valid_time
+    is nearest `now + lead_hour` (i.e. "the freshest real forecast we have for
+    that specific future instant"), with power_lag1 the physics power of the
+    previous row in that same lead_hour's own series (mirrors
+    real_hour_frame_kstep's lag definition, so training and serving agree).
+    """
+    now = now or datetime.now(timezone.utc)
+    df = _nwp_history_with_lead_hours(store)
+    at_lead = df[df["lead_hours"] == lead_hour].reset_index(drop=True) if len(df) else df
+    if len(at_lead) == 0:
+        raise InsufficientHistoryError(f"no real NWP rows accumulated yet at lead_hour={lead_hour}")
+
+    target_valid_time = pd.Timestamp(now) + pd.Timedelta(hours=lead_hour)
+    idx_nearest = (at_lead["valid_time"] - target_valid_time).abs().idxmin()
+    row = at_lead.loc[idx_nearest]
+    params = pv_params_for_zone(zone)
+
+    pos = at_lead.index.get_loc(idx_nearest)
+    lag_power = 0.0
+    if pos > 0:
+        prev = at_lead.iloc[pos - 1]
+        lag_power = float(pv_conversion.predict_power_kw(prev["ssrd_w_m2"], prev["temp2m_c"], params))
+
+    return pd.DataFrame({"ssrd_w_m2": [row["ssrd_w_m2"]], "temp2m_c": [row["temp2m_c"]], "power_lag1": [lag_power]})
 
 
 def real_day_frame(zone: str, store: RealDataStore) -> pd.DataFrame:
@@ -148,18 +223,47 @@ def real_future_regressors(store: RealDataStore, now: datetime | None = None) ->
     )
 
 
+MINUTE_FEATURE_COLS = ["cloud_opacity_pct", "cloud_index", "motion_u_kmh", "motion_v_kmh"]
+
+
+def _motion_uv_columns(cloud: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+    """Converts stored (speed_kmh, direction_deg) polar motion into cartesian
+    (u=east, v=north) km/h components - avoids the circular discontinuity a raw
+    direction_deg feature would create for an ML model (359deg and 1deg are
+    physically almost the same direction but numerically far apart). Missing
+    motion (the run's first stored frame, or a shape-mismatch skip - see
+    himawari_ingestion.schemas.CloudRasterFrame's own docstring) fills to
+    (0, 0) - "no motion known" is self-consistent with a zero-magnitude vector,
+    not a real "moving north" claim.
+    """
+    speed = cloud["motion_speed_kmh"].fillna(0.0)
+    direction_rad = np.deg2rad(cloud["motion_direction_deg"].fillna(0.0))
+    u = speed * np.sin(direction_rad)
+    v = speed * np.cos(direction_rad)
+    return u, v
+
+
 def real_minute_frame(store: RealDataStore) -> pd.DataFrame:
     """Frame for minute_ahead.train_minute_ahead_model (feature_cols=
-    ["cloud_opacity_pct", "cloud_index"], target_col="cloud_opacity_pct") - same
-    column shape as serving.py's existing _synthetic_minute_df.
+    MINUTE_FEATURE_COLS, target_col="cloud_opacity_pct") - cloud opacity/index
+    plus the cloud motion vector (himawari_ingestion.motion, computed by
+    api/ingestion_scheduler.py between consecutive polled/backfilled frames) as
+    two extra cartesian features - a leading indicator of an approaching cloud
+    front the CNN-LSTM couldn't see from opacity/index alone.
     """
     cloud = store.cloud_history_df()
     if len(cloud) < MIN_MINUTE_ROWS:
         raise InsufficientHistoryError(f"only {len(cloud)} real cloud rows accumulated, need >= {MIN_MINUTE_ROWS}")
 
     cloud = cloud.sort_values("observed_at").drop_duplicates("observed_at", keep="last")
+    motion_u, motion_v = _motion_uv_columns(cloud)
     return pd.DataFrame(
-        {"cloud_opacity_pct": cloud["cloud_opacity_pct"].to_numpy(), "cloud_index": cloud["cloud_index"].to_numpy()}
+        {
+            "cloud_opacity_pct": cloud["cloud_opacity_pct"].to_numpy(),
+            "cloud_index": cloud["cloud_index"].to_numpy(),
+            "motion_u_kmh": motion_u.to_numpy(),
+            "motion_v_kmh": motion_v.to_numpy(),
+        }
     )
 
 
@@ -215,13 +319,17 @@ __all__ = [
     "InsufficientHistoryError",
     "MIN_DAY_ROWS",
     "MIN_HOUR_ROWS",
+    "MIN_HOUR_ROWS_PER_LEAD",
     "MIN_MINUTE_ROWS",
+    "MINUTE_FEATURE_COLS",
     "current_hour_conditions",
+    "current_hour_conditions_kstep",
     "physics_baseline_series",
     "pv_params_for_zone",
     "real_day_frame",
     "real_future_regressors",
     "real_hour_frame",
+    "real_hour_frame_kstep",
     "real_minute_frame",
     "recent_minute_window",
 ]

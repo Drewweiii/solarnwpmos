@@ -76,6 +76,43 @@ async def _backfill_nwp(store: RealDataStore, lookback_days: int) -> None:
     logger.info("startup backfill: nwp done, %d/%d cycles ingested", n_ok, n_total)
 
 
+def _frame_with_motion(raw, frame, prev_arrays: dict | None, prev_observed_at: datetime | None):
+    """Deserializes raw.body's raster and, if a previous frame's arrays are
+    available at a matching shape, computes a real cloud motion vector
+    (himawari_ingestion.motion.estimate_cloud_motion, FFT phase correlation)
+    between them - the "ต่อยอด" extension real_data.py's minute-ahead feature
+    layer now consumes (MINUTE_FEATURE_COLS' motion_u_kmh/motion_v_kmh).
+
+    Returns (frame_with_motion_filled_in, this_frame's_own_arrays - pass as
+    `prev_arrays` on the *next* call). Motion is left null (frame returned
+    unchanged) on the first call in a run, whenever shapes mismatch, or
+    whenever the interval isn't positive (a same/out-of-order frame - nothing
+    real to diff) - same documented cases as CloudRasterFrame.motion_speed_kmh's
+    own docstring. Shared by both the live poll loop and the backfill path
+    below so cold-start history gets real (if coarser-cadence) motion too, not
+    just data accumulated after this deploys.
+    """
+    from himawari_ingestion.datasource import deserialize_raster
+    from himawari_ingestion.geolocation import NONG_FAB_COL_SPACING_KM, NONG_FAB_ROW_SPACING_KM
+    from himawari_ingestion.motion import estimate_cloud_motion
+
+    arrays = deserialize_raster(raw.body)
+    if prev_arrays is None or prev_observed_at is None:
+        return frame, arrays
+    if arrays["cloud_probability"].shape != prev_arrays["cloud_probability"].shape:
+        return frame, arrays
+
+    interval_minutes = (frame.observed_at - prev_observed_at).total_seconds() / 60
+    if interval_minutes <= 0:
+        return frame, arrays
+
+    motion = estimate_cloud_motion(
+        prev_arrays["cloud_probability"], arrays["cloud_probability"], NONG_FAB_ROW_SPACING_KM, NONG_FAB_COL_SPACING_KM, interval_minutes
+    )
+    updated = frame.model_copy(update={"motion_speed_kmh": motion.speed_kmh, "motion_direction_deg": motion.direction_deg})
+    return updated, arrays
+
+
 async def _backfill_himawari(store: RealDataStore, lookback_days: int) -> None:
     from himawari_ingestion.backfill import backfill_range
     from himawari_ingestion.compliance import RateLimiter
@@ -84,12 +121,16 @@ async def _backfill_himawari(store: RealDataStore, lookback_days: int) -> None:
     settings = Settings(source_mode="http")
     logger.info("startup backfill: himawari starting (%d days)", lookback_days)
     n_ok = n_total = 0
+    prev_arrays: dict | None = None
+    prev_observed_at: datetime | None = None
     try:
         async with httpx.AsyncClient() as client:
             async for result in backfill_range(settings, client, RateLimiter(settings.min_seconds_between_requests), lookback_days=lookback_days):
                 n_total += 1
                 if result is not None:
-                    _, frame = result
+                    raw, frame = result
+                    frame, prev_arrays = _frame_with_motion(raw, frame, prev_arrays, prev_observed_at)
+                    prev_observed_at = frame.observed_at
                     store.insert_cloud_frames([frame])
                     n_ok += 1
     except Exception:
@@ -130,13 +171,20 @@ async def _poll_himawari_forever(store: RealDataStore, interval_seconds: float) 
     from himawari_ingestion.datasource import HimawariAHICloudSource
 
     settings = Settings(source_mode="http")
+    prev_arrays: dict | None = None
+    prev_observed_at: datetime | None = None
     async with httpx.AsyncClient() as client:
         source = HimawariAHICloudSource(settings, client, RateLimiter(settings.min_seconds_between_requests))
         while True:
             try:
-                _, frame = await source.fetch_latest()
+                raw, frame = await source.fetch_latest()
+                frame, prev_arrays = _frame_with_motion(raw, frame, prev_arrays, prev_observed_at)
+                prev_observed_at = frame.observed_at
                 store.insert_cloud_frames([frame])
-                logger.debug("himawari live poll: ingested frame observed_at=%s", frame.observed_at)
+                logger.debug(
+                    "himawari live poll: ingested frame observed_at=%s motion_speed_kmh=%s",
+                    frame.observed_at, frame.motion_speed_kmh,
+                )
             except Exception:
                 logger.warning("himawari live poll failed, retrying next tick", exc_info=True)
             await asyncio.sleep(interval_seconds)
@@ -170,7 +218,14 @@ async def _poll_nwp_forever(store: RealDataStore, interval_seconds: float, forec
             await asyncio.sleep(interval_seconds)
 
 
-async def _retrain_forever(store: RealDataStore, interval_seconds: float) -> None:
+async def _retrain_forever(store: RealDataStore, cold_interval_seconds: float, warm_interval_seconds: float, warm_threshold_rows: int) -> None:
+    """Retrains every (zone, horizon), then sleeps `cold_interval_seconds` if
+    real history is still thin or `warm_interval_seconds` once it isn't - see
+    config.py's own docstring on `retrain_interval_cold_seconds` for why. The
+    regime is re-checked every cycle (not decided once at startup), so a
+    deployment that starts cold and accumulates real data live transitions to
+    the warm cadence on its own.
+    """
     while True:
         for zone in ZONES:
             for horizon in HORIZONS:
@@ -179,6 +234,17 @@ async def _retrain_forever(store: RealDataStore, interval_seconds: float) -> Non
                     logger.info("retrained %s/%s: data_source=%s version=%d", zone, horizon, result.data_source, result.model_version)
                 except Exception:
                     logger.warning("retrain failed for %s/%s, will retry next cycle", zone, horizon, exc_info=True)
+
+        nwp_rows = store.counts()["nwp_history"]
+        if nwp_rows >= warm_threshold_rows:
+            interval_seconds = warm_interval_seconds
+            regime = "warm"
+        else:
+            interval_seconds = cold_interval_seconds
+            regime = "cold"
+        logger.info(
+            "retrain cycle done: nwp_history=%d rows, regime=%s, next retrain in %.0fs", nwp_rows, regime, interval_seconds
+        )
         await asyncio.sleep(interval_seconds)
 
 
@@ -196,7 +262,12 @@ def start_background_ingestion(store: RealDataStore, settings) -> list[asyncio.T
         asyncio.create_task(
             _poll_nwp_forever(store, settings.nwp_poll_interval_seconds, settings.nwp_poll_forecast_hours), name="ingestion-poll-nwp"
         ),
-        asyncio.create_task(_retrain_forever(store, settings.retrain_interval_seconds), name="ingestion-retrain"),
+        asyncio.create_task(
+            _retrain_forever(
+                store, settings.retrain_interval_cold_seconds, settings.retrain_interval_warm_seconds, settings.retrain_warm_threshold_rows
+            ),
+            name="ingestion-retrain",
+        ),
     ]
 
 

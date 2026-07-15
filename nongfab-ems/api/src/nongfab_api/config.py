@@ -3,11 +3,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def _default_nwp_poll_forecast_hours() -> list[int]:
-    # Near-term hourly (feeds hour-ahead's lag/regressor features), sparser further
-    # out (day-ahead's future regressors don't need finer than this) - a smaller set
+    # Hourly to 24h (hour-ahead's k-step models + day-ahead's near-term
+    # regressors need this density), 3-hourly 27-48h, 6-hourly 54-72h (day-ahead's
+    # far end doesn't need finer than this) - reaches the full 72h/3-day day-ahead
+    # horizon (see forecast/serving.py's MAX_DAY_AHEAD_HOURS) while staying lighter
     # than nwp_ingestion.config.Settings' own default (this runs every poll tick
-    # in-process, not as a separate scheduled job, so kept light).
-    return [1, 2, 3, 4, 5, 6, 12, 18, 24]
+    # in-process, not as a separate scheduled job).
+    return list(range(1, 25)) + list(range(27, 49, 3)) + list(range(54, 73, 6))
 
 
 class Settings(BaseSettings):
@@ -53,7 +55,20 @@ class Settings(BaseSettings):
     himawari_poll_interval_seconds: float = 600.0  # 10 min, matches Himawari's native product cadence
     nwp_poll_interval_seconds: float = 3600.0  # 1h - GFS only publishes every 6h, hourly is already generous
     nwp_poll_forecast_hours: list[int] = Field(default_factory=_default_nwp_poll_forecast_hours)
-    retrain_interval_seconds: float = 21600.0  # 6h - one retrain per real GFS cycle
+    # Adaptive retrain cadence (ingestion_scheduler._retrain_forever): frequent
+    # while real history is still thin (each new poll tick meaningfully changes
+    # a small training set - most valuable to retrain on quickly), then spaced
+    # out once enough real history has accumulated that one more poll tick's
+    # worth of data barely moves the model (diminishing returns) - per Songsiri
+    # reference deck's own framing that a forecast's skill is bounded by how
+    # much real history trained it, not by how often you retrain past that
+    # point. Regime picked each cycle from the live nwp_history row count
+    # (RealDataStore.counts()), not a one-time startup decision, so a
+    # deployment that starts cold and accumulates real data over time
+    # transitions automatically without a restart.
+    retrain_interval_cold_seconds: float = 3600.0  # 1h
+    retrain_interval_warm_seconds: float = 21600.0  # 6h - one retrain per real GFS cycle
+    retrain_warm_threshold_rows: int = 500  # nwp_history row count at/above which the "cold" thin-history period is considered over
 
     port: int = 8000
 

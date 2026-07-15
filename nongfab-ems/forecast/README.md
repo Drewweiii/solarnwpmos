@@ -9,9 +9,9 @@ registry layer, and a dev FastAPI wrapper exposing `GET /forecast/{zone}/{horizo
 
 | Horizon | Model | Input | Loss | Tuning |
 |---|---|---|---|---|
-| Minute-ahead | hand-written CNN-LSTM (torch) | cloud opacity/index sequence | Huber or L1 (`neuralforecast.losses.pytorch`) | Adam + early stopping |
-| Hour-ahead | LightGBM | NWP + lag + clear-sky features | L2 (L1 selectable) | Optuna (Bayesian) + early stopping |
-| Day-ahead | NeuralProphet | trend + seasonality + future regressors (SSRD, T) | MAE | quantile regression for PI |
+| Minute-ahead | hand-written CNN-LSTM (torch) | cloud opacity/index + cloud motion vector (u/v, km/h) sequence | Huber or L1 (`neuralforecast.losses.pytorch`) | Adam + early stopping |
+| Hour-ahead (+1h..+6h, k-step) | LightGBM **or** Random Forest, auto-selected per lead hour on held-out RMSE, + bias-correction cascade | NWP + lag + clear-sky features | L2 (L1 selectable, LightGBM only) | Optuna (Bayesian, LightGBM) + early stopping |
+| Day-ahead (+1h..+72h, 3 days) | NeuralProphet + bias-correction cascade | trend + seasonality + future regressors (SSRD, T) | MAE | quantile regression for PI |
 
 ## Simulated zones (Jetty)
 
@@ -116,6 +116,86 @@ caller/test that doesn't pass one sees zero behavior change.
   (`"ml"`/`"physics_baseline"`) - so a caller can tell what's actually
   driving a number instead of it being silently ambiguous.
 
+## k-step hour-ahead, RF-vs-LightGBM auto-select, bias-correction cascade, cloud motion (2026-07-15)
+
+Extends the real-data feature layer above, per the Songsiri deck's own
+"Forecast results: k-step" evaluation (scores each lead hour separately) and
+its RF/SVR/MARS/ANN comparison (finding Random Forest the best performer):
+
+- **Hour-ahead is now k-step, not single-point**: `HourAheadKStepModel`
+  (`hour_ahead.py`) bundles **6 independently-trained models**, one per lead
+  hour (`serving.HOUR_LEAD_HOURS = (1, 2, 3, 4, 5, 6)`), not one multi-output
+  model - each lead sees a different NWP-forecast-skill/feature relationship
+  as lead time grows, matching how the reference deck scores each `k`
+  separately rather than pooling. `real_data.real_hour_frame_kstep()` /
+  `current_hour_conditions_kstep()` select real NWP rows by
+  `lead_hours = valid_time - issue_time` (not just `valid_time`), since the
+  same GFS cycle forecasts every lead hour and the earlier single-lead code's
+  history dedup collapsed away the exact distinction k-step training needs.
+  Bundled as **one** MLflow-registered object (not 6 separate registrations)
+  so the existing one-model-per-`(horizon, zone)` registry naming scheme
+  needed no changes.
+- **Random Forest alongside LightGBM, auto-selected per lead hour**:
+  `train_rf_hour_ahead_model()` trains a `RandomForestRegressor`; its
+  prediction interval comes from the empirical (5th, 95th) percentile across
+  individual trees' own predictions (a standard "quantile regression forest"
+  approximation), vs. LightGBM's two extra `quantile`-objective models.
+  `training._train_hour_ahead_kstep()` trains both candidates per lead hour
+  and registers whichever wins on held-out validation RMSE -
+  `algorithm_by_lead_hour` records which won, and MLflow `params` log
+  `lead{N}_algorithm` per lead so it's visible after the fact, not just at
+  training time.
+- **Bias-correction cascade (hour-ahead and day-ahead)**: `bias_correction.py`
+  trains a `Ridge` regressor on a model's own held-out validation *residual*
+  (`y_true - primary_pred`), then adds its prediction to future point/lower/
+  upper forecasts (`apply_bias_correction()`) - the "second model learns the
+  first model's residual error" pattern the deck's MOS+KF section describes,
+  applied as a lightweight residual regression rather than a full Kalman
+  filter (the latter wasn't requested). Day-ahead's cascade trains on its own
+  80/20 split of real training history; hour-ahead's trains on each lead
+  hour's own validation split.
+- **Day-ahead extended from 24h to 72h** (`serving.MAX_DAY_AHEAD_HOURS = 72`):
+  3 days, not literally "one day ahead" (name kept for the architecture doc's
+  3-horizon taxonomy) - capped there because that's the actual reach of the
+  real NWP data ingested (`api/config.py`'s `nwp_poll_forecast_hours`) and
+  because post-processed NWP-driven solar forecast skill degrades sharply
+  past ~3-4 days (see the Songsiri reference above), so serving further would
+  just be presenting numbers with no real basis for the extra confidence.
+- **Cloud motion vector wired into minute-ahead**: `real_data.py`'s
+  `MINUTE_FEATURE_COLS` gained `motion_u_kmh`/`motion_v_kmh` - Cartesian
+  components (not raw speed/direction, to avoid the 0°/360° circular
+  discontinuity as an ML feature) converted from `himawari_ingestion.motion`'s
+  FFT-phase-correlation optical flow output
+  (`api/ingestion_scheduler.py`'s `_frame_with_motion()`, wired into both the
+  live poll loop and cold-start backfill so history accumulated before this
+  change gets motion filled in going forward, not just new frames).
+- **Adaptive retrain interval**: `api/ingestion_scheduler.py`'s
+  `_retrain_forever()` now retrains every `API_RETRAIN_INTERVAL_COLD_SECONDS`
+  (default 1h) while real `nwp_history` is thin, or every
+  `API_RETRAIN_INTERVAL_WARM_SECONDS` (default 6h, one retrain per real GFS
+  cycle) once it crosses `API_RETRAIN_WARM_THRESHOLD_ROWS` (default 500) -
+  re-checked every cycle, not decided once at startup, so a deployment that
+  starts cold and accumulates real data live transitions on its own.
+- **Statistical honesty caveat, unchanged from the section above**: RF-vs-
+  LightGBM comparisons and every bias-correction residual still reflect
+  fitting the same deterministic physics formula (`pv_conversion.py`), not
+  real forecast skill - no real generation telemetry exists anywhere in this
+  system yet. The comparison/cascade machinery is genuinely real and will
+  reflect true forecast skill the moment real telemetry exists to train
+  against; see each new module's own docstring (`hour_ahead.py`,
+  `bias_correction.py`) for the same caveat in more detail.
+
+**Fixed the `PYTHONHASHSEED`-flaky round-trip test documented below**, not
+just worked around it: `_predict_lgbm_hour_ahead()` now clips the point
+prediction into `[lower, upper]` after computing all three (the point,
+lower, and upper models are three independently-trained LightGBM models with
+no cross-model consistency constraint - clipping `pred` is what actually
+guarantees `lower <= pred <= upper`, not just that `lower <= upper`, which is
+all the pre-existing clip did). This was found because k-step training now
+runs this same independently-trained-trio pattern 6x per zone/horizon
+instead of once, which turned a rare `PYTHONHASHSEED`-dependent failure into
+a reliable one - worth fixing now rather than carrying 6x the exposure to it.
+
 ## Bug caught by live-testing the dev API, not assumed
 
 `day_ahead.predict_day_ahead()` originally returned a DataFrame indexed by
@@ -136,9 +216,10 @@ by re-localizing to UTC in `predict_day_ahead()` when the input was tz-aware.
 src/nongfab_forecast/
   pv_conversion.py   fit_pv_conversion_model(), default_params_from_capacity(), predict_power_kw()
   metrics.py           rmse/mae/mbe/nrmse, picp/pinaw, evaluate_by_group() (hourly / k-step breakdowns)
-  hour_ahead.py          LightGBM + Optuna, quantile models for PI
+  hour_ahead.py          LightGBM + Optuna, quantile models for PI; Random Forest; k-step bundle (HourAheadKStepModel)
   minute_ahead.py          hand-written CNN-LSTM (torch) + neuralforecast losses
   day_ahead.py               NeuralProphet, trend+seasonality+future regressors
+  bias_correction.py           Ridge residual regressor cascade (hour-ahead + day-ahead)
   registry.py                 MLflow experiment logging, Model Registry versioning, A/B compare
   api.py                       dev-only FastAPI: POST /train-now/{zone}/{horizon}, GET /forecast/{zone}/{horizon}
 tests/                pytest suite - synthetic data (see "Known gaps"), no live services needed
@@ -255,20 +336,43 @@ draw a synthetic "now" input where the point prediction falls outside its
 own interval. Confirmed by running the *unmodified* pre-existing code
 (`git stash`) under 5 different `PYTHONHASHSEED` values: passed at 1, 2, 4,
 failed at 3, 5 - reproducible flakiness that predates this session's changes
-and is unrelated to the real-data feature layer. Not fixed this pass (out of
-scope - a real fix means either pinning `PYTHONHASHSEED` in CI, seeding with
-something deterministic instead of `hash()`, or enforcing point-within-
-interval at the `predict_hour_ahead()` level); flagged here so it isn't
-mistaken for a regression next time CI or a local run happens to hit it.
+and is unrelated to the real-data feature layer. **Fixed in the 2026-07-15
+k-step round above** (`_predict_lgbm_hour_ahead()` now clips `pred` into
+`[lower, upper]`) rather than left open - the k-step change made this same
+gap 6x more exposed (one independently-trained trio per lead hour instead of
+one total), so it stopped being safely ignorable.
+
+## Verified (2026-07-15) - k-step / RF / bias-correction / adaptive retrain
+
+No live network egress available in this sandbox for this round (unchanged
+from the caveat in the section above), so this was verified against the
+existing local test suite plus a standalone smoke script exercising the new
+code paths end-to-end, not a fresh live curl:
+
+- A standalone script simulated 15 real-shaped GFS cycles (issue times 6h
+  apart, lead hours 1-6 each), trained all 6 k-step models via
+  `real_data.real_hour_frame_kstep()` + `train_hour_ahead_model()`/
+  `train_rf_hour_ahead_model()`, confirmed Random Forest wins on some leads
+  and LightGBM on others (not a fixed winner - genuinely comparing per lead),
+  and confirmed `predict_hour_ahead_kstep()` returns a DataFrame indexed
+  exactly `[1, 2, 3, 4, 5, 6]`.
+- Full test suite: **98 passed** (`pytest -v`, includes the `@pytest.mark.slow`
+  train-then-forecast round trips for all three horizons against the new
+  k-step/72h/bias-correction code paths). `ruff check` clean.
+- `api/`'s own test suite (which imports and exercises this module through
+  `ingestion_scheduler.py` and the production `/forecast` route): **99
+  passed**, `ruff check` clean.
 
 ## Known gaps / next steps
 
 - **No automatic retraining pipeline of its own** - `registry.log_run()` +
   `load_model()` give you versioning and A/B comparison; `api/`'s
-  `ingestion_scheduler.py` now provides a real retrain loop (every
-  `API_RETRAIN_INTERVAL_SECONDS`, default 6h) for the production deployment,
-  but this module itself still has no scheduler - Prefect (cross-cutting,
-  not started) remains the natural fit for a non-`api/`-hosted deploy path.
+  `ingestion_scheduler.py` now provides a real, adaptive retrain loop
+  (`API_RETRAIN_INTERVAL_COLD_SECONDS`, default 1h, while real history is
+  thin; `API_RETRAIN_INTERVAL_WARM_SECONDS`, default 6h, once it isn't - see
+  the k-step section above) for the production deployment, but this module
+  itself still has no scheduler - Prefect (cross-cutting, not started)
+  remains the natural fit for a non-`api/`-hosted deploy path.
 - **Hour-ahead's Optuna search space and NeuralProphet's epoch counts are
   deliberately small** in the dev API's `/train-now` (n_trials=5, epochs=15)
   to keep interactive verification fast - not tuned against real accuracy

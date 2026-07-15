@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+import pandas as pd
+
 from nongfab_forecast.local_store import RealDataStore, default_db_path
 
 
@@ -22,6 +24,8 @@ class _FakeCloudFrame:
     nong_fab_cloud_opacity_pct: float
     nong_fab_cloud_index: float
     source: str
+    motion_speed_kmh: float | None = None
+    motion_direction_deg: float | None = None
 
 
 @dataclass
@@ -95,6 +99,43 @@ def test_insert_and_read_cloud_frames_roundtrips():
     df = store.cloud_history_df()
     assert len(df) == 3
     assert df["observed_at"].is_monotonic_increasing
+    assert df["motion_speed_kmh"].isna().all()  # not set on these frames
+
+
+def test_insert_cloud_frames_stores_motion_when_present():
+    store = RealDataStore()
+    frames = [
+        _FakeCloudFrame(
+            observed_at=datetime(2026, 7, 14, 0, 0, tzinfo=timezone.utc), nong_fab_cloud_opacity_pct=50.0,
+            nong_fab_cloud_index=0.5, source="test", motion_speed_kmh=12.5, motion_direction_deg=270.0,
+        ),
+    ]
+    store.insert_cloud_frames(frames)
+
+    df = store.cloud_history_df()
+    assert df.iloc[0]["motion_speed_kmh"] == 12.5
+    assert df.iloc[0]["motion_direction_deg"] == 270.0
+
+
+def test_insert_cloud_frames_accepts_frames_without_motion_attributes():
+    """Old-style test doubles (no motion_speed_kmh/motion_direction_deg
+    attributes at all, not just None) must still work - getattr(..., None),
+    not a hard requirement - see insert_cloud_frames' own docstring."""
+    @dataclass
+    class _BareCloudFrame:
+        observed_at: datetime
+        nong_fab_cloud_opacity_pct: float
+        nong_fab_cloud_index: float
+        source: str
+
+    store = RealDataStore()
+    bare_frame = _BareCloudFrame(
+        observed_at=datetime(2026, 7, 14, tzinfo=timezone.utc), nong_fab_cloud_opacity_pct=10.0, nong_fab_cloud_index=0.1, source="test"
+    )
+    store.insert_cloud_frames([bare_frame])
+    df = store.cloud_history_df()
+    assert len(df) == 1
+    assert df.iloc[0]["motion_speed_kmh"] is None or pd.isna(df.iloc[0]["motion_speed_kmh"])
 
 
 def test_latest_cloud_observation_returns_none_when_empty():

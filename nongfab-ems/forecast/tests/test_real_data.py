@@ -26,6 +26,8 @@ class _FakeCloudFrame:
     nong_fab_cloud_opacity_pct: float
     nong_fab_cloud_index: float
     source: str
+    motion_speed_kmh: float | None = None
+    motion_direction_deg: float | None = None
 
 
 def _seed_nwp_history(store: RealDataStore, n: int, start: datetime, step: timedelta = timedelta(hours=1)) -> None:
@@ -171,8 +173,36 @@ def test_real_minute_frame_builds_expected_columns_above_minimum():
     store = RealDataStore()
     _seed_cloud_history(store, n=real_data.MIN_MINUTE_ROWS + 5, start=datetime(2026, 7, 1, tzinfo=timezone.utc))
     df = real_data.real_minute_frame(store)
-    assert list(df.columns) == ["cloud_opacity_pct", "cloud_index"]
+    assert list(df.columns) == real_data.MINUTE_FEATURE_COLS
     assert len(df) == real_data.MIN_MINUTE_ROWS + 5
+
+
+def test_real_minute_frame_converts_motion_speed_direction_to_uv_components():
+    store = RealDataStore()
+    start = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    # due east at 10 km/h: u (east) = 10, v (north) ~= 0
+    frames = [
+        _FakeCloudFrame(
+            observed_at=start + timedelta(minutes=10 * i), nong_fab_cloud_opacity_pct=30.0, nong_fab_cloud_index=0.3,
+            source="test", motion_speed_kmh=10.0, motion_direction_deg=90.0,
+        )
+        for i in range(real_data.MIN_MINUTE_ROWS)
+    ]
+    store.insert_cloud_frames(frames)
+
+    df = real_data.real_minute_frame(store)
+    # pytest.approx vs a bare pandas Series silently compares element-wise as
+    # all-False (pandas' own __eq__ wins over ApproxScalar's) - .to_numpy() first.
+    assert df["motion_u_kmh"].to_numpy() == pytest.approx(10.0, abs=1e-9)
+    assert df["motion_v_kmh"].to_numpy() == pytest.approx(0.0, abs=1e-9)
+
+
+def test_real_minute_frame_fills_missing_motion_with_zero():
+    store = RealDataStore()
+    _seed_cloud_history(store, n=real_data.MIN_MINUTE_ROWS, start=datetime(2026, 7, 1, tzinfo=timezone.utc))  # no motion set
+    df = real_data.real_minute_frame(store)
+    assert (df["motion_u_kmh"] == 0.0).all()
+    assert (df["motion_v_kmh"] == 0.0).all()
 
 
 def test_recent_minute_window_returns_last_n_rows_in_order():

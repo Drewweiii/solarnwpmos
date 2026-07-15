@@ -17,12 +17,28 @@ import pandas as pd
 
 from . import real_data, registry
 from .day_ahead import predict_day_ahead
-from .hour_ahead import predict_hour_ahead
+from .hour_ahead import predict_hour_ahead_kstep
 from .local_store import RealDataStore
 from .minute_ahead import predict_minute_ahead
 from .pv_conversion import nong_fab_zone_capacities_kwp
 
 VALID_HORIZONS = ("minute", "hour", "day")
+
+# Hour-ahead's k-step lead hours - HourAheadKStepModel holds one independently-
+# trained model per lead (see hour_ahead.py's own docstring for why not one
+# multi-output model), replacing the original single "+1h only" point forecast.
+HOUR_LEAD_HOURS = (1, 2, 3, 4, 5, 6)
+
+# Day-ahead's forecast window: 72h (3 days), not literally "one day" - the model
+# name is inherited from the architecture doc's 3-horizon taxonomy (minute/hour/
+# day), but the actual served window is capped at 3 days because that's the
+# reach of the real NWP data actually available (see api/config.py's
+# nwp_poll_forecast_hours, which fetches out to 72h) and because forecast skill
+# beyond ~3-4 days degrades sharply for post-processed NWP-driven solar
+# forecasting (Songsiri, "An Introduction to Solar Energy Forecasting", Chula/
+# CUEE - see forecast/README.md's "Reference" section) - going further would be
+# serving numbers with no real basis for extra confidence.
+MAX_DAY_AHEAD_HOURS = 72
 
 
 class UnknownZoneError(ValueError):
@@ -55,7 +71,16 @@ def _synthetic_minute_df(n: int, seed: int) -> pd.DataFrame:
     t = np.arange(n)
     opacity = np.clip(50 + 30 * np.sin(2 * np.pi * t / 40) + 0.01 * t + rng.normal(0, 1.5, size=n), 0, 100)
     cloud_index = opacity / 100.0 + rng.normal(0, 0.02, size=n)
-    return pd.DataFrame({"cloud_opacity_pct": opacity, "cloud_index": cloud_index})
+    # Motion columns match real_data.MINUTE_FEATURE_COLS's shape (not derived from
+    # opacity - just independent noise in a plausible km/h range) so a model trained
+    # on this synthetic fallback has the same feature schema as one trained on real
+    # data - see real_data.py's own motion feature docstring for what these mean
+    # when they're real.
+    motion_u_kmh = rng.normal(0, 5, size=n)
+    motion_v_kmh = rng.normal(0, 5, size=n)
+    return pd.DataFrame(
+        {"cloud_opacity_pct": opacity, "cloud_index": cloud_index, "motion_u_kmh": motion_u_kmh, "motion_v_kmh": motion_v_kmh}
+    )
 
 
 def _synthetic_hour_df(n: int, seed: int) -> tuple[pd.DataFrame, pd.Series]:
@@ -136,28 +161,35 @@ def get_latest_forecast(zone: str, horizon: str, store: RealDataStore | None = N
         points = [ForecastPoint(timestamp=now + timedelta(minutes=10 * (i + 1)), pred=float(v)) for i, v in enumerate(pred)]
 
     elif horizon == "hour":
-        try:
-            X_now = real_data.current_hour_conditions(zone, store, now)
-            data_source = "real"
-        except real_data.InsufficientHistoryError:
-            X_now, _ = _synthetic_hour_df(n=1, seed=hash((zone, "hour-now")) % 1000)
-        result = predict_hour_ahead(model, X_now)
+        X_by_lead_hour: dict[int, pd.DataFrame] = {}
+        any_real = False
+        for lead in HOUR_LEAD_HOURS:
+            try:
+                X_by_lead_hour[lead] = real_data.current_hour_conditions_kstep(zone, store, lead, now)
+                any_real = True
+            except real_data.InsufficientHistoryError:
+                X_lead, _ = _synthetic_hour_df(n=1, seed=hash((zone, f"hour-now-{lead}")) % 1000)
+                X_by_lead_hour[lead] = X_lead
+        data_source = "real" if any_real else "synthetic"
+        result = predict_hour_ahead_kstep(model, X_by_lead_hour)
         points = [
-            ForecastPoint(timestamp=now + timedelta(hours=1), pred=float(row.pred), lower=float(row.lower), upper=float(row.upper))
-            for row in result.itertuples()
+            ForecastPoint(
+                timestamp=now + timedelta(hours=int(lead)), pred=float(row.pred), lower=float(row.lower), upper=float(row.upper)
+            )
+            for lead, row in result.iterrows()
         ]
 
     else:  # day
         try:
             history_df = real_data.real_day_frame(zone, store)
-            future_df = real_data.real_future_regressors(store, now)[:24]
+            future_df = real_data.real_future_regressors(store, now)[:MAX_DAY_AHEAD_HOURS]
             if len(future_df) == 0:
                 raise real_data.InsufficientHistoryError("no real future NWP rows accumulated yet")
             data_source = "real"
         except real_data.InsufficientHistoryError:
             history_df = _synthetic_day_df(n_hours=24 * 5, seed=hash((zone, "day-history")) % 1000)
-            future_df = _synthetic_day_df(n_hours=24, seed=hash((zone, "day-now")) % 1000)
-            future_df.index = history_df.index[-1] + pd.to_timedelta(np.arange(1, 25), unit="h")
+            future_df = _synthetic_day_df(n_hours=MAX_DAY_AHEAD_HOURS, seed=hash((zone, "day-now")) % 1000)
+            future_df.index = history_df.index[-1] + pd.to_timedelta(np.arange(1, MAX_DAY_AHEAD_HOURS + 1), unit="h")
         result = predict_day_ahead(model, history_df, future_df[["ssrd_w_m2", "temp2m_c"]], periods=len(future_df))
         points = [
             ForecastPoint(timestamp=ts.to_pydatetime(), pred=float(row.pred), lower=float(row.lower), upper=float(row.upper))
@@ -195,9 +227,9 @@ def get_forecast_with_fallback(zone: str, horizon: str, store: RealDataStore | N
     if horizon == "minute":
         timestamps = pd.date_range(now + timedelta(minutes=10), periods=6, freq="10min")
     elif horizon == "hour":
-        timestamps = pd.date_range(now + timedelta(hours=1), periods=1, freq="h")
+        timestamps = pd.date_range(now + timedelta(hours=1), periods=len(HOUR_LEAD_HOURS), freq="h")
     else:
-        timestamps = pd.date_range(now, periods=24, freq="h")
+        timestamps = pd.date_range(now, periods=MAX_DAY_AHEAD_HOURS, freq="h")
 
     baseline = real_data.physics_baseline_series(zone, timestamps, store)
     points = [ForecastPoint(timestamp=ts.to_pydatetime(), pred=float(row.pred)) for ts, row in baseline.iterrows()]

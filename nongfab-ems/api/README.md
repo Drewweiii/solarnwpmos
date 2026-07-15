@@ -60,15 +60,31 @@ fixture explicitly turns it off so the suite stays hermetic/fast):
    SECONDS` (default 600s, matching its native 10-min product cadence), GFS
    every `API_NWP_POLL_INTERVAL_SECONDS` (default 3600s - GFS only
    publishes every 6h, hourly is already generous) across
-   `API_NWP_POLL_FORECAST_HOURS` (default `[1,2,3,4,5,6,12,18,24]`, near-
-   term hourly + sparser further out for day-ahead's future regressors).
-3. **Periodic retraining**: every `API_RETRAIN_INTERVAL_SECONDS` (default
-   21600s/6h), calls `nongfab_forecast.training.train_now(zone, horizon,
-   store)` for all 3 zones x 3 horizons via `asyncio.to_thread` (LightGBM/
-   NeuralProphet/torch training is synchronous and CPU-bound - must not
-   block the event loop). `train_now()` itself already prefers real data
-   over synthetic once enough has accumulated (see forecast/README.md) -
-   this loop just calls it on a schedule.
+   `API_NWP_POLL_FORECAST_HOURS` (default: hourly out to 24h, 3-hourly 27-48h,
+   6-hourly 54-72h - `config._default_nwp_poll_forecast_hours()` - dense
+   enough near-term for hour-ahead's k-step models, reaching the full 72h
+   day-ahead window at the far end without polling every hour out that far).
+   Each Himawari frame also gets a real cloud motion vector
+   (`_frame_with_motion()`, FFT phase correlation via `himawari_ingestion.
+   motion.estimate_cloud_motion()`) computed against the previous frame -
+   feeds `real_data.py`'s `motion_u_kmh`/`motion_v_kmh` minute-ahead features
+   (see forecast/README.md's k-step section) - applied in both this live loop
+   and the one-shot backfill above, so cold-start history gets motion too,
+   not just frames ingested after this deployed.
+3. **Periodic retraining, adaptive cadence**: after each retrain pass over
+   all 3 zones x 3 horizons (`nongfab_forecast.training.train_now(zone,
+   horizon, store)` via `asyncio.to_thread` - LightGBM/Random Forest/
+   NeuralProphet/torch training is synchronous and CPU-bound, must not block
+   the event loop), sleeps `API_RETRAIN_INTERVAL_COLD_SECONDS` (default
+   3600s/1h) if the store's real `nwp_history` row count is still below
+   `API_RETRAIN_WARM_THRESHOLD_ROWS` (default 500), else
+   `API_RETRAIN_INTERVAL_WARM_SECONDS` (default 21600s/6h, one retrain per
+   real GFS cycle) - re-checked every cycle, not decided once at startup, so
+   a deployment that starts cold and accumulates real data live speeds up
+   its own learning early on, then settles down once more retraining
+   wouldn't meaningfully change the model. `train_now()` itself already
+   prefers real data over synthetic once enough has accumulated (see
+   forecast/README.md) - this loop just calls it on a schedule.
 
 Every network/training call is wrapped so one failure never crashes the
 loop or the app - logged and retried next tick, not propagated.
@@ -544,6 +560,28 @@ README.md`'s "Backfill" section (GFS's flux-field step-type text is
 forecast-hour-dependent, e.g. "0-1 hour ave fcst" vs "6-12 hour ave fcst" -
 the fix matches on `(shortName, level)` only, verified live across fhour
 2/6/12/24 after the fix, not just re-trusting f001 again).
+
+### Verified (2026-07-15) - k-step hour-ahead, motion vector, adaptive retrain
+
+No live network egress available in this sandbox for this round (same
+caveat as elsewhere in this doc), so this pass was verified via the full
+test suite rather than another live `uvicorn` boot:
+
+- **99 passed**, `ruff check api/src api/tests` clean - includes
+  `test_get_forecast_no_model_trained_falls_back_to_physics_baseline` (now
+  asserting 6 physics-baseline points, one per k-step lead hour, not 1)
+  exercising `get_forecast_with_fallback()` against the new
+  `HourAheadKStepModel` shape end-to-end through the actual `/forecast`
+  route, not just forecast/'s own tests in isolation.
+- `_retrain_forever()`'s new cold/warm branching and `_frame_with_motion()`'s
+  wiring into both `_poll_himawari_forever()` and `_backfill_himawari()` have
+  no dedicated unit tests of their own yet (no existing
+  `test_ingestion_scheduler.py` in this module to extend) - covered
+  indirectly via forecast/'s own k-step round-trip tests and the fact that
+  `ingestion_scheduler.py` still imports/type-checks/runs cleanly against the
+  new `Settings` fields. See forecast/README.md's "Verified (2026-07-15)"
+  section for the k-step/RF/bias-correction-specific verification (a
+  standalone smoke script + the forecast test suite).
 
 ### STEP 10: api/Dockerfile was broken and unbuildable
 

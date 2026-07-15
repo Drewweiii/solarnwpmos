@@ -52,7 +52,12 @@ def test_hour_ahead_train_then_forecast_round_trip(client):
     assert train_resp.status_code == 200
     train_body = train_resp.json()
     assert train_body["model_version"] == 1
-    assert set(train_body["metrics"]) == {"rmse", "mae", "mbe", "nrmse", "picp", "pinaw"}
+    # k-step: one LightGBM-vs-RF-vs-bias-correction metric bundle per lead hour
+    # (HOUR_LEAD_HOURS = 1..6), not a single flat metrics dict - see
+    # training.py's _train_hour_ahead_kstep.
+    per_lead_metric_keys = {"rmse", "mae", "mbe", "nrmse", "picp", "pinaw", "lgbm_rmse", "rf_rmse", "residual_std"}
+    expected_metrics = {f"lead{lead}_{key}" for lead in range(1, 7) for key in per_lead_metric_keys}
+    assert set(train_body["metrics"]) == expected_metrics
 
     health = client.get("/health").json()
     assert "GIS/hour" in health["trained"]
@@ -63,10 +68,10 @@ def test_hour_ahead_train_then_forecast_round_trip(client):
     assert body["zone"] == "GIS"
     assert body["horizon"] == "hour"
     assert body["model_version"] == 1
-    assert len(body["points"]) == 1
-    point = body["points"][0]
-    assert point["timestamp"].endswith("Z")
-    assert point["lower"] <= point["pred"] <= point["upper"]
+    assert len(body["points"]) == 6  # one point per k-step lead hour (+1h..+6h)
+    for point in body["points"]:
+        assert point["timestamp"].endswith("Z")
+        assert point["lower"] <= point["pred"] <= point["upper"]
 
 
 @pytest.mark.slow
@@ -96,11 +101,14 @@ def test_minute_ahead_train_then_forecast_round_trip(client):
 def test_day_ahead_train_then_forecast_round_trip(client):
     train_resp = client.post("/train-now/GIS/day")
     assert train_resp.status_code == 200
-    assert set(train_resp.json()["metrics"]) == {"rmse", "mae", "mbe", "nrmse", "picp", "pinaw"}
+    # residual_std: the day-ahead bias-correction cascade's own validation
+    # residual std (training.py's train_now, day branch) - present whenever
+    # there's enough held-out history to train it (always true here).
+    assert set(train_resp.json()["metrics"]) == {"rmse", "mae", "mbe", "nrmse", "picp", "pinaw", "residual_std"}
 
     forecast_resp = client.get("/forecast/GIS/day")
     assert forecast_resp.status_code == 200
     body = forecast_resp.json()
-    assert len(body["points"]) == 24
+    assert len(body["points"]) == 72  # MAX_DAY_AHEAD_HOURS (3 days), not literally "one day" - see serving.py
     assert all(p["timestamp"].endswith("Z") for p in body["points"])  # tz-awareness bug regression
     assert all(p["lower"] <= p["pred"] <= p["upper"] for p in body["points"])

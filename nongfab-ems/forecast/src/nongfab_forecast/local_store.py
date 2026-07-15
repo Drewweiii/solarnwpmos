@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS cloud_history (
     observed_at TEXT NOT NULL,
     cloud_opacity_pct REAL NOT NULL,
     cloud_index REAL NOT NULL,
+    motion_speed_kmh REAL,
+    motion_direction_deg REAL,
     source TEXT NOT NULL,
     PRIMARY KEY (observed_at, source)
 );
@@ -118,17 +120,26 @@ class RealDataStore:
 
     def insert_cloud_frames(self, frames: Iterable) -> int:
         """`frames` are himawari_ingestion.schemas.CloudRasterFrame (or anything with
-        observed_at/nong_fab_cloud_opacity_pct/nong_fab_cloud_index/source).
+        observed_at/nong_fab_cloud_opacity_pct/nong_fab_cloud_index/source, optionally
+        motion_speed_kmh/motion_direction_deg). Motion fields use getattr(..., None)
+        rather than a hard attribute requirement: CloudRasterFrame's own fields are
+        null on a run's first frame (no previous frame to diff against yet - see that
+        class's docstring), and older/simpler test doubles may not carry them at all.
         """
         rows = [
-            (f.observed_at.isoformat(), float(f.nong_fab_cloud_opacity_pct), float(f.nong_fab_cloud_index), f.source)
+            (
+                f.observed_at.isoformat(), float(f.nong_fab_cloud_opacity_pct), float(f.nong_fab_cloud_index),
+                getattr(f, "motion_speed_kmh", None), getattr(f, "motion_direction_deg", None), f.source,
+            )
             for f in frames
         ]
         if not rows:
             return 0
         with self._connect() as conn:
             conn.executemany(
-                "INSERT OR REPLACE INTO cloud_history (observed_at, cloud_opacity_pct, cloud_index, source) VALUES (?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO cloud_history "
+                "(observed_at, cloud_opacity_pct, cloud_index, motion_speed_kmh, motion_direction_deg, source) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 rows,
             )
             conn.commit()
