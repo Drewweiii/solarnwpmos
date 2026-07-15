@@ -1,0 +1,169 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Every Python job installs its own sibling packages *editable* (`pip install -e`)
+# straight from this checkout, in dependency order (nongfab-common -> features ->
+# forecast -> simulation -> api; ingestion/orchestration branch off nongfab-common
+# too). That's deliberate, not an oversight: none of these packages are published to
+# PyPI, so an editable install is what lets a bare `nongfab-common` requirement in
+# e.g. api/pyproject.toml resolve to the sibling checked out right here instead of
+# pip trying (and failing) to fetch it from the index. Editable also keeps each
+# package's __file__ pointing at this checkout, which nongfab_common.assets.
+# load_assets()'s default path resolution depends on - see orchestration/README.md's
+# "A real packaging bug this module caught" for what goes wrong with a *non*-editable
+# install sharing a venv with another package (not what happens here - each job below
+# gets its own clean runner - but worth knowing if this workflow ever changes).
+
+jobs:
+  nongfab-common:
+    name: lint+test - libs/nongfab_common
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install ruff -e "./libs/nongfab_common[dev]"
+      - run: ruff check libs/nongfab_common/src libs/nongfab_common/tests
+      - run: pytest libs/nongfab_common -v
+
+  features:
+    name: lint+test - features/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install ruff -e ./libs/nongfab_common -e "./features[dev]"
+      - run: ruff check features/src features/tests
+      - run: pytest features -v
+
+  forecast:
+    name: lint+test - forecast/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install ruff -e ./libs/nongfab_common -e ./features -e "./forecast[dev]"
+      - run: ruff check forecast/src forecast/tests
+      - run: pytest forecast -v -m "not slow"
+
+  simulation:
+    name: lint+test - simulation/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install ruff -e ./libs/nongfab_common -e ./features -e ./forecast -e "./simulation[dev]"
+      - run: ruff check simulation/src simulation/tests
+      - run: pytest simulation -v
+
+  api:
+    name: lint+test - api/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install ruff -e ./libs/nongfab_common -e ./features -e ./forecast -e ./simulation -e "./api[dev]"
+      - run: ruff check api/src api/tests
+      - run: pytest api -v
+
+  himawari-ingestion:
+    name: lint+test - ingestion/himawari
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install ruff -e ./libs/nongfab_common -e "./ingestion/himawari[dev]"
+      - run: ruff check ingestion/himawari/src ingestion/himawari/tests
+      - run: pytest ingestion/himawari -v
+
+  nwp-ingestion:
+    name: lint+test - ingestion/nwp
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install ruff -e ./libs/nongfab_common -e "./ingestion/nwp[dev]"
+      - run: ruff check ingestion/nwp/src ingestion/nwp/tests
+      - run: pytest ingestion/nwp -v
+
+  orchestration:
+    name: lint+test - orchestration/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: >
+          pip install ruff
+          -e ./libs/nongfab_common -e ./features -e ./forecast
+          -e ./ingestion/himawari -e ./ingestion/nwp
+          -e "./orchestration[dev]"
+      - run: ruff check orchestration/src orchestration/tests
+      - run: pytest orchestration -v -m "not slow"
+
+  web:
+    name: lint+test+build - web/
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test -- --run
+      - run: npm run build
+
+  docker-compose-config:
+    name: validate docker-compose.yml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: docker compose config --quiet
+
+  docker-build-api:
+    name: build api/ Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: api/Dockerfile
+          push: false
+          tags: nongfab-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

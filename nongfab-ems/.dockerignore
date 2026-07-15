@@ -1,0 +1,28 @@
+# api/'s build context is the repo root (see docker-compose.yml), so this
+# keeps that build (and any future root-context build) from sending multi-GB
+# .venv/node_modules/mlruns dirs to the daemon - mirrors .gitignore plus .git
+# itself, which .gitignore can't cover.
+.git/
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+**/.pytest_cache/
+*.egg-info/
+**/*.egg-info/
+build/
+**/build/
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.env
+mlruns/
+**/mlruns/
+.dev-minio-data/
+mlflow.db
+.dev-mlflow.db
+lightning_logs/
+**/lightning_logs/

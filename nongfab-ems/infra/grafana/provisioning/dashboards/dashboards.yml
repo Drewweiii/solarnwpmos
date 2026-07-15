@@ -1,0 +1,17 @@
+# Auto-provisioned on Grafana startup - loads every *.json dashboard from
+# infra/grafana/dashboards/ (mounted to /var/lib/grafana/dashboards, see
+# docker-compose.yml). allowUiUpdates: false keeps the file on disk as the
+# single source of truth instead of drifting from in-UI edits that never
+# get committed.
+apiVersion: 1
+
+providers:
+  - name: nongfab-ems
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

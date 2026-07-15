@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+import nongfab_simulation.dev_data as dev_data
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
@@ -12,6 +13,14 @@ def test_zone_snapshot_uses_the_row_nearest_now_not_always_the_last_row(monkeypa
     00:00-23:00, so blindly taking `.iloc[-1]` would always return the 23:00
     (always-dark) row no matter the real time of day. At a synthetic local
     noon the snapshot should show non-zero, inverter-clipped output.
+
+    Both `ws_live` and `dev_data` are patched to the same fixed instant -
+    `synthetic_day_irradiance_temp()` calls its own module-level
+    `datetime.now()` (in `nongfab_simulation.dev_data`, not `ws_live`) to
+    build the synthetic day, so patching only `ws_live.datetime` left the
+    "now" lookup on a fixed day while the synthetic day itself silently
+    tracked the real wall-clock date - passing only on the day this test was
+    written, then failing the moment the real date rolled over.
     """
 
     class FixedDatetime(datetime):
@@ -20,6 +29,7 @@ def test_zone_snapshot_uses_the_row_nearest_now_not_always_the_last_row(monkeypa
             return datetime(2026, 7, 14, 12, 0, 0, tzinfo=timezone.utc)
 
     monkeypatch.setattr(ws_live, "datetime", FixedDatetime)
+    monkeypatch.setattr(dev_data, "datetime", FixedDatetime)
     snapshot = ws_live._zone_snapshot("GIS")
     assert snapshot["current_ac_kw"] == pytest.approx(50.0, rel=1e-3)
 

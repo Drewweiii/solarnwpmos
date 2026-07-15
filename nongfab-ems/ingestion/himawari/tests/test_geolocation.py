@@ -1,7 +1,6 @@
 import numpy as np
 import pytest
 import xarray as xr
-
 from nongfab_common.assets import load_assets
 from nongfab_common.assets import target_bbox as config_target_bbox
 

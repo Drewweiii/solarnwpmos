@@ -9,14 +9,17 @@ DSN in `Settings.timescale_dsn` - see tests/conftest.py.
 from __future__ import annotations
 
 import logging
+import time
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from . import (
+    metrics,
     routes_assets,
     routes_energy_report,
     routes_forecast,
@@ -77,6 +80,29 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def prometheus_metrics_middleware(request: Request, call_next):
+        start = time.perf_counter()
+        response = await call_next(request)
+        # request.scope["route"] is set by the router as part of call_next()'s
+        # dispatch (same scope dict, mutated in place), so it's already
+        # populated by the time we get here - using the matched route's
+        # template (e.g. "/forecast/{zone}/{horizon}") instead of the raw
+        # path keeps per-zone requests aggregated into one series instead of
+        # fragmenting into one series per zone id. Unmatched requests (404s)
+        # fall back to a fixed label instead of the raw path so a scanner
+        # probing random URLs can't blow up label cardinality.
+        route = request.scope.get("route")
+        path = route.path if route is not None else "not_found"
+        duration = time.perf_counter() - start
+        metrics.REQUEST_COUNT.labels(method=request.method, path=path, status_code=response.status_code).inc()
+        metrics.REQUEST_DURATION_SECONDS.labels(method=request.method, path=path).observe(duration)
+        return response
+
+    @app.get("/metrics")
+    async def metrics_endpoint() -> Response:
+        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

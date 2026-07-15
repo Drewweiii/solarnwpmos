@@ -48,3 +48,9 @@ nwp_ingestion = []
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 markers = ["integration: requires a real TimescaleDB (set TIMESCALE_TEST_DSN) and/or live NOMADS access (set NWP_LIVE_TEST=1)"]
+
+[tool.ruff]
+line-length = 150
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

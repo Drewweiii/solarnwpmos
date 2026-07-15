@@ -12,7 +12,9 @@ BBOX_KWARGS = dict(lat_min=12.61, lat_max=12.74, lon_min=101.06, lon_max=101.18,
 
 
 def _make_frame(observed_at: datetime, opacity: float = 42.0) -> CloudRasterFrame:
-    return CloudRasterFrame(observed_at=observed_at, source="mock-fixture", nong_fab_cloud_opacity_pct=opacity, nong_fab_cloud_index=0.5, **BBOX_KWARGS)
+    return CloudRasterFrame(
+        observed_at=observed_at, source="mock-fixture", nong_fab_cloud_opacity_pct=opacity, nong_fab_cloud_index=0.5, **BBOX_KWARGS,
+    )
 
 
 def _make_raw(cloud_probability: np.ndarray) -> RawFetchResult:

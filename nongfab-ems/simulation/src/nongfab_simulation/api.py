@@ -25,7 +25,6 @@ from .monte_carlo import ScenarioDistribution, monte_carlo_scenario_simulation
 from .pipeline import simulate_zone_baseline
 from .what_if import ScenarioParams, apply_scenario, compare_scenarios
 
-
 app = FastAPI(
     title="Nong Fab EMS - Module 5 Simulation Engine (dev verification API)",
     description=(

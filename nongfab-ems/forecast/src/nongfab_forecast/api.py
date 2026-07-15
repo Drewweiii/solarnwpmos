@@ -23,30 +23,18 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 
-import numpy as np
-import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from . import registry
-from .day_ahead import predict_day_ahead, train_day_ahead_model
-from .hour_ahead import predict_hour_ahead, train_hour_ahead_model
-from .metrics import evaluate_point_forecast, evaluate_prediction_interval
-from .minute_ahead import train_minute_ahead_model
-from .pv_conversion import nong_fab_zone_capacities_kwp
+from . import registry, training
 from .serving import (
     ModelNotTrainedError,
     UnknownHorizonError,
     UnknownZoneError,
-    _synthetic_day_df,
-    _synthetic_hour_df,
-    _synthetic_minute_df,
     get_latest_forecast,
 )
 
 logger = logging.getLogger(__name__)
-
-VALID_HORIZONS = ("minute", "hour", "day")
 
 
 @asynccontextmanager
@@ -97,19 +85,6 @@ class HealthResponse(BaseModel):
     trained: list[str]
 
 
-def _validate_zone(zone: str) -> str:
-    capacities = nong_fab_zone_capacities_kwp()
-    if zone not in capacities:
-        raise HTTPException(status_code=404, detail=f"unknown zone {zone!r}; known zones: {sorted(capacities)}")
-    return zone
-
-
-def _validate_horizon(horizon: str) -> str:
-    if horizon not in VALID_HORIZONS:
-        raise HTTPException(status_code=404, detail=f"unknown horizon {horizon!r}; expected one of {VALID_HORIZONS}")
-    return horizon
-
-
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     return HealthResponse(
@@ -120,44 +95,20 @@ async def health() -> HealthResponse:
 
 @app.post("/train-now/{zone}/{horizon}", response_model=TrainResponse)
 async def train_now(zone: str, horizon: str) -> TrainResponse:
-    zone = _validate_zone(zone)
-    horizon = _validate_horizon(horizon)
+    """Delegates to training.train_now() - the same function the STEP 10
+    Prefect retrain flow (orchestration/) calls, so this dev endpoint and
+    that flow never drift apart in behavior.
+    """
+    try:
+        result = training.train_now(zone, horizon)
+    except (UnknownZoneError, UnknownHorizonError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    if horizon == "minute":
-        train_df = _synthetic_minute_df(n=400, seed=0)
-        model = train_minute_ahead_model(
-            train_df, ["cloud_opacity_pct", "cloud_index"], "cloud_opacity_pct", epochs=30, patience=6,
-        )
-        params = {"lookback": model.lookback, "horizon": model.horizon}
-        metrics = {"best_val_loss": min(model.train_history)}
-
-    elif horizon == "hour":
-        X, y = _synthetic_hour_df(n=300, seed=0)
-        X_train, y_train, X_val, y_val = X.iloc[:200], y.iloc[:200], X.iloc[200:], y.iloc[200:]
-        model = train_hour_ahead_model(X_train, y_train, X_val, y_val, n_trials=5)
-
-        X_test, y_test = _synthetic_hour_df(n=100, seed=1)
-        pred = predict_hour_ahead(model, X_test)
-        params = dict(model.best_params)
-        metrics = {**evaluate_point_forecast(y_test, pred["pred"]), **evaluate_prediction_interval(y_test, pred["lower"], pred["upper"])}
-
-    else:  # day
-        train_df = _synthetic_day_df(n_hours=24 * 20, seed=0)
-        model = train_day_ahead_model(train_df, "power_kw", ["ssrd_w_m2", "temp2m_c"], epochs=15)
-
-        test_df = _synthetic_day_df(n_hours=24, seed=1)
-        test_df.index = train_df.index[-1] + pd.to_timedelta(np.arange(1, 25), unit="h")
-        pred = predict_day_ahead(model, train_df, test_df[["ssrd_w_m2", "temp2m_c"]], periods=24)
-        params = {"quantiles": str(model.quantiles)}
-        metrics = {
-            **evaluate_point_forecast(test_df["power_kw"], pred["pred"]),
-            **evaluate_prediction_interval(test_df["power_kw"], pred["lower"], pred["upper"]),
-        }
-
-    run_id, version = registry.log_run(horizon, zone, model, params=params, metrics=metrics)
-    app.state.trained.add((zone, horizon))
-    logger.info("trained %s/%s -> version %d (run_id=%s)", zone, horizon, version, run_id)
-    return TrainResponse(zone=zone, horizon=horizon, run_id=run_id, model_version=version, metrics=metrics)
+    app.state.trained.add((result.zone, result.horizon))
+    logger.info("trained %s/%s -> version %d (run_id=%s)", result.zone, result.horizon, result.model_version, result.run_id)
+    return TrainResponse(
+        zone=result.zone, horizon=result.horizon, run_id=result.run_id, model_version=result.model_version, metrics=result.metrics,
+    )
 
 
 @app.get("/forecast/{zone}/{horizon}", response_model=ForecastResponse)

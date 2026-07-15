@@ -198,7 +198,10 @@ class NomadsGfsDataSource(NWPDataSource):
             if resp.status_code == 200:
                 return candidate
 
-        raise DataUnavailableError(f"no published GFS cycle found in the last {settings.lookback_cycles + 1} cycles (searched back from {anchor.isoformat()})")
+        raise DataUnavailableError(
+            f"no published GFS cycle found in the last {settings.lookback_cycles + 1} cycles "
+            f"(searched back from {anchor.isoformat()})"
+        )
 
     async def _fetch_one_with_retry(self, cycle_issue_time: datetime, forecast_hour: int) -> RawFetchResult:
         settings = self._settings

@@ -1,5 +1,6 @@
 import pytest
 from nongfab_common.assets import load_assets
+
 from nongfab_features.panel_geometry import (
     DEFAULT_AZIMUTH_DEG,
     DEFAULT_TILT_DEG,

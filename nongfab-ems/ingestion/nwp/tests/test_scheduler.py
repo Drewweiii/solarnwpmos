@@ -3,8 +3,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from nwp_ingestion.schemas import NWPForecastPoint, RawFetchResult
 from nwp_ingestion.scheduler import IngestionJob, build_scheduler
+from nwp_ingestion.schemas import NWPForecastPoint, RawFetchResult
 
 
 def _make_point(valid_time: datetime, ssrd: float = 500.0, temp_c: float = 28.0) -> NWPForecastPoint:

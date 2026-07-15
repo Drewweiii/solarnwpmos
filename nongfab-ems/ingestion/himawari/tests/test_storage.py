@@ -73,6 +73,7 @@ def test_timescale_writer_upsert_compiles_to_valid_postgres_sql(settings):
     # (upsert on the (time, source) primary key) compiles correctly for the
     # postgres dialect actually used in prod, rather than running it end-to-end.
     from sqlalchemy.dialects.postgresql import insert as pg_insert
+
     from himawari_ingestion.models import CloudObsORM
 
     observation = CloudObservation(
@@ -104,6 +105,7 @@ def test_timescale_writer_upsert_compiles_to_valid_postgres_sql(settings):
 
 def test_timescale_writer_raster_upsert_compiles_to_valid_postgres_sql():
     from sqlalchemy.dialects.postgresql import insert as pg_insert
+
     from himawari_ingestion.models import CloudRasterFrameORM
 
     frame = CloudRasterFrame(

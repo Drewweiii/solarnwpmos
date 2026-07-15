@@ -173,7 +173,8 @@ def load_assets(path: Path | str | None = None) -> AssetRegistry:
     """Loads and validates config/assets.yaml. Path resolution order:
     explicit `path` arg > NONGFAB_ASSETS_PATH env var > repo-relative default.
     """
-    resolved = Path(path) if path else Path(os.environ.get("NONGFAB_ASSETS_PATH", "")) if os.environ.get("NONGFAB_ASSETS_PATH") else _default_assets_path()
+    env_path = os.environ.get("NONGFAB_ASSETS_PATH")
+    resolved = Path(path) if path else Path(env_path) if env_path else _default_assets_path()
     raw = yaml.safe_load(resolved.read_text())
     return AssetRegistry.model_validate(raw)
 

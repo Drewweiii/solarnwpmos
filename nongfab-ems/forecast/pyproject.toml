@@ -37,3 +37,9 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 markers = ["slow: trains a real (tiny) neural model - slower than pure unit tests"]
+
+[tool.ruff]
+line-length = 150
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

@@ -147,6 +147,28 @@ management, config writes) has somewhere to plug in without a schema change.
   real-time temperature exists for an arbitrary instant/location yet), and
   `boundary` (the zone's own 4 corners as a closed polygon ring, for
   Feature E's boundary overlay layer).
+- **`GET /metrics`** → Prometheus text exposition (STEP 10): request count
+  and latency histograms, labeled by `method`/`path`/`status_code`. `path`
+  is the matched route *template* (e.g. `/forecast/{zone}/{horizon}`), not
+  the raw URL, so distinct zone values aggregate into one series instead of
+  fragmenting; an unmatched path collapses to a fixed `"not_found"` label
+  instead of leaking the raw (client-controlled) URL into a label value.
+  Unauthenticated, matching the rest of the Prometheus/Grafana ecosystem's
+  convention of relying on network-level access control for scrape
+  endpoints rather than app-level auth. See `nongfab_api/metrics.py`.
+
+## Metrics
+
+Exposed on `/metrics` (Prometheus text format) - same port as everything
+else, since unlike Module 1/2 (standalone daemons with no web framework of
+their own) this app already serves HTTP:
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `nongfab_api_requests_total{method,path,status_code}` | counter | requests handled; `path` is the matched route *template*, not the raw URL |
+| `nongfab_api_request_duration_seconds{method,path}` | histogram | request latency |
+
+`infra/prometheus/prometheus.yml`'s `nongfab-api` job scrapes this.
 
 ## Known gaps (same caveat as every other module)
 
@@ -386,3 +408,58 @@ software WebGL.
 No backend bug found this round; see `web/README.md`'s own "Verified live"
 for the two full new frontend pieces (the per-zone info panel and the
 forecast/actual readout) built to surface this data.
+
+### Verified live a sixth time - STEP 10, Prometheus metrics (2026-07-15)
+
+Booted a real `uvicorn` instance (a throwaway file-backed sqlite DB, tables
+created up front, since the real lifespan's `create_async_engine()` doesn't
+run migrations itself) and `curl`ed `/metrics` before and after real
+requests, rather than trusting the middleware logic from unit tests alone:
+
+- `GET /healthz` twice → `nongfab_api_requests_total{method="GET",
+  path="/healthz",status_code="200"} 2.0`, plus a matching
+  `..._duration_seconds` histogram with real (sub-millisecond) buckets.
+- `GET /assets` with no token → correctly recorded under `status_code="401"`
+  (FastAPI's own exception handling runs *inside* `call_next()`, so the
+  middleware sees the real translated status code, not a raw exception).
+- `GET /forecast/GIS/hour` and `GET /forecast/ISB/hour` (both 401, no
+  token) → both aggregated into the *same* series,
+  `path="/forecast/{zone}/{horizon}"` - confirmed neither zone's literal
+  value ever appears as a `path` label anywhere in the output.
+- `GET /totally-bogus-path-xyz` → `path="not_found",status_code="404"` -
+  confirmed the raw nonexistent path string never appears in the output
+  either.
+
+All four matched the intended design exactly on the first real run - no bug
+found this time, but worth confirming live given the middleware sits in
+front of every route in the app.
+
+### STEP 10: api/Dockerfile was broken and unbuildable
+
+`api/Dockerfile` previously only `COPY`'d files from `api/` itself (`build:
+./api` in `docker-compose.yml`), but `api/pyproject.toml` depends on four
+sibling monorepo packages (`nongfab-common`, `nongfab-features`,
+`nongfab-forecast`, `nongfab-simulation`) that are **not published to
+PyPI** and were never present in that build context - `pip install -e .`
+inside the image would have failed immediately trying to resolve
+`nongfab-common` from the index (confirmed it genuinely 404s: `pip index
+versions nongfab-common` → "No matching distribution found"). This had
+never been caught because no Docker daemon exists in the dev sandbox that
+built any of this - a working Dockerfile was never actually required until
+STEP 10's CI/deployment work needed one.
+
+Fixed by pointing `docker-compose.yml`'s `api` service at a repo-root build
+context (`context: ., dockerfile: api/Dockerfile`) and rewriting the
+Dockerfile to copy + `pip install` each sibling in dependency order before
+`api/` itself, plus a root `.dockerignore` (the repo root now has several
+GB of `.venv`/`node_modules`/`mlruns` sitting in it - without this, `docker
+build`'s context-upload step alone would be extremely slow). Also pinned
+`NONGFAB_ASSETS_PATH` explicitly in the image rather than relying on
+`nongfab_common.assets.load_assets()`'s `__file__`-relative fallback, which
+is only correct for an *editable* install (see `orchestration/README.md`
+for a real bug this exact fragility caused elsewhere).
+
+Verified (still no Docker daemon available) by replicating the fixed
+Dockerfile's exact install sequence - same paths, same order - in a
+throwaway venv from the repo root, and confirming all 5 packages installed
+successfully with **zero** PyPI lookups for the bare `nongfab-*` names.

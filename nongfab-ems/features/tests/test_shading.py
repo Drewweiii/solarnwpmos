@@ -1,4 +1,5 @@
 import pytest
+
 from nongfab_features.panel_geometry import Panel, ZoneLayout
 from nongfab_features.shading import (
     average_solar_access_pct,

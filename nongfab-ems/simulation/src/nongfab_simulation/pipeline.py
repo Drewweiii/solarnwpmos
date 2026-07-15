@@ -78,7 +78,9 @@ def estimate_annual_ac_energy_kwh(baseline: ZoneBaseline) -> float:
     return float(baseline.ac_power_kw.sum()) * DAYS_PER_YEAR
 
 
-def loss_breakdown_with_temperature(baseline: ZoneBaseline, irradiance_w_m2: np.ndarray | pd.Series, temp_c: np.ndarray | pd.Series) -> dict[str, float]:
+def loss_breakdown_with_temperature(
+    baseline: ZoneBaseline, irradiance_w_m2: np.ndarray | pd.Series, temp_c: np.ndarray | pd.Series,
+) -> dict[str, float]:
     """`baseline.loss_breakdown` plus a `temperature_pct` entry - Module 7's
     Energy Report (Feature D) wants temperature alongside soiling/shading/
     mismatch/DC-wiring/inverter as one loss table, but `loss_model.py`

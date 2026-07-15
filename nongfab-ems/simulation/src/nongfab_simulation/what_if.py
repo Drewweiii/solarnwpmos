@@ -49,7 +49,10 @@ def apply_scenario(baseline_power_kw: pd.Series, params: ScenarioParams, years_s
     if not (0 <= params.curtailment_pct <= 100):
         raise ValueError(f"curtailment_pct must be in [0, 100] (curtailment only ever reduces output), got {params.curtailment_pct}")
     if params.degradation_pct_per_year < 0:
-        raise ValueError(f"degradation_pct_per_year cannot be negative (degradation only ever reduces performance), got {params.degradation_pct_per_year}")
+        raise ValueError(
+            f"degradation_pct_per_year cannot be negative (degradation only ever reduces performance), "
+            f"got {params.degradation_pct_per_year}"
+        )
     if years_since_commissioning < 0:
         raise ValueError("years_since_commissioning cannot be negative")
 

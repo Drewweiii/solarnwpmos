@@ -1,0 +1,14 @@
+# Auto-provisioned on Grafana startup (see docker-compose.yml's grafana
+# volume mount). `uid` is fixed rather than left to Grafana's auto-generated
+# one so infra/grafana/dashboards/*.json can reference it by a stable,
+# known value instead of a value that only exists after first boot.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
