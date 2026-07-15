@@ -88,6 +88,15 @@ zone_solar_access(layout, sun_elevation, sun_azimuth)   # per-panel row-shading 
   (trees/structures) exists in config/assets.yaml so that's out of scope,
   not fabricated. A 2D cross-section approximation, visualization-grade, not
   a bankable energy-yield calculation.
+  - `string_power_balance()` (added for a Feature B spec gap closure): per-
+    string estimated power grouped by `(block_id, row)`, flagged against a
+    zone's `design_constraints.string_power_balance_max_kw` (Jetty's own
+    2kW). Only meaningful where `row` really is a string index -
+    `panel_geometry.py`'s `_jetty_layout()` lays out exactly one row per
+    real electrical string (`sub_array.strings`), but GIS/ISB's
+    rectangular-block layout doesn't, so callers (Module 6's `/geometry/
+    {zone}`) only compute this for Jetty - see the function's own
+    docstring.
 
 ## SLD topology & irradiance grid (Module 7's Energy Report + map, STEP 8C)
 
@@ -125,6 +134,14 @@ everything else in this file.
   (Module 1's own "Known gaps" - MinIO/TimescaleDB rasters aren't
   accumulated/queryable here) - same convention as `nongfab_simulation.
   dev_data.synthetic_day_irradiance_temp()`. Swapping in a real
+  - `cloud_factor_at(lat, lon, epoch_seconds)` (public, added for a spec
+    gap closure) and `irradiance_at_point(...)`: the same model evaluated
+    at one arbitrary point instead of a whole grid - Module 6's
+    `/performance/{zone}` (Feature A's per-zone cloud-factor readout) and
+    `/irradiance-map` (Feature E's zone-pin `ghi_w_m2`/`cloud_factor`, more
+    accurate at a zone's own centroid than its nearest generic grid cell)
+    both call these instead of duplicating the formula or re-deriving a
+    nearest-grid-point lookup.
   `himawari_ingestion.sampling.sample_cloud_at()` call per grid point is a
   follow-up once Module 1 has a live raster store, not a redesign of this
   module's shape.

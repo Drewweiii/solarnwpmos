@@ -42,12 +42,15 @@ function makePerformance(zone: string, peakKw: number): PerformanceResponse {
   return {
     zone,
     simulated_zone: false,
+    latitude: 12.68,
+    longitude: 101.12,
     ac_energy_kwh_today: hourly.reduce((sum, p) => sum + p.ac_kw, 0),
     poa_irradiance_kwh_per_m2_today: 7.5,
     performance_ratio: 0.84,
     specific_yield_kwh_per_kwp_today: 6.4,
     loss_breakdown: { soiling_pct: 2.5 },
     hourly,
+    cloud_factor: 0.75,
   }
 }
 
@@ -118,6 +121,18 @@ describe('ForecastPage', () => {
 
     await user.click(screen.getByRole('tab', { name: /Intra-day/i }))
     await waitFor(() => expect(api.getForecast).toHaveBeenCalledWith('GIS', 'hour', expect.any(String)))
+  })
+
+  it('shows the zone info panel (lat/lon/cloud factor) only for a single zone, not All', async () => {
+    renderPage()
+    await waitFor(() => expect(api.getAssets).toHaveBeenCalled())
+    expect(screen.queryByLabelText(/zone info/i)).not.toBeInTheDocument()
+
+    await clickGisTab()
+    expect(await screen.findByLabelText(/zone info/i)).toBeInTheDocument()
+    expect(screen.getByText('12.68000')).toBeInTheDocument()
+    expect(screen.getByText('101.12000')).toBeInTheDocument()
+    expect(screen.getByText('75%')).toBeInTheDocument() // cloud factor
   })
 })
 

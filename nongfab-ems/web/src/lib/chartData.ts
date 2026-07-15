@@ -94,15 +94,26 @@ export function sumForecastAcrossZones(perZone: ForecastPoint[][]): ForecastPoin
     .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
 }
 
-/** The hourly point whose timestamp is closest to right now - same "pick
- * the nearest row" idea as the backend's /ws/live snapshot (there is no
- * single "current" row otherwise, since `hourly` is a full synthetic day). */
-export function nearestToNow(hourly: HourlyPoint[]): HourlyPoint | undefined {
-  if (hourly.length === 0) return undefined
-  const now = Date.now()
-  return hourly.reduce((closest, point) =>
-    Math.abs(new Date(point.timestamp).getTime() - now) < Math.abs(new Date(closest.timestamp).getTime() - now) ? point : closest,
+/** The point (of any series carrying a `timestamp`) whose timestamp is
+ * closest to `targetIso` - same "pick the nearest row" idea as the
+ * backend's /ws/live snapshot (there is no single "current" row otherwise,
+ * since a series like `hourly` is a full synthetic day). Used both for
+ * "nearest to right now" (`nearestToNow`) and, for the 3D page's sun-path
+ * scrub (Feature C tied to Feature A - see Solar3DPage.tsx), "nearest to
+ * the scrubbed time", which is deliberately NOT always "now". */
+export function nearestToTimestamp<T extends { timestamp: string }>(points: T[], targetIso: string): T | undefined {
+  if (points.length === 0) return undefined
+  const target = new Date(targetIso).getTime()
+  return points.reduce((closest, point) =>
+    Math.abs(new Date(point.timestamp).getTime() - target) < Math.abs(new Date(closest.timestamp).getTime() - target)
+      ? point
+      : closest,
   )
+}
+
+/** The hourly point whose timestamp is closest to right now. */
+export function nearestToNow(hourly: HourlyPoint[]): HourlyPoint | undefined {
+  return nearestToTimestamp(hourly, new Date().toISOString())
 }
 
 export type WeatherIcon = 'sun' | 'partly-cloudy' | 'cloudy' | 'night'

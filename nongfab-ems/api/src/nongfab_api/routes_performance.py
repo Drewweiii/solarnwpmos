@@ -10,9 +10,10 @@ this route's shape.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from nongfab_features.irradiance_map import cloud_factor_at
 from nongfab_forecast.pv_conversion import nong_fab_zone_capacities_kwp
 from nongfab_simulation.dev_data import synthetic_day_irradiance_temp
 from nongfab_simulation.loss_model import performance_ratio
@@ -34,6 +35,8 @@ class HourlyPoint(BaseModel):
 class PerformanceResponse(BaseModel):
     zone: str
     simulated_zone: bool
+    latitude: float
+    longitude: float
     ac_energy_kwh_today: float
     poa_irradiance_kwh_per_m2_today: float
     performance_ratio: float
@@ -43,6 +46,12 @@ class PerformanceResponse(BaseModel):
     # "generated power" over the day rather than just today's running total
     # (see /forecast/{zone}/{horizon} for the model's own predicted series).
     hourly: list[HourlyPoint]
+    # This zone's own cloud factor right now (0..1) - Module 7 Feature A's
+    # per-zone info panel. Reuses nongfab_features.irradiance_map's
+    # documented synthetic cloud-factor model (see that module's own
+    # docstring for why: no live Himawari raster store exists yet) evaluated
+    # at this zone's own centroid, not a generic plant-wide grid point.
+    cloud_factor: float
 
 
 def _validate_zone(zone: str) -> str:
@@ -74,9 +83,12 @@ async def get_performance(zone: str, _user=Depends(require_role("viewer"))) -> P
         for i, ts in enumerate(idx)
     ]
 
+    centroid = baseline.zone.centroid
+    cloud_factor = cloud_factor_at(centroid.lat, centroid.lon, datetime.now(timezone.utc).timestamp())
+
     return PerformanceResponse(
-        zone=zone, simulated_zone=baseline.zone.simulated, ac_energy_kwh_today=ac_energy_kwh,
-        poa_irradiance_kwh_per_m2_today=poa_irradiance_kwh_per_m2, performance_ratio=pr,
-        specific_yield_kwh_per_kwp_today=ac_energy_kwh / baseline.zone.dc_capacity_kwp,
-        loss_breakdown=baseline.loss_breakdown, hourly=hourly,
+        zone=zone, simulated_zone=baseline.zone.simulated, latitude=centroid.lat, longitude=centroid.lon,
+        ac_energy_kwh_today=ac_energy_kwh, poa_irradiance_kwh_per_m2_today=poa_irradiance_kwh_per_m2,
+        performance_ratio=pr, specific_yield_kwh_per_kwp_today=ac_energy_kwh / baseline.zone.dc_capacity_kwp,
+        loss_breakdown=baseline.loss_breakdown, hourly=hourly, cloud_factor=cloud_factor,
     )

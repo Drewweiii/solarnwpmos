@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from nongfab_common.assets import load_assets
 from nongfab_features.clearsky import compute_clearsky_and_position, nong_fab_site_location
 from nongfab_features.panel_geometry import generate_zone_layout
-from nongfab_features.shading import average_solar_access_pct, zone_solar_access
+from nongfab_features.shading import average_solar_access_pct, string_power_balance, zone_solar_access
 from nongfab_forecast.pv_conversion import nong_fab_zone_capacities_kwp
 from pydantic import BaseModel
 
@@ -48,6 +48,22 @@ class PanelOut(BaseModel):
     solar_access_pct: float
 
 
+class StringEstimateOut(BaseModel):
+    block_id: str
+    string_index: int
+    module_count: int
+    avg_solar_access_pct: float
+    estimated_power_kw: float
+
+
+class StringBalanceOut(BaseModel):
+    block_id: str
+    strings: list[StringEstimateOut]
+    imbalance_kw: float
+    max_allowed_kw: float | None
+    exceeds_limit: bool
+
+
 class GeometryResponse(BaseModel):
     zone: str
     simulated_zone: bool
@@ -58,6 +74,11 @@ class GeometryResponse(BaseModel):
     sun: SolarPositionOut
     average_solar_access_pct: float
     panels: list[PanelOut]
+    # Only non-empty for zones with a real per-string layout AND a
+    # `design_constraints.string_power_balance_max_kw` in config/assets.yaml
+    # (Jetty today) - see `nongfab_features.shading.string_power_balance()`'s
+    # own docstring for why GIS/ISB's block layout can't support this.
+    string_balance: list[StringBalanceOut]
 
 
 class SunPathPoint(BaseModel):
@@ -109,11 +130,31 @@ async def get_geometry(zone: str, at: datetime | None = None, _user=Depends(requ
         for p, a in zip(layout.panels, access, strict=True)
     ]
 
+    zone_obj = registry.zone(zone)
+    string_balance: list[StringBalanceOut] = []
+    if zone_obj.id == "Jetty":  # only Jetty's layout assigns `row` to a real electrical string - see string_power_balance()'s docstring
+        max_allowed_kw = zone_obj.design_constraints.string_power_balance_max_kw if zone_obj.design_constraints else None
+        string_balance = [
+            StringBalanceOut(
+                block_id=b.block_id,
+                strings=[
+                    StringEstimateOut(
+                        block_id=s.block_id, string_index=s.string_index, module_count=s.module_count,
+                        avg_solar_access_pct=s.avg_solar_access_pct, estimated_power_kw=s.estimated_power_kw,
+                    )
+                    for s in b.strings
+                ],
+                imbalance_kw=b.imbalance_kw, max_allowed_kw=b.max_allowed_kw, exceeds_limit=b.exceeds_limit,
+            )
+            for b in string_power_balance(access, zone_obj.module_power_w, max_allowed_kw)
+        ]
+
     return GeometryResponse(
-        zone=zone, simulated_zone=registry.zone(zone).simulated, at=when,
+        zone=zone, simulated_zone=zone_obj.simulated, at=when,
         tilt_deg=layout.tilt_deg, azimuth_deg=layout.azimuth_deg, row_pitch_m=layout.row_pitch_m,
         sun=SolarPositionOut(azimuth_deg=azimuth_deg, elevation_deg=elevation_deg),
         average_solar_access_pct=average_solar_access_pct(access), panels=panels,
+        string_balance=string_balance,
     )
 
 

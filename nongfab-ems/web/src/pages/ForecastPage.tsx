@@ -110,6 +110,20 @@ export function ForecastPage() {
         <KpiCard label="Solar plant factor" value={plantFactor.toFixed(2)} unit="" />
       </div>
 
+      {/* Per-zone info panel - inherently single-point (lat/lon), so only
+          shown for one real zone, not the "All" (รวม) aggregate. */}
+      {!isAllZones && singlePerformance.data && (
+        <section className="zone-info-panel" aria-label="Zone info">
+          <ZoneInfoItem label="Latitude" value={singlePerformance.data.latitude.toFixed(5)} />
+          <ZoneInfoItem label="Longitude" value={singlePerformance.data.longitude.toFixed(5)} />
+          <ZoneInfoItem label="Installed" value={`${capacityKw.toFixed(1)} kW`} />
+          <ZoneInfoItem label="Estimated" value={`${dailyEnergyKwh.toFixed(1)} kWh`} />
+          <ZoneInfoItem label="Plant factor" value={plantFactor.toFixed(2)} />
+          <ZoneInfoItem label="Est. irradiance" value={`${(current?.ssrd_w_m2 ?? 0).toFixed(0)} W/m²`} />
+          <ZoneInfoItem label="Cloud factor" value={`${(singlePerformance.data.cloud_factor * 100).toFixed(0)}%`} />
+        </section>
+      )}
+
       <section className="forecast-chart-section" aria-label="Power forecast chart">
         {isLoading && <p className="forecast-status">Loading…</p>}
         {!isLoading && forecastError && (
@@ -182,6 +196,20 @@ function KpiCard({ label, value, unit }: KpiCardProps) {
         {value}
         {unit && <span className="kpi-card-unit"> {unit}</span>}
       </span>
+    </div>
+  )
+}
+
+interface ZoneInfoItemProps {
+  label: string
+  value: string
+}
+
+function ZoneInfoItem({ label, value }: ZoneInfoItemProps) {
+  return (
+    <div className="zone-info-item">
+      <span className="zone-info-label">{label}</span>
+      <span className="zone-info-value">{value}</span>
     </div>
   )
 }

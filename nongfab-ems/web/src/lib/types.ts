@@ -71,12 +71,15 @@ export interface HourlyPoint {
 export interface PerformanceResponse {
   zone: string
   simulated_zone: boolean
+  latitude: number
+  longitude: number
   ac_energy_kwh_today: number
   poa_irradiance_kwh_per_m2_today: number
   performance_ratio: number
   specific_yield_kwh_per_kwp_today: number
   loss_breakdown: Record<string, number>
   hourly: HourlyPoint[]
+  cloud_factor: number
 }
 
 export interface SimulateRequest {
@@ -121,6 +124,22 @@ export interface Panel {
   solar_access_pct: number
 }
 
+export interface StringEstimate {
+  block_id: string
+  string_index: number
+  module_count: number
+  avg_solar_access_pct: number
+  estimated_power_kw: number
+}
+
+export interface StringBalance {
+  block_id: string
+  strings: StringEstimate[]
+  imbalance_kw: number
+  max_allowed_kw: number | null
+  exceeds_limit: boolean
+}
+
 export interface GeometryResponse {
   zone: string
   simulated_zone: boolean
@@ -131,6 +150,7 @@ export interface GeometryResponse {
   sun: SolarPosition
   average_solar_access_pct: number
   panels: Panel[]
+  string_balance: StringBalance[]
 }
 
 export interface SunPathPoint {
@@ -209,6 +229,11 @@ export interface ZonePin {
   lon: number
   ac_capacity_kw: number
   simulated: boolean
+  ghi_w_m2: number
+  cloud_factor: number
+  estimated_ac_kw: number
+  plant_factor: number
+  boundary: { lat: number; lon: number }[]
 }
 
 export interface IrradianceMapResponse {

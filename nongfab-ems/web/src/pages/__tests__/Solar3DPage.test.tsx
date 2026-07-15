@@ -4,7 +4,14 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '../../lib/api'
 import { AuthProvider } from '../../lib/auth'
-import type { AssetRegistry, GeometryResponse, SunPathResponse, Zone } from '../../lib/types'
+import type {
+  AssetRegistry,
+  ForecastResponse,
+  GeometryResponse,
+  PerformanceResponse,
+  SunPathResponse,
+  Zone,
+} from '../../lib/types'
 import { Solar3DPage } from '../Solar3DPage'
 
 // Solar3DScene renders a real WebGL <Canvas> (react-three-fiber), which
@@ -48,6 +55,7 @@ function makeGeometry(zone: string, panelCount: number): GeometryResponse {
     panels: Array.from({ length: panelCount }, (_, i) => ({
       block_id: 'b', row: 0, col: i, east_m: i, north_m: 0, width_m: 2.4, slant_height_m: 1.3, solar_access_pct: 100,
     })),
+    string_balance: [],
   }
 }
 
@@ -55,6 +63,32 @@ const sunPath: SunPathResponse = {
   zone: 'GIS',
   date: '2026-07-14',
   points: [{ time: '2026-07-14T05:00:00Z', azimuth_deg: 206, elevation_deg: 38 }],
+}
+
+function makeForecast(zone: string): ForecastResponse {
+  return {
+    zone,
+    horizon: 'day',
+    issued_at: '2026-07-14T00:00:00Z',
+    model_version: 1,
+    points: [{ timestamp: '2026-07-14T10:00:00Z', pred: 42.5, lower: 35, upper: 50 }],
+  }
+}
+
+function makePerformance(zone: string): PerformanceResponse {
+  return {
+    zone,
+    simulated_zone: zone === 'Jetty',
+    latitude: 12.68,
+    longitude: 101.12,
+    ac_energy_kwh_today: 300,
+    poa_irradiance_kwh_per_m2_today: 6,
+    performance_ratio: 0.84,
+    specific_yield_kwh_per_kwp_today: 5,
+    loss_breakdown: { soiling_pct: 2.5 },
+    hourly: [{ timestamp: '2026-07-14T10:00:00Z', ac_kw: 38.1, ssrd_w_m2: 700, temp_c: 31 }],
+    cloud_factor: 0.8,
+  }
 }
 
 function renderPage() {
@@ -75,6 +109,8 @@ describe('Solar3DPage', () => {
     vi.spyOn(api, 'getAssets').mockResolvedValue(registry)
     vi.spyOn(api, 'getGeometry').mockImplementation((zone) => Promise.resolve(makeGeometry(zone, 84)))
     vi.spyOn(api, 'getSunPath').mockResolvedValue(sunPath)
+    vi.spyOn(api, 'getForecast').mockImplementation((zone) => Promise.resolve(makeForecast(zone)))
+    vi.spyOn(api, 'getPerformance').mockImplementation((zone) => Promise.resolve(makePerformance(zone)))
   })
 
   it('defaults to GIS and has no All-zones tab', async () => {
@@ -115,6 +151,32 @@ describe('Solar3DPage', () => {
     const playButton = await screen.findByRole('button', { name: /play/i })
     await user.click(playButton)
     expect(await screen.findByRole('button', { name: /pause/i })).toBeInTheDocument()
+  })
+
+  it('shows forecast vs actual readout tied to the scrub time (Feature A<->C)', async () => {
+    renderPage()
+    expect(await screen.findByText('42.5 kW')).toBeInTheDocument() // forecast
+    expect(await screen.findByText('38.1 kW')).toBeInTheDocument() // actual
+  })
+
+  it('shows a string-balance warning only when a block exceeds its limit', async () => {
+    vi.spyOn(api, 'getGeometry').mockImplementation((zone) =>
+      Promise.resolve({
+        ...makeGeometry(zone, 84),
+        string_balance: [
+          {
+            block_id: '01A.L',
+            strings: [],
+            imbalance_kw: 3.2,
+            max_allowed_kw: 2.0,
+            exceeds_limit: true,
+          },
+        ],
+      }),
+    )
+    renderPage()
+    expect(await screen.findByRole('alert')).toHaveTextContent(/01A\.L/)
+    expect(screen.getByRole('alert')).toHaveTextContent(/3\.20 kW > 2\.0 kW/)
   })
 
   it('moving the time slider re-fetches geometry with the new time', async () => {

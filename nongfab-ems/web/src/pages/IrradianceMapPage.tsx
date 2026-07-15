@@ -13,6 +13,7 @@ export function IrradianceMapPage() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [showIrradiance, setShowIrradiance] = useState(true)
   const [showZones, setShowZones] = useState(true)
+  const [showBoundary, setShowBoundary] = useState(false)
 
   const atIso = useMemo(() => buildAtIso(date, timeOfDayMinutes), [date, timeOfDayMinutes])
   const map = useIrradianceMap(atIso)
@@ -59,6 +60,10 @@ export function IrradianceMapPage() {
           <input type="checkbox" checked={showZones} onChange={(e) => setShowZones(e.target.checked)} />
           Zone pins
         </label>
+        <label>
+          <input type="checkbox" checked={showBoundary} onChange={(e) => setShowBoundary(e.target.checked)} />
+          Zone boundary
+        </label>
       </div>
 
       <div className="irradiance-map-readouts">
@@ -80,6 +85,7 @@ export function IrradianceMapPage() {
             zones={map.data.zones}
             showIrradiance={showIrradiance}
             showZones={showZones}
+            showBoundary={showBoundary}
           />
         )}
       </div>

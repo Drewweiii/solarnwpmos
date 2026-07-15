@@ -3,6 +3,7 @@ from nongfab_features.panel_geometry import Panel, ZoneLayout
 from nongfab_features.shading import (
     average_solar_access_pct,
     row_shaded_fraction,
+    string_power_balance,
     zone_solar_access,
 )
 
@@ -95,3 +96,43 @@ def test_average_solar_access_pct_matches_manual_mean():
 
 def test_average_solar_access_pct_of_empty_layout_is_100():
     assert average_solar_access_pct([]) == 100.0
+
+
+def test_string_power_balance_is_zero_when_strings_equally_shaded():
+    layout = _two_row_layout()  # both rows have 1 panel each, front row row=0
+    access = zone_solar_access(layout, solar_elevation_deg=90, solar_azimuth_deg=AZIMUTH)  # overhead sun -> no shading at all
+    balance = string_power_balance(access, module_power_w=715, max_allowed_kw=2.0)
+    assert len(balance) == 1
+    assert balance[0].imbalance_kw == pytest.approx(0.0, abs=1e-6)
+    assert balance[0].exceeds_limit is False
+
+
+def test_string_power_balance_detects_imbalance_from_shading():
+    layout = _two_row_layout()
+    access = zone_solar_access(layout, solar_elevation_deg=3, solar_azimuth_deg=AZIMUTH)  # low sun -> row 1 shaded, row 0 not
+    balance = string_power_balance(access, module_power_w=715, max_allowed_kw=0.001)
+    block = balance[0]
+    assert block.imbalance_kw > 0
+    assert block.exceeds_limit is True
+
+
+def test_string_power_balance_without_a_limit_never_exceeds():
+    layout = _two_row_layout()
+    access = zone_solar_access(layout, solar_elevation_deg=3, solar_azimuth_deg=AZIMUTH)
+    balance = string_power_balance(access, module_power_w=715, max_allowed_kw=None)
+    assert balance[0].exceeds_limit is False
+    assert balance[0].max_allowed_kw is None
+
+
+def test_string_power_balance_groups_by_block_and_string_index():
+    layout = _two_row_layout()
+    access = zone_solar_access(layout, solar_elevation_deg=90, solar_azimuth_deg=AZIMUTH)
+    balance = string_power_balance(access, module_power_w=715)
+    strings = balance[0].strings
+    assert {s.string_index for s in strings} == {0, 1}
+    assert all(s.module_count == 1 for s in strings)
+    assert all(s.estimated_power_kw == pytest.approx(0.715, abs=1e-6) for s in strings)  # 1 module x 715W at 100% access
+
+
+def test_string_power_balance_of_empty_input_is_empty():
+    assert string_power_balance([], module_power_w=715) == []

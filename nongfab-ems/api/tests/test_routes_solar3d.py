@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -52,6 +53,47 @@ def test_get_geometry_jetty_reports_real_sub_array_block_ids(app, token_factory)
     assert len(body["panels"]) == 320
     block_ids = {p["block_id"] for p in body["panels"]}
     assert block_ids == {"01A.L", "02A.L", "03A.R", "04A.R"}
+
+
+def test_get_geometry_gis_has_no_string_balance(app, token_factory):
+    """GIS's block layout is a visualization approximation whose `row` isn't
+    a real electrical string - see shading.string_power_balance()'s docstring."""
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get("/geometry/GIS", headers={"Authorization": f"Bearer {token}"})
+    assert resp.json()["string_balance"] == []
+
+
+def test_get_geometry_jetty_has_string_balance_per_sub_array(app, token_factory):
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get(
+            "/geometry/Jetty", params={"at": "2026-07-14T05:00:00Z"}, headers={"Authorization": f"Bearer {token}"}
+        )
+    body = resp.json()
+    balance = body["string_balance"]
+    block_ids = {b["block_id"] for b in balance}
+    assert block_ids == {"01A.L", "02A.L", "03A.R", "04A.R"}
+    for block in balance:
+        assert len(block["strings"]) == 4  # each Jetty sub-array has 4 real strings
+        assert block["max_allowed_kw"] == pytest.approx(2.0)  # config/assets.yaml's design_constraints
+        assert all(s["module_count"] == 20 for s in block["strings"])
+
+
+def test_get_geometry_jetty_string_balance_flags_imbalance_at_low_sun(app, token_factory):
+    """Low sun roughly aligned with Jetty's west-facing (270deg) azimuth =
+    strong row-to-row shading = a real power imbalance across its strings,
+    which should exceed the 2kW design constraint. 2026-07-14T11:15:00Z is
+    ~18:15 local (Nong Fab, UTC+7): sun at ~6deg elevation, ~291deg azimuth."""
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get(
+            "/geometry/Jetty", params={"at": "2026-07-14T11:15:00Z"}, headers={"Authorization": f"Bearer {token}"}
+        )
+    body = resp.json()
+    assert body["sun"]["elevation_deg"] > 0
+    balance = body["string_balance"]
+    assert any(b["exceeds_limit"] for b in balance)
 
 
 def test_get_geometry_unknown_zone_returns_404(app, token_factory):

@@ -21,8 +21,8 @@ tests, and `.env.example`.
 | 3. Feature store | `features/` | ✅ built, tested (clear-sky/solar position, lag/EMA/future-regressor features, curtailment/degradation QC, daytime filter, multi-step framing + chronological split); not yet wired to a real data source (Module 1 and 2 both lack accumulated history yet) |
 | 4. Forecast engine (minute/hour/day-ahead) | `forecast/` | ✅ built, tested (minute-ahead CNN-LSTM/torch, hour-ahead LightGBM+Optuna, day-ahead NeuralProphet, PV conversion, RMSE/MAE/MBE/NRMSE+PICP/PINAW metrics, MLflow registry/versioning/A-B-compare, dev `/forecast/{zone}/{horizon}` endpoint); trains on synthetic data (Module 1/2 still lack accumulated history) |
 | 5. Simulation engine | `simulation/` | ✅ built, tested, rechecked/upgraded (what-if scenarios incl. `compare_scenarios()` presets, scenario-uncertainty Monte Carlo, PVWatts-style loss model + DC/AC clipping, `pipeline.py` orchestration, dev `/simulate/{zone}` + `/simulate/{zone}/compare` endpoints, 66 tests); **no battery/BESS** (confirmed twice: fully on-grid, permanently out of scope); simulates on synthetic baseline (same data-accumulation caveat as Modules 3/4) |
-| 6. Backend API | `api/` | ✅ built, tested, live-verified 4x (REST `/assets`, `/forecast/{zone}/{horizon}`, `/simulate/{zone}`, `/performance/{zone}`, `/geometry/{zone}`, `/sun-path/{zone}`, `/energy-report/{zone}`, `/irradiance-map` + WebSocket `/ws/live`, OAuth2/JWT auth with RBAC admin/operator/viewer, CORS, auto OpenAPI docs, 87 tests); reuses Module 3/4/5's own serving/pipeline functions directly (no logic duplicated); **no battery/BESS**; read routes run on synthetic baseline data (same data-accumulation caveat as Modules 3/4/5) |
-| 7. Dashboard | `web/` | ✅ STEP 8 (Feature A) + STEP 8B (Feature B+C, 3D shading/solar-access + sun-path sweep) + STEP 8C (Feature D+E, Energy Report + interactive SLD viewer + MapLibre irradiance map) all done: zone selector, Day-ahead/Intra-day toggle, Recharts power chart, weather strip, KPI cards, JWT login, `/3d` 3D panel view, `/energy-report` (system summary/annual/losses incl. temperature/CO2/interactive SLD), `/irradiance-map` (MapLibre grid overlay + zone pins + time scrubber + layer toggles), route-based code-splitting (Three.js/MapLibre lazy-loaded), 59 tests, live-verified 3x with a real headless browser (incl. software-WebGL/MapLibre rendering) |
+| 6. Backend API | `api/` | ✅ built, tested, live-verified 5x (REST `/assets`, `/forecast/{zone}/{horizon}`, `/simulate/{zone}`, `/performance/{zone}`, `/geometry/{zone}`, `/sun-path/{zone}`, `/energy-report/{zone}`, `/irradiance-map` + WebSocket `/ws/live`, OAuth2/JWT auth with RBAC admin/operator/viewer, CORS, auto OpenAPI docs, 94 tests); reuses Module 3/4/5's own serving/pipeline functions directly (no logic duplicated); **no battery/BESS**; read routes run on synthetic baseline data (same data-accumulation caveat as Modules 3/4/5) |
+| 7. Dashboard | `web/` | ✅ STEP 8 (Feature A) + STEP 8B (Feature B+C, 3D shading/solar-access + sun-path sweep) + STEP 8C (Feature D+E, Energy Report + interactive SLD viewer + MapLibre irradiance map) all done, plus a full spec recheck (2026-07-15) that closed 5 more gaps: zone selector, Day-ahead/Intra-day toggle, Recharts power chart, weather strip, KPI cards + per-zone info panel (lat/lon/cloud factor), JWT login, `/3d` 3D panel view (+ string power-balance warning, + forecast-vs-actual readout tied to Feature A), `/energy-report` (system summary/annual/losses incl. temperature/CO2/interactive SLD), `/irradiance-map` (MapLibre grid overlay + zone pins with a full click-panel + zone boundary layer + time scrubber + layer toggles), route-based code-splitting (Three.js/MapLibre lazy-loaded), 66 tests, live-verified 4x with a real headless browser (incl. software-WebGL/MapLibre rendering) |
 | Cross-cutting: docker-compose | `docker-compose.yml`, `infra/` | ✅ 7 services (timescaledb, minio, mlflow, api, web, prometheus, grafana); config validated (`docker compose config`), **not** live-tested (no Docker daemon available in the dev sandbox that built this) |
 | Cross-cutting: CI, Prefect flows | `.github/` | ⏳ not started |
 
@@ -123,3 +123,18 @@ WebGL/MapLibre canvas on every tick (discarding camera state, and for the
 irradiance map, silently resetting layer-toggle state) - fixed with
 `placeholderData: keepPreviousData` plus a `layersReady` guard, documented
 in `web/README.md`.
+
+A full recheck against the original Feature A-E spec (2026-07-15) found 7
+gaps: 2 genuinely out of scope pending real data (external obstacle
+shading needs a real survey; a "real As-Built SLD"/live Himawari cloud
+tile needs files/infrastructure this repo doesn't have) - documented as
+known gaps, not faked - and 5 addressable now, all closed and re-verified
+live: a string power-balance flag (`features/README.md`'s
+`string_power_balance()`, surfaced as a warning banner on `/3d`, Jetty
+only - GIS/ISB's layout has no real per-string rows to flag); per-zone
+lat/lon + cloud factor on `/forecast`; a full zone-click info panel + a
+"zone boundary" map layer on `/irradiance-map`; and a Feature C <-> Feature
+A integration (`/3d`'s sun-path scrub now shows the nearest forecast point
+and nearest actual/generated point to the scrubbed time, not just a
+standalone 3D scene). See `api/README.md`'s "Verified live a fifth time"
+and `web/README.md`'s matching section for the full detail.

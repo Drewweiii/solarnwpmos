@@ -25,6 +25,16 @@ def test_get_performance_returns_metrics_for_viewer(app, token_factory):
     assert sum(p["ac_kw"] for p in body["hourly"]) == pytest.approx(body["ac_energy_kwh_today"])
 
 
+def test_get_performance_includes_zone_coordinates_and_cloud_factor(app, token_factory):
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get("/performance/GIS", headers={"Authorization": f"Bearer {token}"})
+    body = resp.json()
+    assert body["latitude"] == pytest.approx(12.68336875)
+    assert body["longitude"] == pytest.approx(101.11986459)
+    assert 0.0 <= body["cloud_factor"] <= 1.0
+
+
 def test_get_performance_jetty_reports_simulated_zone_true(app, token_factory):
     token = token_factory("viewer")
     with TestClient(app) as client:

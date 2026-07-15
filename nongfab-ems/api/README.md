@@ -95,7 +95,9 @@ management, config writes) has somewhere to plug in without a schema change.
   Also returns `hourly`: today's synthetic baseline, hour by hour
   (`ac_kw`/`ssrd_w_m2`/`temp_c`) - added for Module 7's dashboard, which
   needs a real "generated power" time series to chart, not just a running
-  total.
+  total. Also returns `latitude`/`longitude` (the zone's own centroid) and
+  `cloud_factor` (this zone's own value right now, via `nongfab_features.
+  irradiance_map.cloud_factor_at()`) - Feature A's per-zone info panel.
 - **`GET /ws/live`** → WebSocket. Pushes `{"zones": [{"zone", "current_ac_kw",
   "forecast_hour_ahead_kw"}, ...]}` every `API_LIVE_PUSH_INTERVAL_SECONDS`
   (default 5s) for all 3 zones. `forecast_hour_ahead_kw` is `null` until an
@@ -107,7 +109,12 @@ management, config writes) has somewhere to plug in without a schema change.
   zone's average solar access. Built on Module 3's `nongfab_features.
   panel_geometry`/`shading` (added for this route, not duplicated here) -
   see `features/README.md`'s own section on them for the tilt/azimuth
-  defaults and shading-model assumptions.
+  defaults and shading-model assumptions. Also returns `string_balance`
+  (per-string estimated power + a flag against the zone's own
+  `design_constraints.string_power_balance_max_kw`, via `nongfab_features.
+  shading.string_power_balance()`) - only non-empty for Jetty, since only
+  its layout assigns a real electrical string to each geometry row (see
+  that function's own docstring for why GIS/ISB can't support this).
 - **`GET /sun-path/{zone}?date=<YYYY-MM-DD>`** → that day's azimuth/
   elevation arc at 15-minute resolution, filtered to daylight only. Solar
   position comes from the plant's one shared site location (same as every
@@ -133,7 +140,13 @@ management, config writes) has somewhere to plug in without a schema change.
   raster store exists in this dev environment yet - see that module's own
   docstring for the follow-up path once one does). Not zone-scoped (`at`
   only, no `{zone}` in the path) since the grid spans the whole plant, not
-  one zone.
+  one zone. Each zone pin also carries its own `ghi_w_m2`/`cloud_factor`
+  (evaluated at that zone's own centroid, not the nearest generic grid
+  cell), `estimated_ac_kw`/`plant_factor` (reusing Module 5's
+  `simulate_zone_baseline()` with a fixed nominal ambient temperature - no
+  real-time temperature exists for an arbitrary instant/location yet), and
+  `boundary` (the zone's own 4 corners as a closed polygon ring, for
+  Feature E's boundary overlay layer).
 
 ## Known gaps (same caveat as every other module)
 
@@ -212,7 +225,7 @@ deliberately never auto-creates tables itself; see `db/migrations/
 
 ## Tests
 
-`pytest` - 87 tests, no real Postgres or MLflow server required:
+`pytest` - 94 tests, no real Postgres or MLflow server required:
 
 - `test_auth.py` (23) - password hashing, `UserStore` CRUD/seeding, JWT
   create/decode (expiry, wrong secret, malformed/missing claims),
@@ -327,3 +340,49 @@ and the layer-toggle checkboxes hide/show each layer. No backend bug this
 round - see `web/README.md`'s own "Verified live" for a real frontend bug
 this same pass caught (a MapLibre canvas remount that silently reset the
 layer-toggle state on every time-scrubber tick).
+
+### Verified live a fifth time - recheck-driven spec gap closures (2026-07-15)
+
+After a recheck against the full Feature A-E spec found 7 gaps (2 genuinely
+out of scope pending real data - no obstacle survey exists for external
+shading, no real As-Built SLD files/live Himawari store exist in this repo
+- and 5 addressable now), closed the 5 addressable ones and re-verified
+live the same way: real `uvicorn` + `vite dev`, headless Chromium with
+software WebGL.
+
+- **String power-balance flag** (`/geometry/{zone}`'s new `string_balance`):
+  `curl`-verified Jetty at a low-sun, azimuth-aligned instant
+  (`2026-07-14T11:15:00Z`) correctly flags all 4 sub-arrays as exceeding
+  the 2kW design constraint (~2.97kW imbalance each); GIS returns an empty
+  list (its layout doesn't have real per-string rows). The dashboard shows
+  a warning banner listing the affected blocks - confirmed live.
+- **Per-zone lat/lon + cloud factor** (`/performance/{zone}`'s new
+  `latitude`/`longitude`/`cloud_factor`): confirmed GIS's coordinates match
+  `config/assets.yaml` exactly and `cloud_factor` is in `[0, 1]`.
+- **Zone-pin click panel + boundary layer** (`/irradiance-map`'s new
+  `ghi_w_m2`/`cloud_factor`/`estimated_ac_kw`/`plant_factor`/`boundary` per
+  zone): clicked a real zone pin on the live MapLibre canvas (scanning
+  screen positions near the pin cluster, since pixel coordinates aren't
+  exposed statically) and confirmed the popup shows all 5 new fields with
+  real values (e.g. ISB: `lat/lon: 12.68134, 101.11832`, `plant factor:
+  0.0%` at night). `estimated_ac_kw`/`plant_factor` reuse Module 5's
+  `simulate_zone_baseline()` with a nominal ambient temperature (documented
+  - no real-time temperature exists for an arbitrary point/instant yet).
+- **Layer toggle categories**: added a third "Zone boundary" toggle
+  (drawing each zone's real 4 corners as a polygon outline) - confirmed
+  live it shows/hides independently of the other two. Deliberately did NOT
+  add a fake "actual/estimated" toggle - there is no real telemetry to
+  show as "actual" anywhere in this system yet (same caveat as every other
+  module), so faking a second data layer would violate this project's own
+  "don't fabricate site-specific data" rule; documented instead of faked.
+- **Feature A <-> C integration**: the 3D page's sun-path scrub now looks
+  up the nearest day-ahead forecast point and nearest actual/generated
+  point to the scrubbed instant (reusing `/forecast/{zone}/day` and
+  `/performance/{zone}`, not new backend logic) and shows both alongside
+  the sun position - confirmed live it shows "no model trained yet"
+  gracefully (no forecast model exists in this dev API instance) while
+  still showing the real actual/generated value.
+
+No backend bug found this round; see `web/README.md`'s own "Verified live"
+for the two full new frontend pieces (the per-zone info panel and the
+forecast/actual readout) built to surface this data.

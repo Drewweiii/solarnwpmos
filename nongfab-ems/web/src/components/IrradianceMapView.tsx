@@ -25,6 +25,22 @@ const BLANK_STYLE: maplibregl.StyleSpecification = {
 const GRID_SOURCE_ID = 'irradiance-grid'
 const ZONES_SOURCE_ID = 'zone-pins'
 const ZONES_LABEL_LAYER_ID = 'zone-pins-label'
+const BOUNDARY_SOURCE_ID = 'zone-boundaries'
+const BOUNDARY_FILL_LAYER_ID = 'zone-boundaries-fill'
+const BOUNDARY_LINE_LAYER_ID = 'zone-boundaries-line'
+
+interface ZonePinProps {
+  id: string
+  name_full: string
+  ac_capacity_kw: number
+  simulated: boolean
+  lat: number
+  lon: number
+  ghi_w_m2: number
+  cloud_factor: number
+  estimated_ac_kw: number
+  plant_factor: number
+}
 
 function gridToGeoJSON(points: IrradianceGridPoint[]): FeatureCollection {
   return {
@@ -43,9 +59,36 @@ function zonesToGeoJSON(zones: ZonePin[]): FeatureCollection {
     features: zones.map((z) => ({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [z.lon, z.lat] },
-      properties: { id: z.id, name_full: z.name_full, ac_capacity_kw: z.ac_capacity_kw, simulated: z.simulated },
+      properties: {
+        id: z.id, name_full: z.name_full, ac_capacity_kw: z.ac_capacity_kw, simulated: z.simulated,
+        lat: z.lat, lon: z.lon, ghi_w_m2: z.ghi_w_m2, cloud_factor: z.cloud_factor,
+        estimated_ac_kw: z.estimated_ac_kw, plant_factor: z.plant_factor,
+      } satisfies ZonePinProps,
     })),
   }
+}
+
+function boundariesToGeoJSON(zones: ZonePin[]): FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: zones.map((z) => ({
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [z.boundary.map((p) => [p.lon, p.lat])] },
+      properties: { id: z.id },
+    })),
+  }
+}
+
+function popupHtml(props: ZonePinProps): string {
+  return `
+    <strong>${props.id}</strong> - ${props.name_full}${props.simulated ? ' <em>(simulated)</em>' : ''}<br/>
+    lat/lon: ${props.lat.toFixed(5)}, ${props.lon.toFixed(5)}<br/>
+    installed: ${props.ac_capacity_kw} kW<br/>
+    estimated output: ${props.estimated_ac_kw.toFixed(1)} kW<br/>
+    plant factor: ${(props.plant_factor * 100).toFixed(1)}%<br/>
+    est. irradiance: ${props.ghi_w_m2.toFixed(0)} W/m&sup2;<br/>
+    cloud factor: ${(props.cloud_factor * 100).toFixed(0)}%
+  `
 }
 
 interface IrradianceMapViewProps {
@@ -53,9 +96,10 @@ interface IrradianceMapViewProps {
   zones: ZonePin[]
   showIrradiance: boolean
   showZones: boolean
+  showBoundary: boolean
 }
 
-export function IrradianceMapView({ grid, zones, showIrradiance, showZones }: IrradianceMapViewProps) {
+export function IrradianceMapView({ grid, zones, showIrradiance, showZones, showBoundary }: IrradianceMapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   // Layers are added asynchronously inside the map's 'load' event, so the
@@ -79,6 +123,16 @@ export function IrradianceMapView({ grid, zones, showIrradiance, showZones }: Ir
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     map.on('load', () => {
+      map.addSource(BOUNDARY_SOURCE_ID, { type: 'geojson', data: boundariesToGeoJSON(zones) })
+      map.addLayer({
+        id: BOUNDARY_FILL_LAYER_ID, type: 'fill', source: BOUNDARY_SOURCE_ID,
+        paint: { 'fill-color': '#38bdf8', 'fill-opacity': 0.08 },
+      })
+      map.addLayer({
+        id: BOUNDARY_LINE_LAYER_ID, type: 'line', source: BOUNDARY_SOURCE_ID,
+        paint: { 'line-color': '#38bdf8', 'line-width': 1.5, 'line-dasharray': [2, 1] },
+      })
+
       map.addSource(GRID_SOURCE_ID, { type: 'geojson', data: gridToGeoJSON(grid) })
       map.addLayer({
         id: GRID_SOURCE_ID,
@@ -119,13 +173,8 @@ export function IrradianceMapView({ grid, zones, showIrradiance, showZones }: Ir
         const feature = e.features?.[0]
         if (!feature) return
         const coords = (feature.geometry as Point).coordinates.slice() as [number, number]
-        const props = feature.properties as { id: string; name_full: string; ac_capacity_kw: number; simulated: boolean }
-        new maplibregl.Popup()
-          .setLngLat(coords)
-          .setHTML(
-            `<strong>${props.id}</strong><br/>${props.name_full}<br/>${props.ac_capacity_kw} kW${props.simulated ? ' (simulated)' : ''}`,
-          )
-          .addTo(map)
+        const props = feature.properties as unknown as ZonePinProps
+        new maplibregl.Popup().setLngLat(coords).setHTML(popupHtml(props)).addTo(map)
       })
       map.on('mouseenter', ZONES_SOURCE_ID, () => {
         map.getCanvas().style.cursor = 'pointer'
@@ -157,8 +206,10 @@ export function IrradianceMapView({ grid, zones, showIrradiance, showZones }: Ir
   useEffect(() => {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
-    const source = map.getSource(ZONES_SOURCE_ID) as maplibregl.GeoJSONSource | undefined
-    source?.setData(zonesToGeoJSON(zones))
+    const zonesSource = map.getSource(ZONES_SOURCE_ID) as maplibregl.GeoJSONSource | undefined
+    zonesSource?.setData(zonesToGeoJSON(zones))
+    const boundarySource = map.getSource(BOUNDARY_SOURCE_ID) as maplibregl.GeoJSONSource | undefined
+    boundarySource?.setData(boundariesToGeoJSON(zones))
   }, [zones])
 
   useEffect(() => {
@@ -170,7 +221,9 @@ export function IrradianceMapView({ grid, zones, showIrradiance, showZones }: Ir
     setVisibility(GRID_SOURCE_ID, showIrradiance)
     setVisibility(ZONES_SOURCE_ID, showZones)
     setVisibility(ZONES_LABEL_LAYER_ID, showZones)
-  }, [showIrradiance, showZones, layersReady])
+    setVisibility(BOUNDARY_FILL_LAYER_ID, showBoundary)
+    setVisibility(BOUNDARY_LINE_LAYER_ID, showBoundary)
+  }, [showIrradiance, showZones, showBoundary, layersReady])
 
   return <div ref={containerRef} className="irradiance-map-canvas" data-testid="irradiance-map-canvas" />
 }

@@ -135,6 +135,26 @@
   color: var(--danger);
 }
 
+.solar3d-forecast-readout {
+  display: flex;
+  gap: 20px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.solar3d-forecast-unavailable {
+  color: var(--text);
+  font-weight: 400;
+}
+
+.solar3d-string-balance-warning {
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
 .solar3d-canvas-wrapper {
   height: 520px;
   border-radius: 10px;

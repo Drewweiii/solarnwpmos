@@ -47,7 +47,7 @@ class GridPoint:
     cloud_factor: float  # 0 (fully overcast) .. 1 (clear sky), multiplies clear-sky GHI
 
 
-def _cloud_factor(lat: float, lon: float, epoch_seconds: float) -> float:
+def cloud_factor_at(lat: float, lon: float, epoch_seconds: float) -> float:
     """Deterministic pseudo-cloud field: three slow sine waves over (lat,
     lon, time) so the overlay looks like drifting cloud cover rather than
     per-pixel noise, and is reproducible for a given (position, time) rather
@@ -55,6 +55,12 @@ def _cloud_factor(lat: float, lon: float, epoch_seconds: float) -> float:
     Himawari sample, not a forecast. Wavelengths/speeds are chosen only to
     look like slowly-drifting fronts at plant scale over a day, not
     calibrated to any real meteorological motion vector.
+
+    Public (not `irradiance_grid()`-only) since Feature A's per-zone "cloud
+    factor" readout and Feature E's zone-pin click panel both want this
+    same value evaluated at one specific point (a zone's own centroid)
+    rather than a whole grid - see `routes_performance.py`/
+    `routes_irradiance_map.py`.
     """
     t_hours = epoch_seconds / 3600.0
     wave1 = math.sin(lat * 40 + t_hours * 0.5)
@@ -64,6 +70,16 @@ def _cloud_factor(lat: float, lon: float, epoch_seconds: float) -> float:
     midpoint = (_CLOUD_FACTOR_MIN + _CLOUD_FACTOR_MAX) / 2
     half_range = (_CLOUD_FACTOR_MAX - _CLOUD_FACTOR_MIN) / 2
     return midpoint + half_range * raw
+
+
+def irradiance_at_point(lat: float, lon: float, clearsky_ghi_w_m2: float, epoch_seconds: float) -> GridPoint:
+    """Same clear-sky x cloud-factor model as `irradiance_grid()`, evaluated
+    at one arbitrary (lat, lon) instead of a whole grid - e.g. a zone's own
+    centroid, not the nearest generic grid cell.
+    """
+    factor = cloud_factor_at(lat, lon, epoch_seconds)
+    ghi = max(0.0, min(MAX_DISPLAY_GHI_W_M2, clearsky_ghi_w_m2 * factor))
+    return GridPoint(lat=lat, lon=lon, ghi_w_m2=ghi, cloud_factor=factor)
 
 
 def grid_points(registry: AssetRegistry | None = None, n: int = DEFAULT_GRID_SIZE) -> list[tuple[float, float]]:
@@ -89,9 +105,4 @@ def irradiance_grid(
     point, clipped to `MAX_DISPLAY_GHI_W_M2`.
     """
     points = grid_points(registry, n)
-    result = []
-    for lat, lon in points:
-        factor = _cloud_factor(lat, lon, epoch_seconds)
-        ghi = max(0.0, min(MAX_DISPLAY_GHI_W_M2, clearsky_ghi_w_m2 * factor))
-        result.append(GridPoint(lat=lat, lon=lon, ghi_w_m2=ghi, cloud_factor=factor))
-    return result
+    return [irradiance_at_point(lat, lon, clearsky_ghi_w_m2, epoch_seconds) for lat, lon in points]

@@ -52,3 +52,39 @@ def test_get_irradiance_map_defaults_to_now(app, token_factory):
     with TestClient(app) as client:
         resp = client.get("/irradiance-map", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
+
+
+def test_get_irradiance_map_zone_pins_include_irradiance_and_plant_factor(app, token_factory):
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get(
+            "/irradiance-map", params={"at": "2026-07-14T05:00:00Z"}, headers={"Authorization": f"Bearer {token}"}
+        )
+    body = resp.json()
+    for zone in body["zones"]:
+        assert 0.0 <= zone["ghi_w_m2"] <= 1000.0
+        assert 0.0 <= zone["cloud_factor"] <= 1.0
+        assert zone["estimated_ac_kw"] >= 0
+        assert 0.0 <= zone["plant_factor"] <= 1.0 + 1e-9
+
+
+def test_get_irradiance_map_zone_pins_zero_output_at_night(app, token_factory):
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get(
+            "/irradiance-map", params={"at": "2026-07-14T18:00:00Z"}, headers={"Authorization": f"Bearer {token}"}
+        )
+    body = resp.json()
+    assert all(zone["estimated_ac_kw"] == 0.0 for zone in body["zones"])
+    assert all(zone["plant_factor"] == 0.0 for zone in body["zones"])
+
+
+def test_get_irradiance_map_zone_pins_include_closed_boundary_ring(app, token_factory):
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get("/irradiance-map", headers={"Authorization": f"Bearer {token}"})
+    body = resp.json()
+    gis = next(z for z in body["zones"] if z["id"] == "GIS")
+    boundary = gis["boundary"]
+    assert len(boundary) == 5  # UL, UR, LR, LL, UL (closed ring)
+    assert boundary[0] == boundary[-1]

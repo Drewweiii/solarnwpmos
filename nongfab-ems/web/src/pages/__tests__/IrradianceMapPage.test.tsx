@@ -19,6 +19,23 @@ vi.mock('../../components/IrradianceMapView', () => ({
   ),
 }))
 
+function makeZonePin(id: string, name_full: string, lat: number, lon: number, ac_capacity_kw: number, simulated: boolean, elevationDeg: number) {
+  return {
+    id, name_full, lat, lon, ac_capacity_kw, simulated,
+    ghi_w_m2: elevationDeg > 0 ? 700 : 0,
+    cloud_factor: 0.8,
+    estimated_ac_kw: elevationDeg > 0 ? ac_capacity_kw * 0.6 : 0,
+    plant_factor: elevationDeg > 0 ? 0.6 : 0,
+    boundary: [
+      { lat: lat + 0.001, lon: lon - 0.001 },
+      { lat: lat + 0.001, lon: lon + 0.001 },
+      { lat: lat - 0.001, lon: lon + 0.001 },
+      { lat: lat - 0.001, lon: lon - 0.001 },
+      { lat: lat + 0.001, lon: lon - 0.001 },
+    ],
+  }
+}
+
 function makeMap(elevationDeg: number): IrradianceMapResponse {
   return {
     at: '2026-07-14T05:00:00Z',
@@ -31,9 +48,9 @@ function makeMap(elevationDeg: number): IrradianceMapResponse {
       cloud_factor: 0.8,
     })),
     zones: [
-      { id: 'GIS', name_full: 'Grid Integrated Substation', lat: 12.6834, lon: 101.1199, ac_capacity_kw: 50, simulated: false },
-      { id: 'ISB', name_full: 'Instrument Substation Building', lat: 12.6813, lon: 101.1183, ac_capacity_kw: 150, simulated: false },
-      { id: 'Jetty', name_full: 'ท่าเรือ', lat: 12.6728, lon: 101.1159, ac_capacity_kw: 200, simulated: true },
+      makeZonePin('GIS', 'Grid Integrated Substation', 12.6834, 101.1199, 50, false, elevationDeg),
+      makeZonePin('ISB', 'Instrument Substation Building', 12.6813, 101.1183, 150, false, elevationDeg),
+      makeZonePin('Jetty', 'ท่าเรือ', 12.6728, 101.1159, 200, true, elevationDeg),
     ],
   }
 }
@@ -73,11 +90,20 @@ describe('IrradianceMapPage', () => {
     expect(await screen.findByText(/night/i)).toBeInTheDocument()
   })
 
-  it('has layer toggle checkboxes for irradiance overlay and zone pins', async () => {
+  it('has layer toggle checkboxes for irradiance overlay, zone pins, and boundary', async () => {
     renderPage()
     await screen.findByTestId('mock-map')
     expect(screen.getByRole('checkbox', { name: /irradiance overlay/i })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /zone pins/i })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /zone boundary/i })).not.toBeChecked()
+  })
+
+  it('toggling the boundary checkbox checks it', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    const checkbox = await screen.findByRole('checkbox', { name: /zone boundary/i })
+    await user.click(checkbox)
+    expect(checkbox).toBeChecked()
   })
 
   it('toggling a layer checkbox unchecks it', async () => {

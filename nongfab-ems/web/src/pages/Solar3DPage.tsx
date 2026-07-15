@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Compass } from '../components/Compass'
 import { Solar3DScene } from '../components/Solar3DScene'
 import { ZoneSelector } from '../components/ZoneSelector'
-import { useGeometry, useSunPath } from '../lib/queries'
+import { nearestToTimestamp } from '../lib/chartData'
+import { useForecast, useGeometry, usePerformance, useSunPath } from '../lib/queries'
 import { buildAtIso, minutesToHhMm, todayIso } from '../lib/timeScrub'
 import './Solar3DPage.css'
 
@@ -21,6 +22,15 @@ export function Solar3DPage() {
 
   const geometry = useGeometry(zone, atIso)
   const sunPath = useSunPath(zone, date)
+  // Feature C <-> Feature A: as the sun-path scrub moves, look up the
+  // nearest day-ahead forecast point and the nearest actual/generated
+  // point to that same scrubbed instant, so the 3D view can show
+  // actual-vs-forecast alongside the sun position - not just a standalone
+  // 3D scene disconnected from Feature A's own forecast data.
+  const forecast = useForecast(zone, 'day')
+  const performance = usePerformance(zone)
+  const forecastAtScrub = useMemo(() => nearestToTimestamp(forecast.data?.points ?? [], atIso), [forecast.data, atIso])
+  const actualAtScrub = useMemo(() => nearestToTimestamp(performance.data?.hourly ?? [], atIso), [performance.data, atIso])
 
   useEffect(() => {
     if (!isPlaying) return
@@ -92,6 +102,32 @@ export function Solar3DPage() {
           <span className="solar3d-simulated-badge">Simulated zone - no panels installed yet</span>
         )}
       </div>
+
+      <div className="solar3d-forecast-readout" aria-label="Forecast vs actual comparison">
+        <span className="solar3d-forecast-item">
+          Forecast:{' '}
+          {forecastAtScrub ? (
+            <strong>{forecastAtScrub.pred.toFixed(1)} kW</strong>
+          ) : forecast.error ? (
+            <span className="solar3d-forecast-unavailable">no model trained yet</span>
+          ) : (
+            <span className="solar3d-forecast-unavailable">—</span>
+          )}
+        </span>
+        <span className="solar3d-forecast-item">
+          Actual: <strong>{actualAtScrub ? `${actualAtScrub.ac_kw.toFixed(1)} kW` : '—'}</strong>
+        </span>
+      </div>
+
+      {geometry.data && geometry.data.string_balance.some((b) => b.exceeds_limit) && (
+        <div className="solar3d-string-balance-warning" role="alert">
+          ⚠ String power imbalance exceeds design limit:{' '}
+          {geometry.data.string_balance
+            .filter((b) => b.exceeds_limit)
+            .map((b) => `${b.block_id} (${b.imbalance_kw.toFixed(2)} kW > ${b.max_allowed_kw?.toFixed(1)} kW)`)
+            .join(', ')}
+        </div>
+      )}
 
       <div className="solar3d-canvas-wrapper">
         {geometry.isLoading && <p className="forecast-status">Loading geometry…</p>}

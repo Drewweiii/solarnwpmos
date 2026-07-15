@@ -3,7 +3,9 @@ from nongfab_common.assets import load_assets
 
 from nongfab_features.irradiance_map import (
     MAX_DISPLAY_GHI_W_M2,
+    cloud_factor_at,
     grid_points,
+    irradiance_at_point,
     irradiance_grid,
 )
 
@@ -58,3 +60,26 @@ def test_irradiance_grid_changes_over_time():
     grid_a = irradiance_grid(clearsky_ghi_w_m2=900.0, epoch_seconds=1_800_000_000, n=6)
     grid_b = irradiance_grid(clearsky_ghi_w_m2=900.0, epoch_seconds=1_800_003_600 * 3, n=6)
     assert [p.cloud_factor for p in grid_a] != [p.cloud_factor for p in grid_b]
+
+
+def test_cloud_factor_at_is_within_bounds():
+    factor = cloud_factor_at(lat=12.68, lon=101.12, epoch_seconds=1_800_000_000)
+    assert 0.0 <= factor <= 1.0
+
+
+def test_cloud_factor_at_is_deterministic():
+    a = cloud_factor_at(lat=12.68, lon=101.12, epoch_seconds=1_800_000_000)
+    b = cloud_factor_at(lat=12.68, lon=101.12, epoch_seconds=1_800_000_000)
+    assert a == b
+
+
+def test_irradiance_at_point_matches_the_formula_grid_points_use():
+    point = irradiance_at_point(lat=12.68, lon=101.12, clearsky_ghi_w_m2=900.0, epoch_seconds=1_800_000_000)
+    factor = cloud_factor_at(lat=12.68, lon=101.12, epoch_seconds=1_800_000_000)
+    assert point.cloud_factor == factor
+    assert point.ghi_w_m2 == pytest.approx(900.0 * factor)
+
+
+def test_irradiance_at_point_is_zero_at_night_clearsky():
+    point = irradiance_at_point(lat=12.68, lon=101.12, clearsky_ghi_w_m2=0.0, epoch_seconds=1_800_000_000)
+    assert point.ghi_w_m2 == 0.0

@@ -3,6 +3,7 @@ import {
   hourKey,
   mergeGeneratedAndForecast,
   nearestToNow,
+  nearestToTimestamp,
   pickHoursOfDay,
   sumForecastAcrossZones,
   sumHourlyAcrossZones,
@@ -101,6 +102,22 @@ describe('nearestToNow', () => {
 
   it('returns undefined for an empty series', () => {
     expect(nearestToNow([])).toBeUndefined()
+  })
+})
+
+describe('nearestToTimestamp', () => {
+  it('picks the closest point to an arbitrary target timestamp, not just now', () => {
+    const points = [hourly(6, 1), hourly(12, 2), hourly(18, 3)]
+    expect(nearestToTimestamp(points, '2026-07-14T17:00:00Z')?.timestamp).toBe(hourly(18, 0).timestamp)
+  })
+
+  it('works for any series with a timestamp field, e.g. ForecastPoint', () => {
+    const points = [forecastPoint(6, 10), forecastPoint(12, 20), forecastPoint(18, 30)]
+    expect(nearestToTimestamp(points, '2026-07-14T13:00:00Z')?.pred).toBe(20)
+  })
+
+  it('returns undefined for an empty series', () => {
+    expect(nearestToTimestamp([], '2026-07-14T12:00:00Z')).toBeUndefined()
   })
 })
 

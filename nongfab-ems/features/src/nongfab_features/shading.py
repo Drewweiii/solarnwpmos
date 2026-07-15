@@ -17,6 +17,7 @@ a bankable energy-yield calculation.
 from __future__ import annotations
 
 import math
+from collections import defaultdict
 from dataclasses import dataclass
 
 from .panel_geometry import Panel, ZoneLayout
@@ -107,3 +108,74 @@ def average_solar_access_pct(panel_access: list[PanelSolarAccess]) -> float:
     if not panel_access:
         return 100.0
     return sum(p.solar_access_pct for p in panel_access) / len(panel_access)
+
+
+@dataclass(frozen=True)
+class StringPowerEstimate:
+    block_id: str
+    string_index: int
+    module_count: int
+    avg_solar_access_pct: float
+    estimated_power_kw: float
+
+
+@dataclass(frozen=True)
+class BlockPowerBalance:
+    block_id: str
+    strings: list[StringPowerEstimate]
+    imbalance_kw: float
+    max_allowed_kw: float | None
+    exceeds_limit: bool
+
+
+def string_power_balance(
+    panel_access: list[PanelSolarAccess], module_power_w: float, max_allowed_kw: float | None = None,
+) -> list[BlockPowerBalance]:
+    """Per-string estimated power (each module at its own nameplate
+    `module_power_w`, scaled by that panel's own solar-access % from
+    `zone_solar_access` - a relative/comparative figure, not a real-time
+    absolute power reading), grouped by `(block_id, row)`.
+
+    `row` only doubles as a real electrical string index where
+    `panel_geometry.py`'s own layout assigns it that way -
+    `_jetty_layout()`'s call to `_grid_panels(sub_array.id, sub_array.strings,
+    sub_array.modules_per_string, ...)` lays out exactly one row per real
+    string (`sub_array.strings` from config/assets.yaml). GIS/ISB's
+    rectangular-block layout (`_rectangular_block_layout`) is a
+    visualization approximation whose `row` does NOT correspond to a real
+    string - callers should only pass panel_access from a zone with a real
+    per-string layout (Jetty today), same "only Jetty has real sub-array
+    data" caveat as `panel_geometry.py`/`sld.py` document elsewhere. This
+    function doesn't itself know which zone produced `panel_access`, so it
+    trusts the caller on that.
+
+    `max_allowed_kw` - the zone's own `design_constraints.
+    string_power_balance_max_kw` (config/assets.yaml), if it has one;
+    `exceeds_limit` is always False when it's None (no constraint to check
+    against, not "assumed fine").
+    """
+    by_block: dict[str, dict[int, list[PanelSolarAccess]]] = defaultdict(lambda: defaultdict(list))
+    for p in panel_access:
+        by_block[p.block_id][p.row].append(p)
+
+    results = []
+    for block_id, rows in by_block.items():
+        strings = []
+        for row, panels in sorted(rows.items()):
+            avg_access = sum(p.solar_access_pct for p in panels) / len(panels)
+            estimated_kw = (avg_access / 100) * len(panels) * module_power_w / 1000
+            strings.append(
+                StringPowerEstimate(
+                    block_id=block_id, string_index=row, module_count=len(panels),
+                    avg_solar_access_pct=avg_access, estimated_power_kw=estimated_kw,
+                )
+            )
+        powers = [s.estimated_power_kw for s in strings]
+        imbalance_kw = max(powers) - min(powers) if powers else 0.0
+        results.append(
+            BlockPowerBalance(
+                block_id=block_id, strings=strings, imbalance_kw=imbalance_kw, max_allowed_kw=max_allowed_kw,
+                exceeds_limit=max_allowed_kw is not None and imbalance_kw > max_allowed_kw,
+            )
+        )
+    return results

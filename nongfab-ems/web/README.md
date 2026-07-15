@@ -27,11 +27,28 @@ STEP 8C (Feature D+E) is also built:
   showing all 3 zones' pins plus a plant-wide irradiance overlay (0-1000
   W/m^2, with a documented synthetic cloud factor - see `features/README.md`),
   a date + time scrubber (with auto-play, same pattern as `/3d`), and
-  layer-toggle checkboxes for the irradiance overlay and zone pins
-  independently.
+  layer-toggle checkboxes for the irradiance overlay, zone pins, and zone
+  boundary independently. Clicking a zone pin opens a popup with its
+  lat/lon, installed capacity, estimated output, plant factor, estimated
+  irradiance, and cloud factor.
 
 Both pages, plus `/3d`, are now code-split (`React.lazy`) into their own
 chunks fetched on navigation - see "Known gaps" below.
+
+A recheck against the full Feature A-E spec (2026-07-15) found and closed 5
+more gaps across the existing pages:
+
+- **`/forecast`** now shows a per-zone info panel (latitude, longitude,
+  installed capacity, estimated energy, plant factor, estimated irradiance,
+  cloud factor) when a single real zone is selected - hidden for the "All"
+  (รวม) aggregate, since lat/lon is inherently a single-point value.
+- **`/3d`** now shows a "Forecast vs actual" readout tied to the sun-path
+  scrub time (Feature C <-> Feature A integration - the nearest day-ahead
+  forecast point and nearest actual/generated point to the scrubbed
+  instant, not just a standalone 3D scene), and a string power-balance
+  warning banner when `/geometry/{zone}`'s new `string_balance` reports a
+  block exceeding its design constraint (Jetty only - see
+  `features/README.md`).
 
 ## Auth
 
@@ -97,6 +114,17 @@ here is a security boundary by itself.
   MapLibre canvas underneath (discarding camera pan/zoom, and - for the
   irradiance map - silently resetting the layer-toggle checkboxes back to
   their default). Found live this pass - see "Verified live" below.
+- **`nearestToTimestamp()`** (`lib/chartData.ts`, generalized from the
+  existing `nearestToNow()`): the 3D page's Feature C <-> Feature A
+  integration reuses this to find the forecast point and the actual/
+  generated point nearest the *scrubbed* time, not real "now" - the same
+  "pick the nearest row" idea `nearestToNow`/the backend's `/ws/live`
+  already use, just against an arbitrary target instead of `Date.now()`.
+- **Zone-pin popup content is computed server-side, not client-side**
+  (`IrradianceMapView.tsx`'s `popupHtml()`): `estimated_ac_kw`/
+  `plant_factor` come straight from `/irradiance-map`'s response (Module 6
+  already ran them through Module 5's real PV-conversion + loss-model
+  chain) - this component only formats them, it doesn't compute them.
 
 ## Known gaps
 
@@ -130,6 +158,22 @@ page shows a plain status message rather than fabricating a forecast line.
   (deterministic sine-wave field, not a real Himawari sample) - see
   `features/README.md`'s "SLD topology & irradiance grid" section for why
   and what the real follow-up looks like.
+- The spec's Feature E layer-toggle list included an "actual/estimated"
+  category alongside site/grid/boundary. Only 3 real toggles exist
+  (irradiance overlay, zone pins, zone boundary) - deliberately no
+  "actual/estimated" toggle, since there is no real telemetry anywhere in
+  this system yet to show as "actual" (same data-accumulation caveat as
+  every other module); faking a second data layer to fill out the toggle
+  would violate this project's own "don't fabricate site-specific data"
+  rule. Revisit once Module 1/2 have accumulated real history.
+- The string power-balance flag (`/3d`'s warning banner) is only ever
+  non-empty for Jetty - GIS/ISB's block layout doesn't assign a real
+  electrical string to each geometry row, so there's nothing honest to
+  flag there (see `features/README.md`'s `string_power_balance()` section).
+  `estimated_ac_kw`/`plant_factor` in the irradiance map's zone-pin popup
+  use a fixed nominal ambient temperature (`NOMINAL_AMBIENT_TEMP_C = 30`
+  in `routes_irradiance_map.py`), not a real reading, for the same
+  no-real-history reason.
 
 ## Verified live (2026-07-14)
 
@@ -222,6 +266,34 @@ errors; the only 404s seen were `/forecast/*/day` (pre-existing, documented
    the `'load'` handler, added to the visibility effect's dependency array,
    so it correctly re-applies the current toggle state once the layers
    actually exist.
+
+### Verified live - recheck-driven spec gap closures (2026-07-15)
+
+A recheck against the full Feature A-E spec (paired with the API side - see
+`api/README.md`'s own "Verified live a fifth time") found and closed 5
+addressable gaps; re-verified live the same real `uvicorn` + `vite dev` +
+headless-Chromium-with-software-WebGL setup:
+
+- `/forecast`, GIS selected: the new zone-info panel renders lat/lon,
+  installed, estimated, plant factor, est. irradiance, and cloud factor;
+  confirmed it disappears when switching to "All" (รวม), since lat/lon has
+  no single-point meaning there.
+- `/3d`, Jetty selected, date `2026-07-14`, time scrubbed to `11:15` UTC
+  (low sun ~6deg elevation, azimuth ~291deg - close to Jetty's own
+  270deg-facing default): the string power-balance warning banner
+  correctly lists all 4 real sub-arrays (`01A.L`/`02A.L`/`03A.R`/`04A.R`),
+  each at ~2.97kW imbalance against the 2kW design limit. The forecast/
+  actual readout shows "Forecast: no model trained yet" (correct - no
+  model exists in this dev API instance) alongside a real "Actual" value.
+- `/irradiance-map`: clicked a real zone pin on the live canvas (scanned a
+  small grid of screen positions near the pin cluster to find one, since
+  pixel coordinates for a MapLibre feature aren't exposed statically) and
+  confirmed the popup shows lat/lon, installed, estimated output, plant
+  factor, est. irradiance, and cloud factor - e.g. ISB at night: `lat/lon:
+  12.68134, 101.11832`, `plant factor: 0.0%`. The new "Zone boundary"
+  checkbox toggles independently of the other two.
+
+No new bugs found this round.
 
 ## Run locally
 
