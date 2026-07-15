@@ -22,16 +22,13 @@ import {
   weatherIconFor,
 } from '../lib/chartData'
 import { ALL_ZONES_ID, useAllZonesForecast, useAllZonesPerformance, useForecast, usePerformance, useZones } from '../lib/queries'
+import { formatHourUtc as formatHour } from '../lib/timeScrub'
 import type { ForecastHorizon, ForecastPoint, HourlyPoint } from '../lib/types'
 import './ForecastPage.css'
 
 type HorizonToggle = 'day' | 'hour'
 
 const WEATHER_HOURS = [6, 9, 12, 15]
-
-function formatHour(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' })
-}
 
 export function ForecastPage() {
   const [zoneId, setZoneId] = useState(ALL_ZONES_ID)

@@ -12,6 +12,9 @@ export function Layout() {
           <NavLink to="/forecast" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
             Forecast
           </NavLink>
+          <NavLink to="/simulation" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
+            Simulation
+          </NavLink>
           <NavLink to="/3d" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
             3D View
           </NavLink>

@@ -1,0 +1,123 @@
+.sim-playground-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sim-playground-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sim-playground-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+}
+
+.sim-playground-form h2 {
+  font-size: 15px;
+  margin: 6px 0 0;
+  color: var(--text-h);
+}
+
+.sim-playground-note {
+  font-size: 12px;
+  color: var(--text);
+  margin: 0;
+}
+
+.sim-playground-sliders {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.sim-playground-slider-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.sim-playground-slider-field label {
+  color: var(--text);
+  display: flex;
+  justify-content: space-between;
+}
+
+.sim-playground-slider-value {
+  color: var(--text-h);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sim-playground-slider-field input[type='range'] {
+  width: 100%;
+}
+
+.sim-playground-form button {
+  align-self: flex-start;
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 20px;
+  margin-top: 4px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.sim-playground-form button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.sim-playground-loss-section {
+  padding: 16px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+}
+
+.sim-playground-loss-section h2 {
+  font-size: 15px;
+  margin: 0 0 10px;
+  color: var(--text-h);
+}
+
+.sim-playground-loss-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.sim-playground-loss-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.sim-playground-simulated-badge {
+  margin: 10px 0 0;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  display: inline-block;
+}

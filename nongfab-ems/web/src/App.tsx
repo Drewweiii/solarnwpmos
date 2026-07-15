@@ -6,6 +6,7 @@ import { Layout } from './components/Layout'
 import { Login } from './components/Login'
 import { AuthProvider, useAuth } from './lib/auth'
 import { ForecastPage } from './pages/ForecastPage'
+import { SimulationPlaygroundPage } from './pages/SimulationPlaygroundPage'
 
 // Code-split the heavy per-page dependencies (Three.js, MapLibre) into
 // separate chunks fetched on navigation, not bundled into the initial
@@ -31,6 +32,7 @@ function RequireAuth() {
       <Route element={<Layout />}>
         <Route index element={<Navigate to="/forecast" replace />} />
         <Route path="/forecast" element={<ForecastPage />} />
+        <Route path="/simulation" element={<SimulationPlaygroundPage />} />
         <Route
           path="/3d"
           element={

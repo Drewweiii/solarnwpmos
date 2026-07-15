@@ -50,6 +50,27 @@ more gaps across the existing pages:
   block exceeding its design constraint (Jetty only - see
   `features/README.md`).
 
+STEP 9 (Module 5's Simulation Playground - everything else STEP 9 asked for
+was already built in earlier steps, see `simulation/README.md`) adds
+**`/simulation`**: a per-zone what-if playground built on the existing
+`POST /simulate/{zone}` (no new backend route - `useSimulate()` in
+`lib/queries.ts` is this app's first `useMutation`, not a `useQuery`, since
+running a scenario is an explicit action, not a background fetch). Sliders
+for the 4 what-if parameters (extra cloud attenuation, curtailment,
+degradation, years since commissioning) plus 3 optional Monte Carlo std
+sliders (all three at 0 skips Monte Carlo - the chart then shows a plain
+adjusted line, no interval band), a "Run simulation" button (deliberately
+not auto-run-on-slider-change, since the route is gated at operator-or-
+higher as a heavier computation - see `api/routes_simulate.py`'s own
+docstring), a baseline-vs-adjusted chart with an optional PI band, and a
+loss-breakdown panel. A viewer-role account gets a specific "requires an
+operator or admin account" message on the resulting 403, not a generic
+error. **No battery/BESS dispatch** - STEP 9's brief also asked for it, but
+that directly contradicts an explicit, twice-confirmed decision elsewhere
+in this repo (fully on-grid, no battery anywhere, permanently out of
+scope - see root README) - confirmed with the user this pass that the
+existing no-battery decision stands, so it wasn't built.
+
 ## Auth
 
 The API requires a JWT bearer token on every route, so this app gates
@@ -294,6 +315,30 @@ headless-Chromium-with-software-WebGL setup:
   checkbox toggles independently of the other two.
 
 No new bugs found this round.
+
+### Verified live - STEP 9, Simulation Playground (2026-07-15)
+
+Same real `uvicorn` + `vite dev` pair, headless Chromium. Ran GIS with
+default (all-zero) scenario params - chart shows baseline bars and an
+adjusted line sitting exactly on top of them (no scenario applied yet is
+correctly a no-op), loss breakdown matches the real PVWatts figures.
+Moved curtailment to 40% and re-ran - the adjusted line correctly dropped
+to ~60% of baseline at every point (`curl`-verified the same request
+directly too: e.g. Jetty's noon baseline 187.5kW -> adjusted 112.5kW,
+exactly 60%). Switched to Jetty and re-ran - loss breakdown correctly
+shows 6.00% soiling (vs GIS's 2.50%) and the "Simulated zone" badge
+appears. No console/page errors; the only 404s were the pre-existing
+`/forecast/*/day` "no model trained yet" ones, unrelated to this page.
+
+One thing chased down that turned out **not** to be a bug: an early
+screenshot of the Jetty chart appeared to be missing its baseline bars
+entirely. Inspecting the actual DOM (`.recharts-bar-rectangle` elements)
+found the bars present with correct heights - Recharts animates bars
+growing from 0 height on data change, and the screenshot had been taken
+before that animation settled. Confirmed by re-screenshotting the same
+state after a longer wait: bars appeared exactly as expected. A real
+product bug would have been an empty/wrong DOM, not a mistimed screenshot,
+so this was reported as "verified, no bug" rather than "fixed."
 
 ## Run locally
 

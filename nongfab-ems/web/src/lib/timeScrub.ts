@@ -21,3 +21,9 @@ export function buildAtIso(date: string, minutes: number): string {
   const mm = (minutes % 60).toString().padStart(2, '0')
   return `${date}T${hh}:${mm}:00Z`
 }
+
+/** HH:MM in UTC, for chart axis ticks/tooltips - also used by
+ * SimulationPlaygroundPage's result chart, not just ForecastPage's. */
+export function formatHourUtc(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' })
+}

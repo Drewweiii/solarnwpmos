@@ -1,6 +1,6 @@
-import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query'
-import { getAssets, getEnergyReport, getForecast, getGeometry, getIrradianceMap, getPerformance, getSunPath } from './api'
-import type { ForecastHorizon } from './types'
+import { keepPreviousData, useMutation, useQueries, useQuery } from '@tanstack/react-query'
+import { getAssets, getEnergyReport, getForecast, getGeometry, getIrradianceMap, getPerformance, getSunPath, postSimulate } from './api'
+import type { ForecastHorizon, SimulateRequest } from './types'
 import { useAuth } from './auth'
 
 export const ALL_ZONES_ID = 'ALL'
@@ -114,5 +114,17 @@ export function useIrradianceMap(at?: string) {
     queryFn: () => getIrradianceMap(at, token!),
     enabled: Boolean(token),
     placeholderData: keepPreviousData,
+  })
+}
+
+/** POST /simulate/{zone} is a mutation, not a query - the Simulation
+ * Playground (STEP 9) runs it on demand ("Run simulation"), not on every
+ * slider tick, since it's gated at operator-or-higher as a heavier
+ * what-if computation (see api/routes_simulate.py's own docstring), not a
+ * plain read like every other hook in this file. */
+export function useSimulate() {
+  const { token } = useAuth()
+  return useMutation({
+    mutationFn: ({ zone, request }: { zone: string; request: SimulateRequest }) => postSimulate(zone, request, token!),
   })
 }
