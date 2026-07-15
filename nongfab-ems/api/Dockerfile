@@ -2,33 +2,33 @@
 # `dockerfile: api/Dockerfile`), not api/ itself. nongfab-api's pyproject.toml
 # depends on bare package names (nongfab-common, nongfab-features,
 # nongfab-forecast, nongfab-simulation) that are only published inside this
-# monorepo, not on PyPI - so every sibling has to be copied in and installed,
-# in dependency order, before `pip install ./api` so those names already
-# resolve locally when pip reaches them instead of trying (and failing) to
-# fetch them from the index.
+# monorepo, not on PyPI - so every sibling is copied in and they're all
+# installed together in ONE pip command below.
+#
+# One command, not one-per-package: a per-package sequential install lets a
+# later package (forecast's heavy ML stack) downgrade a shared compiled dep
+# (numpy) *after* an earlier package (features) already installed pandas/pvlib
+# wheels built against the previous numpy - a resolver split that installs
+# cleanly but leaves an ABI-inconsistent env that crashes at import
+# ("numpy._core.multiarray failed to import"). A single resolver pass picks
+# one numpy that satisfies every package and installs all compiled wheels
+# against it consistently. pip still resolves the bare nongfab-* names to the
+# local paths given as args (same run), so nothing is fetched from the index.
 FROM python:3.11-slim
 
 WORKDIR /app
 
 COPY libs/nongfab_common/pyproject.toml ./libs/nongfab_common/pyproject.toml
 COPY libs/nongfab_common/src ./libs/nongfab_common/src
-RUN pip install --no-cache-dir ./libs/nongfab_common
-
 COPY features/pyproject.toml ./features/pyproject.toml
 COPY features/src ./features/src
-RUN pip install --no-cache-dir ./features
-
 COPY forecast/pyproject.toml ./forecast/pyproject.toml
 COPY forecast/src ./forecast/src
-RUN pip install --no-cache-dir ./forecast
-
 COPY simulation/pyproject.toml ./simulation/pyproject.toml
 COPY simulation/src ./simulation/src
-RUN pip install --no-cache-dir ./simulation
-
 COPY api/pyproject.toml ./api/pyproject.toml
 COPY api/src ./api/src
-RUN pip install --no-cache-dir ./api
+RUN pip install --no-cache-dir ./libs/nongfab_common ./features ./forecast ./simulation ./api
 
 # libs/nongfab_common's load_assets() falls back to a repo-relative path
 # derived from its own installed __file__ location, which is fragile across
