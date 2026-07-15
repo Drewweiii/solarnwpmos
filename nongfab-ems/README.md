@@ -9,6 +9,45 @@ tests, and `.env.example`.
 > under this name in an earlier session before that name was specified.
 > Not renamed yet pending confirmation (renaming touches git history/links).
 
+## Live demo (STEP 11B)
+
+Deployed and publicly reachable:
+
+- **Dashboard**: https://solarnwpmos.zerosynasis.workers.dev — the `web/`
+  SPA, hosted on Cloudflare Workers (static assets, SPA-fallback routing),
+  auto-built from this branch on every push (see `web/wrangler.jsonc`,
+  `web/.env.production`).
+- **API**: https://api-production-f161c.up.railway.app — Module 6
+  (`api/`), hosted on Railway from `api/Dockerfile`.
+
+Demo accounts (seeded on startup — throwaway credentials, see
+`api/src/nongfab_api/auth.py`): `admin`/`admin-demo-pw`,
+`operator`/`operator-demo-pw`, `viewer`/`viewer-demo-pw`.
+
+Deployment notes:
+
+- The API's auth store is an **ephemeral SQLite file** on the demo, not a
+  separate Postgres service — the only thing the API persists is the demo
+  accounts (re-seeded each boot); all forecast/simulation data is synthetic
+  (same "no real accumulated history yet" caveat as every module). See
+  `api/config.py`'s `create_tables_on_startup`. The docker-compose path
+  still uses the shared TimescaleDB + `db/migrations`.
+- The API image installs the full ML stack (torch/neuralforecast/
+  neuralprophet/mlflow), so `/forecast/{zone}/{horizon}` returns 404 "not
+  trained" on the demo (no models registered, no MLflow server) - the
+  working demo surface is login, `/assets`, `/performance`,
+  `/energy-report`, `/irradiance-map`, `/geometry`, `/sun-path`, and
+  `/simulate` (operator+). A single-resolver-pass `pip install` in the
+  Dockerfile is load-bearing: per-package sequential installs left an
+  ABI-inconsistent numpy that crashed at import on first deploy (caught by
+  the Railway runtime logs, fixed and re-verified by reproducing the exact
+  install in a throwaway venv and importing `nongfab_api.main`).
+- End-to-end verified through the live public URLs (frontend serves, the
+  deployed bundle points at the Railway API, login returns a real JWT with
+  correct CORS for the Cloudflare origin, every read route 200s, RBAC
+  enforced). A headless-Chromium pass was blocked by this sandbox's egress
+  proxy (`ERR_CONNECTION_RESET` to `*.workers.dev`), not by the app.
+
 ## Status
 
 | Module | Path | Status |
