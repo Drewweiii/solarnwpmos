@@ -363,6 +363,44 @@ code paths end-to-end, not a fresh live curl:
   `ingestion_scheduler.py` and the production `/forecast` route): **99
   passed**, `ruff check` clean.
 
+## Per-point algorithm + validation error exposed to serving (2026-07-16)
+
+The user asked for the dashboard to visibly show the hour-ahead LightGBM-vs-
+Random Forest auto-select actually switching per lead hour (not just claim it
+in prose), plus a "model error" figure from the same per-lead competition
+shown as a line on the chart.
+
+Both were already computed during training (`training.py`'s
+`_train_hour_ahead_kstep()` logs `lead{N}_lgbm_rmse`/`lead{N}_rf_rmse` to
+MLflow) but never carried past training time. Wired through instead of
+recomputed:
+
+- `HourAheadKStepModel` gained `rmse_by_lead_hour: dict[int, float]` (the
+  winning candidate's own held-out validation RMSE per lead) alongside the
+  pre-existing `algorithm_by_lead_hour` - both now live on the pickled model
+  object itself, not just in MLflow's metrics store, so serving.py can read
+  them without an extra registry round trip per request.
+- `predict_hour_ahead_kstep()` now returns `algorithm`/`error_rmse` columns
+  alongside `pred`/`lower`/`upper`.
+- `serving.ForecastPoint` gained `algorithm: str | None` and `error: float |
+  None`. Hour-ahead points get real per-lead values; minute-ahead points get
+  a fixed `"cnn_lstm"` (that horizon doesn't auto-select); day-ahead points
+  get a fixed `"neuralprophet"`; the physics-only fallback leaves both `None`
+  (no ML model ran, so there is no algorithm or validation error to report -
+  see `FALLBACK_PI_HALF_WIDTH_PCT`'s own docstring for the same
+  don't-invent-a-number spirit).
+- Both API surfaces (`api/routes_forecast.py` and this module's own
+  `api.py`) pass the two new fields straight through in `ForecastPointOut`.
+
+Test coverage: `test_hour_ahead.py` gained 2 tests exercising
+`predict_hour_ahead_kstep()`'s new columns directly (including the "not every
+lead has a recorded RMSE" edge case); `test_serving.py`'s physics-baseline
+test now also asserts `algorithm`/`error` stay `None`; `test_api.py`'s three
+`@pytest.mark.slow` round-trip tests now assert the real values a live
+train-then-forecast cycle produces (`algorithm in ("lightgbm",
+"random_forest")` with `error >= 0` for hour-ahead; fixed `"cnn_lstm"`/
+`"neuralprophet"` strings for minute/day).
+
 ## Known gaps / next steps
 
 - **No automatic retraining pipeline of its own** - `registry.log_run()` +

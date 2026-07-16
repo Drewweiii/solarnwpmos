@@ -15,8 +15,15 @@ function hourly(hourUtc: number, ac_kw: number, ssrd_w_m2 = 500, temp_c = 30): H
   return { timestamp: `2026-07-14T${String(hourUtc).padStart(2, '0')}:00:00Z`, ac_kw, ssrd_w_m2, temp_c }
 }
 
-function forecastPoint(hourUtc: number, pred: number, lower: number | null = null, upper: number | null = null): ForecastPoint {
-  return { timestamp: `2026-07-14T${String(hourUtc).padStart(2, '0')}:00:00Z`, pred, lower, upper }
+function forecastPoint(
+  hourUtc: number,
+  pred: number,
+  lower: number | null = null,
+  upper: number | null = null,
+  algorithm: string | null = null,
+  error: number | null = null,
+): ForecastPoint {
+  return { timestamp: `2026-07-14T${String(hourUtc).padStart(2, '0')}:00:00Z`, pred, lower, upper, algorithm, error }
 }
 
 describe('hourKey', () => {
@@ -47,6 +54,11 @@ describe('mergeGeneratedAndForecast', () => {
   it('leaves band null when a forecast point has no PI', () => {
     const rows = mergeGeneratedAndForecast([], [forecastPoint(9, 10)])
     expect(rows[0]).toMatchObject({ pred: 10, lower: null, upper: null, band: null })
+  })
+
+  it('carries algorithm and error through from the forecast point', () => {
+    const rows = mergeGeneratedAndForecast([], [forecastPoint(9, 10, 8, 12, 'lightgbm', 3.5)])
+    expect(rows[0]).toMatchObject({ algorithm: 'lightgbm', error: 3.5 })
   })
 })
 
@@ -82,6 +94,14 @@ describe('sumForecastAcrossZones', () => {
     const isb = [forecastPoint(12, 20, 16, 24)]
     const [row] = sumForecastAcrossZones([gis, isb])
     expect(row).toMatchObject({ pred: 30, lower: 24, upper: 36 })
+  })
+
+  it('sums error but drops algorithm (each zone can pick a different winner)', () => {
+    const gis = [forecastPoint(12, 10, 8, 12, 'lightgbm', 2)]
+    const isb = [forecastPoint(12, 20, 16, 24, 'random_forest', 3)]
+    const [row] = sumForecastAcrossZones([gis, isb])
+    expect(row.error).toBe(5)
+    expect(row.algorithm).toBeNull()
   })
 })
 

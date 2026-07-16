@@ -204,6 +204,14 @@ class HourAheadKStepModel:
     models_by_lead_hour: dict[int, HourAheadModel | RFHourAheadModel]
     algorithm_by_lead_hour: dict[int, str]
     bias_correctors_by_lead_hour: dict[int, object] = field(default_factory=dict)  # bias_correction.BiasCorrectionModel, see that module
+    # The winning algorithm's own held-out validation RMSE per lead hour (the
+    # smaller of training.py's lgbm_rmse/rf_rmse comparison) - carried on the
+    # model itself (not just logged to MLflow) so serving.py can attach it to
+    # each forecast point as a "how much this model's own competition-winning
+    # result was typically off by" figure, without a separate MLflow lookup at
+    # request time. Same "measured from real training, not invented" spirit as
+    # bias_correctors_by_lead_hour's residual_std_train.
+    rmse_by_lead_hour: dict[int, float] = field(default_factory=dict)
     lead_hours: tuple[int, ...] = (1, 2, 3, 4, 5, 6)
 
 
@@ -212,9 +220,14 @@ def predict_hour_ahead_kstep(model: HourAheadKStepModel, X_by_lead_hour: dict[in
     own sub-model}. Returns one row per lead hour present in *both* the model
     and `X_by_lead_hour` (a lead hour missing real/synthetic input data at
     serving time is silently skipped, not an error - see serving.py's caller),
-    indexed by lead_hour ascending, columns pred/lower/upper. Applies each
-    lead's bias corrector (if one was trained) after the base prediction - see
-    bias_correction.py.
+    indexed by lead_hour ascending, columns pred/lower/upper/algorithm/
+    error_rmse. `algorithm` ("lightgbm"/"random_forest") and `error_rmse`
+    (that lead's winning validation RMSE) come straight from the model's own
+    `algorithm_by_lead_hour`/`rmse_by_lead_hour` - this is what lets the
+    dashboard show which candidate actually won each lead hour's competition,
+    and how far off its own validation run was, not just the point forecast.
+    Applies each lead's bias corrector (if one was trained) after the base
+    prediction - see bias_correction.py.
     """
     from .bias_correction import apply_bias_correction
 
@@ -228,5 +241,14 @@ def predict_hour_ahead_kstep(model: HourAheadKStepModel, X_by_lead_hour: dict[in
         corrector = model.bias_correctors_by_lead_hour.get(lead_hour)
         if corrector is not None:
             pred, lower, upper = apply_bias_correction(corrector, X, pred, lower, upper)
-        rows.append({"lead_hour": lead_hour, "pred": pred, "lower": lower, "upper": upper})
+        rows.append(
+            {
+                "lead_hour": lead_hour,
+                "pred": pred,
+                "lower": lower,
+                "upper": upper,
+                "algorithm": model.algorithm_by_lead_hour.get(lead_hour),
+                "error_rmse": model.rmse_by_lead_hour.get(lead_hour),
+            }
+        )
     return pd.DataFrame(rows).set_index("lead_hour").sort_index()

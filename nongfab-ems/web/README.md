@@ -703,6 +703,59 @@ viewer's locale settings. 2 new tests in `timeScrub.test.ts`, including a
 UTC-midnight boundary check (`23:00` on one day → `00:00` on the next
 shows the date advancing correctly).
 
+### Added - minute-ahead red-line panel + LightGBM/RandomForest dot coloring + model error line (2026-07-16)
+
+Two related requests: (1) show the Minute-ahead (CNN-LSTM) forecast directly
+on the dashboard instead of only mentioning it in the model-info panel, plus
+a "model error" figure from each lead hour's LightGBM-vs-Random Forest
+competition shown as a line on the chart; (2) color-code the Intra-day
+chart's forecast points by which algorithm actually won each lead hour
+(green vs orange), to make the auto-select's adaptiveness visible instead of
+just claimed in prose.
+
+- New `MinuteAheadPanel` component (`ForecastPage.tsx`): a small always-
+  visible `LineChart` (not gated by the Day-ahead/Intra-day toggle, since
+  10-min-resolution points would distort that chart's hourly-bucketed
+  x-axis) showing the next 60 minutes in red (`var(--chart-minute)`).
+  Fetches via `useForecast(zoneId, 'minute')`/`useAllZonesForecast('minute')`
+  the same way the main chart fetches its own horizon, independently of
+  `horizonToggle`.
+- The main chart's `pred` dots are now a custom `forecastDot()` renderer:
+  colored `var(--chart-lgbm)` (green) or `var(--chart-rf)` (orange) by each
+  point's `algorithm` field when `horizonToggle === 'hour'`, plain blue
+  otherwise (Day-ahead's NeuralProphet doesn't auto-select, so no coloring
+  there). A new dashed `error` `Line` ("Model error (RMSE)") appears
+  alongside it, hour-ahead only - the winning candidate's own held-out
+  validation RMSE per lead hour (see `forecast/README.md`'s matching dated
+  entry for where these numbers actually come from - a real measured
+  training-time metric, not invented for the chart). A caption below the
+  chart explains both, shown only when there's real per-point algorithm data
+  to explain (not during the physics-only fallback, which has no algorithm
+  at all).
+- `types.ts`'s `ForecastPoint` and `chartData.ts`'s `ChartRow` both gained
+  `algorithm`/`error` fields; `mergeGeneratedAndForecast` carries them
+  through, `sumForecastAcrossZones` sums `error` (same approximate
+  treatment as `lower`/`upper`) but drops `algorithm` to `null` for the
+  "All" (รวม) aggregate, since each zone can independently pick a different
+  winning algorithm - there's no single "the" algorithm to report once
+  summed across zones.
+- New CSS vars `--chart-lgbm`/`--chart-rf`/`--chart-minute`/`--chart-error`
+  (light + dark), matching hex values already used elsewhere (`--ok`,
+  `--chart-rainy`, `--danger`) but named for this feature so the chart code
+  doesn't read as randomly reusing unrelated tokens.
+- Model-info panel's Minute-ahead row updated - no longer says "not shown on
+  this page", now points at the red line below the main chart.
+
+**Verified live**: real `uvicorn` + `vite dev` + Playwright, with a genuinely
+trained hour-ahead model (not just the physics fallback) so the algorithm
+auto-select had something real to show - confirmed the Intra-day chart's
+dots visibly alternate green/orange across lead hours (`lightgbm`,
+`lightgbm`, `random_forest`, `lightgbm`, `lightgbm`, `random_forest` in the
+run screenshotted), the dashed error line and its legend entry render, the
+explanatory caption appears only on the Intra-day tab (confirmed absent on
+Day-ahead), and the Minute-ahead panel renders a connected red line for all
+6 points on every tab.
+
 ## Run locally
 
 ```bash

@@ -54,13 +54,16 @@ function makePerformance(zone: string, peakKw: number): PerformanceResponse {
   }
 }
 
-function makeForecast(zone: string): ForecastResponse {
+function makeForecast(zone: string, horizon: ForecastResponse['horizon'] = 'day'): ForecastResponse {
+  const algorithm = horizon === 'hour' ? 'lightgbm' : horizon === 'minute' ? 'cnn_lstm' : 'neuralprophet'
   return {
     zone,
-    horizon: 'day',
+    horizon,
     issued_at: '2026-07-14T00:00:00Z',
     model_version: 1,
-    points: [{ timestamp: '2026-07-14T12:00:00Z', pred: 40, lower: 32, upper: 48 }],
+    points: [
+      { timestamp: '2026-07-14T12:00:00Z', pred: 40, lower: 32, upper: 48, algorithm, error: horizon === 'hour' ? 3.2 : null },
+    ],
     data_source: 'real',
     model_type: 'ml',
   }
@@ -87,7 +90,7 @@ describe('ForecastPage', () => {
     vi.spyOn(api, 'getPerformance').mockImplementation((zone) =>
       Promise.resolve(makePerformance(zone, { GIS: 50, ISB: 120, Jetty: 200 }[zone] ?? 50)),
     )
-    vi.spyOn(api, 'getForecast').mockImplementation((zone) => Promise.resolve(makeForecast(zone)))
+    vi.spyOn(api, 'getForecast').mockImplementation((zone, horizon) => Promise.resolve(makeForecast(zone, horizon)))
   })
 
   it('shows the site-wide (All) KPI totals by default', async () => {
@@ -135,6 +138,28 @@ describe('ForecastPage', () => {
     expect(screen.getByText('12.68000')).toBeInTheDocument()
     expect(screen.getByText('101.12000')).toBeInTheDocument()
     expect(screen.getByText('75%')).toBeInTheDocument() // cloud factor
+  })
+
+  it('always fetches and renders the minute-ahead (CNN-LSTM) panel, not gated by the Day/Intra-day toggle', async () => {
+    renderPage()
+    await clickGisTab()
+
+    await waitFor(() => expect(api.getForecast).toHaveBeenCalledWith('GIS', 'minute', expect.any(String)))
+    expect(await screen.findByLabelText(/minute-ahead power forecast chart/i)).toBeInTheDocument()
+  })
+
+  it('shows the LightGBM/Random Forest dot-color legend caption only on the Intra-day (hour) chart', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await clickGisTab()
+
+    // Day-ahead (NeuralProphet, fixed architecture) - no per-point algorithm
+    // to color-code, so the caption (distinct from the always-visible
+    // model-info panel's own LightGBM/Random Forest mention) stays hidden.
+    expect(screen.queryByText(/ดูสีจุดบนกราฟ/)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('tab', { name: /Intra-day/i }))
+    expect(await screen.findByText(/ดูสีจุดบนกราฟ/)).toBeInTheDocument()
   })
 })
 

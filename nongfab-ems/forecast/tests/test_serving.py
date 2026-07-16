@@ -66,6 +66,10 @@ def test_get_forecast_with_fallback_gives_the_physics_baseline_a_bounded_pi(tmp_
         assert point.lower <= point.pred <= point.upper
         assert point.lower == pytest.approx(max(0.0, point.pred * (1 - FALLBACK_PI_HALF_WIDTH_PCT)))
         assert point.upper == pytest.approx(point.pred * (1 + FALLBACK_PI_HALF_WIDTH_PCT))
+        # no ML model ran at all on this path - algorithm/error must stay None
+        # rather than claim a competition result that never happened.
+        assert point.algorithm is None
+        assert point.error is None
 
 
 def test_ceil_to_rounds_up_to_the_next_hour_boundary():

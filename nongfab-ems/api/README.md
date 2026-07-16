@@ -171,7 +171,12 @@ management, config writes) has somewhere to plug in without a schema change.
   unknown zone/horizon. This module doesn't expose a `/train-now` route
   (that's Module 4's dev API only); production training happens out-of-band
   via this process's own background retrain loop - see "Real-data background
-  ingestion" above.
+  ingestion" above. **(2026-07-16)** each point also carries `algorithm`
+  (which model produced it - `"lightgbm"`/`"random_forest"` for hour-ahead's
+  genuine per-lead-hour auto-select, a fixed `"cnn_lstm"`/`"neuralprophet"`
+  for minute/day, `None` for the physics fallback) and `error` (that
+  algorithm's own held-out validation RMSE, hour-ahead only) - see
+  `forecast/README.md`'s own dated entry for the full story.
 - **`POST /simulate/{zone}`** → what-if scenario (cloud/curtailment/
   degradation) applied to a baseline day, with an optional scenario-
   uncertainty Monte Carlo interval. Same request/response shape as Module

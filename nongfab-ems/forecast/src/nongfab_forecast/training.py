@@ -148,6 +148,7 @@ def _train_hour_ahead_kstep(zone: str, store: RealDataStore) -> tuple[HourAheadK
     """
     models_by_lead: dict[int, object] = {}
     algo_by_lead: dict[int, str] = {}
+    rmse_by_lead: dict[int, float] = {}
     source_by_lead: dict[int, str] = {}
     bias_correctors_by_lead: dict[int, object] = {}
     metrics: dict[str, float] = {}
@@ -177,11 +178,12 @@ def _train_hour_ahead_kstep(zone: str, store: RealDataStore) -> tuple[HourAheadK
         rf_rmse = float(np.sqrt(np.mean((rf_pred["pred"].to_numpy() - y_val.to_numpy()) ** 2)))
 
         if rf_rmse < lgbm_rmse:
-            winner_model, winner_pred, algo = rf_model, rf_pred, "random_forest"
+            winner_model, winner_pred, algo, winner_rmse = rf_model, rf_pred, "random_forest", rf_rmse
         else:
-            winner_model, winner_pred, algo = lgbm_model, lgbm_pred, "lightgbm"
+            winner_model, winner_pred, algo, winner_rmse = lgbm_model, lgbm_pred, "lightgbm", lgbm_rmse
         models_by_lead[lead] = winner_model
         algo_by_lead[lead] = algo
+        rmse_by_lead[lead] = winner_rmse
 
         day_corrector = train_bias_correction(X_val, winner_pred["pred"], y_val)
         bias_correctors_by_lead[lead] = day_corrector
@@ -199,7 +201,8 @@ def _train_hour_ahead_kstep(zone: str, store: RealDataStore) -> tuple[HourAheadK
 
     model = HourAheadKStepModel(
         models_by_lead_hour=models_by_lead, algorithm_by_lead_hour=algo_by_lead,
-        bias_correctors_by_lead_hour=bias_correctors_by_lead, lead_hours=HOUR_LEAD_HOURS,
+        bias_correctors_by_lead_hour=bias_correctors_by_lead, rmse_by_lead_hour=rmse_by_lead,
+        lead_hours=HOUR_LEAD_HOURS,
     )
     params = {f"lead{lead}_algorithm": algo for lead, algo in algo_by_lead.items()}
     params.update({f"lead{lead}_data_source": source for lead, source in source_by_lead.items()})

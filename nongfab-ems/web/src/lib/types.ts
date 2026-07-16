@@ -51,6 +51,17 @@ export interface ForecastPoint {
   pred: number
   lower: number | null
   upper: number | null
+  // Which model produced this point - "lightgbm"/"random_forest" for
+  // hour-ahead (a real per-lead-hour auto-select result), a fixed
+  // "cnn_lstm"/"neuralprophet" for minute-/day-ahead, or null for the
+  // physics-only fallback (no ML model ran). Drives the dashboard's
+  // green/orange dot coloring on the Intra-day chart.
+  algorithm: string | null
+  // The winning algorithm's own held-out validation RMSE for this lead hour
+  // (hour-ahead only) - a measured "how far off was this model on data it
+  // didn't train on" figure, not a live/real-time error. null where no such
+  // metric exists (minute/day/physics-baseline).
+  error: number | null
 }
 
 export interface ForecastResponse {

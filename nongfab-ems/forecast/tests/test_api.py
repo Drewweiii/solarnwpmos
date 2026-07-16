@@ -72,6 +72,12 @@ def test_hour_ahead_train_then_forecast_round_trip(client):
     for point in body["points"]:
         assert point["timestamp"].endswith("Z")
         assert point["lower"] <= point["pred"] <= point["upper"]
+        # each lead hour's winning candidate (LightGBM vs Random Forest, see
+        # training.py's per-lead competition) and its own validation RMSE
+        # travel with the point - this is what lets the dashboard color-code
+        # which model won and show a real (not invented) error line.
+        assert point["algorithm"] in ("lightgbm", "random_forest")
+        assert point["error"] >= 0
 
 
 @pytest.mark.slow
@@ -95,6 +101,7 @@ def test_minute_ahead_train_then_forecast_round_trip(client):
     body = forecast_resp.json()
     assert len(body["points"]) == 6  # default minute-ahead horizon
     assert all(p["lower"] is None and p["upper"] is None for p in body["points"])  # no PI for minute-ahead
+    assert all(p["algorithm"] == "cnn_lstm" for p in body["points"])  # fixed architecture, not auto-selected
 
 
 @pytest.mark.slow
@@ -112,3 +119,4 @@ def test_day_ahead_train_then_forecast_round_trip(client):
     assert len(body["points"]) == 72  # MAX_DAY_AHEAD_HOURS (3 days), not literally "one day" - see serving.py
     assert all(p["timestamp"].endswith("Z") for p in body["points"])  # tz-awareness bug regression
     assert all(p["lower"] <= p["pred"] <= p["upper"] for p in body["points"])
+    assert all(p["algorithm"] == "neuralprophet" for p in body["points"])  # fixed architecture, not auto-selected

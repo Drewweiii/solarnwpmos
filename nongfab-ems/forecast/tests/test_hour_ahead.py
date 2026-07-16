@@ -2,7 +2,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nongfab_forecast.hour_ahead import predict_hour_ahead, train_hour_ahead_model
+from nongfab_forecast.hour_ahead import (
+    HourAheadKStepModel,
+    predict_hour_ahead,
+    predict_hour_ahead_kstep,
+    train_hour_ahead_model,
+    train_rf_hour_ahead_model,
+)
 
 
 def _synthetic_dataset(n=300, seed=0):
@@ -65,3 +71,40 @@ def test_train_hour_ahead_model_rejects_unknown_loss():
     X, y = _synthetic_dataset(n=50)
     with pytest.raises(ValueError):
         train_hour_ahead_model(X.iloc[:30], y.iloc[:30], X.iloc[30:], y.iloc[30:], n_trials=1, loss="bogus")
+
+
+def test_predict_hour_ahead_kstep_attaches_the_winning_algorithm_and_its_rmse(trained_model):
+    """The dashboard colors each lead-hour's forecast dot by which candidate
+    won (LightGBM vs Random Forest) and shows that candidate's own held-out
+    RMSE as an "error" line - both need to survive the k-step dispatch, not
+    just live on the model object."""
+    X, y = _synthetic_dataset(n=300, seed=5)
+    rf_model = train_rf_hour_ahead_model(X.iloc[:200], y.iloc[:200], X.iloc[200:], y.iloc[200:])
+
+    kstep_model = HourAheadKStepModel(
+        models_by_lead_hour={1: trained_model, 2: rf_model},
+        algorithm_by_lead_hour={1: "lightgbm", 2: "random_forest"},
+        rmse_by_lead_hour={1: 12.5, 2: 9.75},
+        lead_hours=(1, 2),
+    )
+    X_test, _ = _synthetic_dataset(n=1, seed=6)
+    result = predict_hour_ahead_kstep(kstep_model, {1: X_test, 2: X_test})
+
+    assert list(result.index) == [1, 2]
+    assert result.loc[1, "algorithm"] == "lightgbm"
+    assert result.loc[2, "algorithm"] == "random_forest"
+    assert result.loc[1, "error_rmse"] == pytest.approx(12.5)
+    assert result.loc[2, "error_rmse"] == pytest.approx(9.75)
+
+
+def test_predict_hour_ahead_kstep_leaves_error_rmse_none_when_not_recorded():
+    """Older/incomplete models (rmse_by_lead_hour not populated for a lead)
+    shouldn't crash the dispatch - just report no error for that point."""
+    X, y = _synthetic_dataset(n=300, seed=7)
+    lgbm_model = train_hour_ahead_model(X.iloc[:200], y.iloc[:200], X.iloc[200:], y.iloc[200:], n_trials=2)
+    kstep_model = HourAheadKStepModel(
+        models_by_lead_hour={1: lgbm_model}, algorithm_by_lead_hour={1: "lightgbm"}, lead_hours=(1,),
+    )
+    X_test, _ = _synthetic_dataset(n=1, seed=8)
+    result = predict_hour_ahead_kstep(kstep_model, {1: X_test})
+    assert pd.isna(result.loc[1, "error_rmse"])

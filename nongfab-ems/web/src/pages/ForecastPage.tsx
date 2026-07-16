@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { DotItemDotProps } from 'recharts'
 import {
   Area,
   Bar,
@@ -6,6 +7,7 @@ import {
   ComposedChart,
   Legend,
   Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -30,6 +32,23 @@ type HorizonToggle = 'day' | 'hour'
 
 const WEATHER_HOURS = [6, 9, 12, 15]
 
+// Intra-day's k-step forecast auto-selects LightGBM vs Random Forest
+// independently per lead hour (see forecast/hour_ahead.py's
+// HourAheadKStepModel) - coloring each point's dot by which one actually won
+// is what makes that adaptive selection visible instead of just claimed in
+// the model-info panel text.
+const ALGORITHM_DOT_COLOR: Record<string, string> = {
+  lightgbm: 'var(--chart-lgbm)',
+  random_forest: 'var(--chart-rf)',
+}
+
+function forecastDot(props: DotItemDotProps) {
+  const { cx, cy, payload, index } = props
+  if (cx == null || cy == null) return null
+  const color = (payload?.algorithm && ALGORITHM_DOT_COLOR[payload.algorithm]) || 'var(--chart-forecast)'
+  return <circle key={`forecast-dot-${index}`} cx={cx} cy={cy} r={3} fill={color} stroke={color} />
+}
+
 export function ForecastPage() {
   const [zoneId, setZoneId] = useState(ALL_ZONES_ID)
   const [horizonToggle, setHorizonToggle] = useState<HorizonToggle>('day')
@@ -41,6 +60,14 @@ export function ForecastPage() {
   const singlePerformance = usePerformance(zoneId)
   const allPerformance = useAllZonesPerformance()
   const allForecast = useAllZonesForecast(horizon)
+
+  // Minute-ahead (CNN-LSTM) is a fixed near-real-time horizon, not part of
+  // the Day-ahead/Intra-day toggle above - shown in its own always-visible
+  // panel (see MinuteAheadPanel below) rather than merged onto the main
+  // chart's hourly-bucketed x-axis, since 10-min-resolution points would
+  // distort that axis's spacing.
+  const singleMinuteForecast = useForecast(zoneId, 'minute')
+  const allMinuteForecast = useAllZonesForecast('minute')
 
   const isAllZones = zoneId === ALL_ZONES_ID
 
@@ -82,6 +109,25 @@ export function ForecastPage() {
   const isPhysicsBaseline = isAllZones
     ? allForecast.some((q) => q.data?.model_type === 'physics_baseline')
     : singleForecast.data?.model_type === 'physics_baseline'
+
+  // Whether the Intra-day chart currently on screen has any real per-lead-hour
+  // algorithm attribution to show (hour-ahead only, and only once a real
+  // model has trained - the physics fallback has no algorithm at all). Drives
+  // the green/orange dot legend caption.
+  const showsAlgorithmDots = horizonToggle === 'hour' && chartRows.some((r) => r.algorithm != null)
+
+  const minutePoints: ForecastPoint[] = useMemo(() => {
+    if (isAllZones) return sumForecastAcrossZones(allMinuteForecast.map((q) => q.data?.points ?? []))
+    return singleMinuteForecast.data?.points ?? []
+  }, [isAllZones, allMinuteForecast, singleMinuteForecast.data])
+
+  const minuteLoading = isAllZones
+    ? allMinuteForecast.some((q) => q.isLoading)
+    : singleMinuteForecast.isLoading
+  const minuteError = isAllZones ? allMinuteForecast.find((q) => q.error) : singleMinuteForecast.error ? singleMinuteForecast : undefined
+  const minuteIsPhysicsBaseline = isAllZones
+    ? allMinuteForecast.some((q) => q.data?.model_type === 'physics_baseline')
+    : singleMinuteForecast.data?.model_type === 'physics_baseline'
 
   return (
     <div className="forecast-page">
@@ -145,7 +191,7 @@ export function ForecastPage() {
               <td>
                 <strong>Minute-ahead</strong>
                 <br />
-                <span className="model-info-note">(ไม่แสดงในหน้านี้ - ใช้ในส่วนอื่นของระบบ)</span>
+                <span className="model-info-note">(เส้นสีแดงด้านล่างกราฟหลัก)</span>
               </td>
               <td>CNN-LSTM</td>
               <td>ล่วงหน้า 10-60 นาที</td>
@@ -216,9 +262,19 @@ export function ForecastPage() {
                   name="Forecast"
                   stroke="var(--chart-forecast)"
                   strokeWidth={2}
-                  dot={{ r: 2 }}
+                  dot={horizonToggle === 'hour' ? forecastDot : { r: 2 }}
                   connectNulls
                 />
+                {horizonToggle === 'hour' && (
+                  <Line
+                    dataKey="error"
+                    name="Model error (RMSE)"
+                    stroke="var(--chart-error)"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 4"
+                    dot={false}
+                  />
+                )}
               </ComposedChart>
             </ResponsiveContainer>
           )}
@@ -228,9 +284,22 @@ export function ForecastPage() {
               measured confidence interval.
             </p>
           )}
+          {!isLoading && !forecastError && showsAlgorithmDots && (
+            <p className="forecast-status forecast-status-caption">
+              🟢 LightGBM &nbsp; 🟠 Random Forest — ระบบเลือกโมเดลที่แม่นยำกว่าโดยอัตโนมัติในแต่ละชั่วโมง (ดูสีจุดบนกราฟ) | เส้นประ
+              "Model error (RMSE)" คือค่าความคลาดเคลื่อนของโมเดลที่ชนะ วัดจากชุดข้อมูล validation จริง ไม่ใช่ค่าประมาณ
+            </p>
+          )}
         </section>
         <LiveClock />
       </div>
+
+      <MinuteAheadPanel
+        points={minutePoints}
+        isLoading={minuteLoading}
+        hasError={Boolean(minuteError)}
+        isPhysicsBaseline={minuteIsPhysicsBaseline}
+      />
 
       <section className="weather-strip" aria-label="Weather forecast">
         {weatherPoints.map((point) => (
@@ -276,6 +345,49 @@ function ZoneInfoItem({ label, value }: ZoneInfoItemProps) {
       <span className="zone-info-label">{label}</span>
       <span className="zone-info-value">{value}</span>
     </div>
+  )
+}
+
+interface MinuteAheadPanelProps {
+  points: ForecastPoint[]
+  isLoading: boolean
+  hasError: boolean
+  isPhysicsBaseline: boolean
+}
+
+// Minute-ahead (CNN-LSTM, 10-min steps out to 60 min) always shown - unlike
+// Day-ahead/Intra-day, it isn't a toggle option on the main chart, since its
+// timescale is too fine to share that chart's hourly-bucketed x-axis without
+// squashing every other hour. A dedicated small red-line chart instead, per
+// the user's 2026-07-16 request to see it directly on the dashboard rather
+// than only mentioned in the model-info panel.
+function MinuteAheadPanel({ points, isLoading, hasError, isPhysicsBaseline }: MinuteAheadPanelProps) {
+  return (
+    <section className="forecast-minute-panel" aria-label="Minute-ahead power forecast chart">
+      <h3 className="forecast-minute-title">Minute-ahead forecast (CNN-LSTM, next 60 min)</h3>
+      {isLoading && <p className="forecast-status">Loading…</p>}
+      {!isLoading && hasError && (
+        <p className="forecast-status forecast-status-warn">No minute-ahead forecast model has been trained for this zone yet.</p>
+      )}
+      {!isLoading && !hasError && points.length === 0 && <p className="forecast-status">No data yet.</p>}
+      {points.length > 0 && (
+        <ResponsiveContainer width="100%" height={140}>
+          <LineChart data={points} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+            <XAxis dataKey="timestamp" tickFormatter={formatHour} minTickGap={30} />
+            <YAxis unit=" kW" width={80} />
+            <Tooltip
+              labelFormatter={(label) => (typeof label === 'string' ? formatHour(label) : String(label))}
+              formatter={(value) => (typeof value === 'number' ? value.toFixed(1) : String(value))}
+            />
+            <Line dataKey="pred" name="Minute-ahead forecast" stroke="var(--chart-minute)" strokeWidth={2} dot={{ r: 2 }} connectNulls />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+      {!isLoading && !hasError && isPhysicsBaseline && points.length > 0 && (
+        <p className="forecast-status forecast-status-caption">Physics-baseline fallback shown (no trained CNN-LSTM model yet).</p>
+      )}
+    </section>
   )
 }
 

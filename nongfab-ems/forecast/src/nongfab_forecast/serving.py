@@ -147,6 +147,22 @@ class ForecastPoint:
     pred: float
     lower: float | None = None
     upper: float | None = None
+    # Which model actually produced this point - "lightgbm"/"random_forest" for
+    # hour-ahead (a genuine per-lead-hour competition result, see hour_ahead.py's
+    # HourAheadKStepModel), or a fixed "cnn_lstm"/"neuralprophet" for minute-/
+    # day-ahead (those horizons don't auto-select between candidates - one
+    # architecture per horizon). None for the physics-only fallback, where no ML
+    # algorithm ran at all. Lets the dashboard visibly show the hour-ahead
+    # auto-select adapting from one lead hour to the next, not just claim it does.
+    algorithm: str | None = None
+    # The algorithm's own held-out validation RMSE for this lead hour (hour-ahead
+    # only, from HourAheadKStepModel.rmse_by_lead_hour) - a genuine measured
+    # "how far off was the winning model on data it didn't train on" figure, not
+    # a live/real-time error (no ground truth exists yet for a still-future
+    # forecast point - see this module's FALLBACK_PI_HALF_WIDTH_PCT docstring for
+    # the same "honestly-labeled approximation" spirit). None where no such
+    # validation metric exists (minute/day/physics-baseline).
+    error: float | None = None
 
 
 @dataclass(frozen=True)
@@ -197,7 +213,10 @@ def get_latest_forecast(zone: str, horizon: str, store: RealDataStore | None = N
             window = _synthetic_minute_df(n=model.lookback, seed=hash((zone, "minute-now")) % 1000)
         pred = predict_minute_ahead(model, window)
         minute_anchor = _ceil_to(now, timedelta(minutes=10))
-        points = [ForecastPoint(timestamp=minute_anchor + timedelta(minutes=10 * i), pred=float(v)) for i, v in enumerate(pred)]
+        points = [
+            ForecastPoint(timestamp=minute_anchor + timedelta(minutes=10 * i), pred=float(v), algorithm="cnn_lstm")
+            for i, v in enumerate(pred)
+        ]
 
     elif horizon == "hour":
         X_by_lead_hour: dict[int, pd.DataFrame] = {}
@@ -218,6 +237,8 @@ def get_latest_forecast(zone: str, horizon: str, store: RealDataStore | None = N
                 pred=float(row.pred),
                 lower=float(row.lower),
                 upper=float(row.upper),
+                algorithm=row.algorithm,
+                error=float(row.error_rmse) if pd.notna(row.error_rmse) else None,
             )
             for lead, row in result.iterrows()
         ]
@@ -235,7 +256,10 @@ def get_latest_forecast(zone: str, horizon: str, store: RealDataStore | None = N
             future_df.index = history_df.index[-1] + pd.to_timedelta(np.arange(1, MAX_DAY_AHEAD_HOURS + 1), unit="h")
         result = predict_day_ahead(model, history_df, future_df[["ssrd_w_m2", "temp2m_c"]], periods=len(future_df))
         points = [
-            ForecastPoint(timestamp=ts.to_pydatetime(), pred=float(row.pred), lower=float(row.lower), upper=float(row.upper))
+            ForecastPoint(
+                timestamp=ts.to_pydatetime(), pred=float(row.pred), lower=float(row.lower), upper=float(row.upper),
+                algorithm="neuralprophet",
+            )
             for ts, row in result.iterrows()
         ]
 

@@ -14,6 +14,10 @@
   --card-bg: #f9f8fb;
   --chart-forecast: #2563eb;
   --chart-rainy: #f59e0b;
+  --chart-lgbm: #16a34a;
+  --chart-rf: #f59e0b;
+  --chart-minute: #dc2626;
+  --chart-error: #78716c;
   --danger: #dc2626;
   --danger-bg: rgba(220, 38, 38, 0.1);
   --ok: #16a34a;
@@ -54,6 +58,10 @@
     --card-bg: #1c1d24;
     --chart-forecast: #60a5fa;
     --chart-rainy: #fbbf24;
+    --chart-lgbm: #4ade80;
+    --chart-rf: #fbbf24;
+    --chart-minute: #f87171;
+    --chart-error: #a8a29e;
     --danger: #f87171;
     --danger-bg: rgba(248, 113, 113, 0.15);
     --ok: #4ade80;

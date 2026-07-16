@@ -8,6 +8,8 @@ export interface ChartRow {
   lower: number | null
   upper: number | null
   band: number | null
+  algorithm: string | null
+  error: number | null
 }
 
 /** Buckets by hour (not exact timestamp): independent backend calls for
@@ -31,7 +33,17 @@ export function mergeGeneratedAndForecast(hourly: HourlyPoint[], forecastPoints:
 
   for (const point of hourly) {
     const key = hourKey(point.timestamp)
-    rows.set(key, { key, timestamp: point.timestamp, generated: point.ac_kw, pred: null, lower: null, upper: null, band: null })
+    rows.set(key, {
+      key,
+      timestamp: point.timestamp,
+      generated: point.ac_kw,
+      pred: null,
+      lower: null,
+      upper: null,
+      band: null,
+      algorithm: null,
+      error: null,
+    })
   }
 
   for (const point of forecastPoints) {
@@ -43,8 +55,20 @@ export function mergeGeneratedAndForecast(hourly: HourlyPoint[], forecastPoints:
       existing.lower = point.lower
       existing.upper = point.upper
       existing.band = band
+      existing.algorithm = point.algorithm
+      existing.error = point.error
     } else {
-      rows.set(key, { key, timestamp: point.timestamp, generated: null, pred: point.pred, lower: point.lower, upper: point.upper, band })
+      rows.set(key, {
+        key,
+        timestamp: point.timestamp,
+        generated: null,
+        pred: point.pred,
+        lower: point.lower,
+        upper: point.upper,
+        band,
+        algorithm: point.algorithm,
+        error: point.error,
+      })
     }
   }
 
@@ -75,22 +99,36 @@ export function sumHourlyAcrossZones(perZone: HourlyPoint[][]): HourlyPoint[] {
     .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
 }
 
+/** `algorithm` is deliberately dropped (set to null) for the aggregate: each
+ * zone's hour-ahead auto-select can pick a different winner independently, so
+ * there is no single "the" algorithm to report for a summed "All" (รวม)
+ * point - the dot-coloring feature is only meaningful per-zone. `error`
+ * (RMSE, roughly extensive like lower/upper) is summed the same
+ * approximate way lower/upper already are. */
 export function sumForecastAcrossZones(perZone: ForecastPoint[][]): ForecastPoint[] {
-  const acc = new Map<string, { timestamp: string; pred: number; lower: number; upper: number; n: number }>()
+  const acc = new Map<string, { timestamp: string; pred: number; lower: number; upper: number; error: number; n: number }>()
   for (const series of perZone) {
     for (const point of series) {
       const key = hourKey(point.timestamp)
-      const entry = acc.get(key) ?? { timestamp: point.timestamp, pred: 0, lower: 0, upper: 0, n: 0 }
+      const entry = acc.get(key) ?? { timestamp: point.timestamp, pred: 0, lower: 0, upper: 0, error: 0, n: 0 }
       entry.pred += point.pred
       entry.lower += point.lower ?? point.pred
       entry.upper += point.upper ?? point.pred
+      entry.error += point.error ?? 0
       entry.n += 1
       acc.set(key, entry)
     }
   }
   return [...acc.values()]
     .filter((entry) => entry.n === perZone.length)
-    .map((entry) => ({ timestamp: entry.timestamp, pred: entry.pred, lower: entry.lower, upper: entry.upper }))
+    .map((entry) => ({
+      timestamp: entry.timestamp,
+      pred: entry.pred,
+      lower: entry.lower,
+      upper: entry.upper,
+      algorithm: null,
+      error: entry.error,
+    }))
     .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
 }
 
