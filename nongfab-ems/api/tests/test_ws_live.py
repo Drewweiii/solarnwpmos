@@ -21,12 +21,16 @@ def test_zone_snapshot_uses_the_row_nearest_now_not_always_the_last_row(monkeypa
     "now" lookup on a fixed day while the synthetic day itself silently
     tracked the real wall-clock date - passing only on the day this test was
     written, then failing the moment the real date rolled over.
+
+    05:00 UTC (not 12:00) is this synthetic model's own "local noon" as of
+    the 2026-07-16 Thai-daylight-alignment fix - see
+    synthetic_day_irradiance_temp()'s own docstring for why.
     """
 
     class FixedDatetime(datetime):
         @classmethod
         def now(cls, tz=None):
-            return datetime(2026, 7, 14, 12, 0, 0, tzinfo=timezone.utc)
+            return datetime(2026, 7, 14, 5, 0, 0, tzinfo=timezone.utc)
 
     monkeypatch.setattr(ws_live, "datetime", FixedDatetime)
     monkeypatch.setattr(dev_data, "datetime", FixedDatetime)

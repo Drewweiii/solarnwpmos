@@ -228,6 +228,17 @@ interface Solar3DSceneProps {
   // real centroid via lib/satelliteTile.ts).
   groundStyle: 'grid' | 'satellite'
   satelliteTileUrl?: string
+  // 0-1: the zone's current output vs. its rated AC capacity (from
+  // /performance's live-scaled `ac_kw` - see routes_performance.py's
+  // 2026-07-16 docstring for why it's bounded/time-varying, not frozen).
+  // 'access' mode multiplies each panel's own solar_access_pct by this
+  // before coloring, so the gradient reflects real generation level across
+  // the whole day (dawn/dusk/cloudy = orange/yellow, not just a binary
+  // day/night shading switch) rather than pure row-shading geometry, which
+  // in practice is almost always 0% or 100% except right at sunrise/sunset
+  // - approved 2026-07-16 over keeping pure shading. Defaults to 1 (no
+  // dimming) if the caller has no performance data yet.
+  zoneOutputRatio?: number
 }
 
 export function Solar3DScene({
@@ -241,6 +252,7 @@ export function Solar3DScene({
   zone,
   groundStyle,
   satelliteTileUrl,
+  zoneOutputRatio = 1,
   ref,
 }: Solar3DSceneProps & { ref?: Ref<Solar3DSceneHandle> }) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null)
@@ -366,7 +378,11 @@ export function Solar3DScene({
           panel={panel}
           tiltDeg={tiltDeg}
           azimuthDeg={azimuthDeg}
-          color={viewMode === 'access' ? solarAccessColor(panel.solar_access_pct) : stringColor(panel.block_id)}
+          color={
+            viewMode === 'access'
+              ? solarAccessColor(panel.solar_access_pct * zoneOutputRatio)
+              : stringColor(panel.block_id)
+          }
           baseY={panelBaseY}
         />
       ))}

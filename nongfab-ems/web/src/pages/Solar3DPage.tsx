@@ -20,7 +20,12 @@ export function Solar3DPage() {
   const [viewMode, setViewMode] = useState<'access' | 'string'>('access')
   const [groundStyle, setGroundStyle] = useState<'grid' | 'satellite'>('grid')
   const [date, setDate] = useState(todayIso())
-  const [timeOfDayMinutes, setTimeOfDayMinutes] = useState(12 * 60)
+  // Default to ~local noon (Asia/Bangkok, UTC+7) instead of 12:00 UTC
+  // (=19:00 ICT, nighttime) - the slider is UTC-indexed and correctly
+  // labeled as such, but a Thailand plant's first-open view showing a dark
+  // scene with every panel red was a bad first impression (see
+  // web/README.md's "Known gaps", now resolved here 2026-07-16).
+  const [timeOfDayMinutes, setTimeOfDayMinutes] = useState(5 * 60)
   const [isPlaying, setIsPlaying] = useState(false)
   const sceneRef = useRef<Solar3DSceneHandle>(null)
 
@@ -46,6 +51,14 @@ export function Solar3DPage() {
   const performance = usePerformance(zone)
   const forecastAtScrub = useMemo(() => nearestToTimestamp(forecast.data?.points ?? [], atIso), [forecast.data, atIso])
   const actualAtScrub = useMemo(() => nearestToTimestamp(performance.data?.hourly ?? [], atIso), [performance.data, atIso])
+  // Drives panel-color-by-real-output in 'access' view mode (see
+  // Solar3DSceneProps' own `zoneOutputRatio` docstring) - approved
+  // 2026-07-16 over keeping the coloring pure-shading-based. No real
+  // per-panel telemetry exists, so this is the zone's one aggregate
+  // current output ratio applied uniformly, not a true per-panel reading.
+  const zoneCapacityKw = zones.data?.zones.find((z) => z.id === zone)?.ac_capacity_kw ?? 0
+  const zoneOutputRatio =
+    zoneCapacityKw > 0 ? Math.max(0, Math.min(1, (actualAtScrub?.ac_kw ?? 0) / zoneCapacityKw)) : 1
 
   useEffect(() => {
     if (!isPlaying) return
@@ -141,6 +154,7 @@ export function Solar3DPage() {
               zone={zone}
               groundStyle={groundStyle}
               satelliteTileUrl={satelliteTileUrl}
+              zoneOutputRatio={zoneOutputRatio}
             />
           </>
         )}

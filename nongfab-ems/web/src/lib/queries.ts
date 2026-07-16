@@ -16,6 +16,14 @@ export function useZones() {
   })
 }
 
+// Dashboard KPI/chart data (performance + forecast) polls every 60s so the
+// numbers visibly move without a manual reload - approved 2026-07-16 after
+// the user noticed the demo's numbers never changed. Geometry/sun-path/
+// energy-report/assets are deliberately NOT polled here: they're either
+// scrub-driven (geometry/irradiance-map re-fetch on time-slider change
+// already) or genuinely slow-moving (assets/energy-report).
+const LIVE_REFETCH_INTERVAL_MS = 60_000
+
 export function useForecast(zone: string, horizon: ForecastHorizon) {
   const { token } = useAuth()
   return useQuery({
@@ -23,6 +31,7 @@ export function useForecast(zone: string, horizon: ForecastHorizon) {
     queryFn: () => getForecast(zone, horizon, token!),
     enabled: Boolean(token) && zone !== ALL_ZONES_ID,
     retry: false, // 404 (no model trained yet) shouldn't be retried
+    refetchInterval: LIVE_REFETCH_INTERVAL_MS,
   })
 }
 
@@ -32,6 +41,7 @@ export function usePerformance(zone: string) {
     queryKey: ['performance', zone],
     queryFn: () => getPerformance(zone, token!),
     enabled: Boolean(token) && zone !== ALL_ZONES_ID,
+    refetchInterval: LIVE_REFETCH_INTERVAL_MS,
   })
 }
 
@@ -44,6 +54,7 @@ export function useAllZonesPerformance() {
       queryKey: ['performance', zone],
       queryFn: () => getPerformance(zone, token!),
       enabled: Boolean(token),
+      refetchInterval: LIVE_REFETCH_INTERVAL_MS,
     })),
   })
 }
@@ -58,6 +69,7 @@ export function useAllZonesForecast(horizon: ForecastHorizon) {
       queryFn: () => getForecast(zone, horizon, token!),
       enabled: Boolean(token),
       retry: false,
+      refetchInterval: LIVE_REFETCH_INTERVAL_MS,
     })),
   })
 }

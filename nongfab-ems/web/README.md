@@ -519,6 +519,66 @@ Chromium, time slider driven to 05:00 UTC (local noon) via Playwright:
 - ISB: unchanged, still a solid rooftop block.
 - Jetty: unchanged, still the thin elevated pier deck.
 
+### Fixed - "frozen dashboard numbers" + `/3d` default view + panel color (2026-07-16)
+
+The user asked "why don't the dashboard numbers ever change" and shared a
+Forecast-page screenshot showing `Power: 0.0 kW`, a stuck `Daily cumulative
+energy`, and "No day-ahead forecast model has been trained for this zone
+yet". Investigation confirmed there is genuinely no real production
+telemetry anywhere in this system (no Huawei FusionSolar/SolarFusion
+integration - see `api/routes_performance.py`'s own docstring), then found
+three separate, real causes on top of that:
+
+1. **No `refetchInterval`** on `usePerformance`/`useForecast` (`lib/
+   queries.ts`) - the dashboard only fetched once per page load. Fixed:
+   both now poll every 60s (approved by the user over "leave it alone").
+2. **`ac_energy_kwh_today` summed the whole 24h synthetic day**, not "so
+   far" - it already showed the day's final total regardless of the actual
+   time, which is why it looked frozen no matter when you checked. Fixed in
+   `routes_performance.py` to sum only hours up to now.
+3. **The big one**: `synthetic_day_irradiance_temp()`'s (`dev_data.py`) day/
+   night sine curve peaked at 12:00 UTC (=19:00 ICT, Thai *nighttime*) - it
+   was never actually aligned to Thailand's real daylight hours, unlike
+   `/geometry`/`/sun-path`'s real pvlib solar position. So at real Thai
+   midday the whole plant would show `Actual: 0.0 kW` and every panel red,
+   which is almost certainly also why the *live* Railway deployment showed
+   "no forecast model trained" (a generic error banner for any request
+   failure, not specifically a training-status message) - `get_forecast_
+   with_fallback()` is coded to never throw for a known zone, so a 500/mis-
+   labeled response there points at a stale production build rather than
+   this bug, but the visual symptom (0 kW, red panels) is explained by this
+   phase misalignment either way. Fixed: shifted the phase to `(hour + 1)`,
+   peaking at 05:00 UTC (Thai noon) - shared by every caller (`/performance`,
+   `/simulate`, `/energy-report`, `/irradiance-map`, `/ws/live`).
+4. Added `live_efficiency_factor()` (`dev_data.py`): a bounded [0.85, 1.0]
+   multiplier on top of the physics estimate, keyed off real wall-clock
+   time (5-minute buckets, linearly interpolated) instead of a fixed seed -
+   so `/performance` actually drifts across the 60s poll instead of
+   returning bit-for-bit identical numbers, while never claiming *more*
+   than the physics model. User's explicit choice over a frozen fixed value
+   or fully random jitter.
+5. `/3d`'s default time-of-day slider moved from 12:00 UTC (=19:00 ICT,
+   nighttime) to 05:00 UTC (=12:00 ICT, local noon) - the same
+   already-documented "Known gaps" item above, now resolved.
+6. Panel coloring in 'access' view mode now multiplies each panel's
+   `solar_access_pct` by the zone's live output ratio (`Solar3DScene`'s new
+   `zoneOutputRatio` prop, computed in `Solar3DPage.tsx` from `/performance`
+   vs. the zone's rated capacity) before coloring - user's explicit choice
+   over keeping the color purely shading-based, since the shading model is
+   geometrically binary (0% or 100%) almost all day and rarely showed the
+   orange/yellow the user wanted. No real per-panel telemetry exists, so
+   this applies one zone-level ratio uniformly, not a true per-panel value.
+
+**Verified live**: real `uvicorn` + `vite dev` + Playwright. At the new
+05:00 UTC default, GIS showed `Actual: 44.3 kW` and solid green panels
+(previously `Actual: 0.0 kW`, all red); at 09:45 UTC (near this synthetic
+model's dusk), `Actual: 11.2 kW` and orange panels - confirming the
+gradient. The Forecast page's "no forecast model trained" banner did not
+reproduce against this freshly-built local API, and at the real current
+wall-clock time (15:25 UTC = 22:25 ICT, genuine Thai nighttime), `Power:
+0.0 kW` correctly appeared - the model now agrees with real Thai time
+instead of contradicting it.
+
 ## Run locally
 
 ```bash
