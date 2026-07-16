@@ -579,6 +579,36 @@ wall-clock time (15:25 UTC = 22:25 ICT, genuine Thai nighttime), `Power:
 0.0 kW` correctly appeared - the model now agrees with real Thai time
 instead of contradicting it.
 
+### Added - live clock block + approximate prediction interval (2026-07-16)
+
+Same session, two more small user-requested additions to the Forecast page:
+
+- **Live clock block** beside the power chart (`ForecastPage.tsx`'s new
+  `LiveClock` component): shows Thai local time (ICT) large and prominent,
+  with UTC underneath as a secondary reference plus a hint that the chart's
+  own x-axis is UTC-labeled - directly aimed at the "why don't the times
+  match" confusion this whole dated section has been about.
+- **Approximate prediction-interval band on the physics fallback**: the
+  chart's shaded "Prediction interval" band was previously invisible
+  whenever no ML model had trained yet (`lower`/`upper` were always `null`
+  on that path). `forecast/serving.py`'s `get_forecast_with_fallback()` now
+  adds a fixed +/-20% band (`FALLBACK_PI_HALF_WIDTH_PCT`, a documented
+  approximation, not a measured interval - see that constant's own
+  docstring) so the chart shows something rather than nothing. No explicit
+  hand-off logic needed: the existing try/except already prefers a real
+  ML model's quantile-based interval the moment one is trained, so the
+  fixed band stops being served automatically once enough real history
+  accumulates. `ForecastResponse.model_type` is now surfaced on the
+  frontend so an italic caption appears under the chart whenever the band
+  shown is this approximation, never presenting it as a real confidence
+  interval.
+
+**Verified live**: real `uvicorn` + `vite dev` + Playwright. The clock
+block correctly showed Thai local time exactly +7h ahead of the UTC line
+(00:31:25 ICT / 17:31:25 UTC, both ticking live). The prediction-interval
+band rendered as a visible shaded region around each of the 3 forecast
+peaks, with the "approximate ±20%" caption present underneath.
+
 ## Run locally
 
 ```bash
