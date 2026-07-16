@@ -12,13 +12,26 @@ of one synthetic clear-sky day, not a real annual simulation.
 
 from __future__ import annotations
 
+from datetime import datetime
+
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from nongfab_common.assets import load_assets
+from nongfab_features.clearsky import compute_clearsky_and_position, nong_fab_site_location
+from nongfab_features.panel_geometry import generate_zone_layout
+from nongfab_features.shading import average_solar_access_pct, zone_solar_access
 from nongfab_features.sld import build_sld
 from nongfab_forecast.pv_conversion import nong_fab_zone_capacities_kwp
 from nongfab_simulation.dev_data import synthetic_day_irradiance_temp
 from nongfab_simulation.loss_model import annual_specific_yield, performance_ratio
-from nongfab_simulation.pipeline import estimate_annual_ac_energy_kwh, loss_breakdown_with_temperature, simulate_zone_baseline
+from nongfab_simulation.pipeline import (
+    NONG_FAB_TZ,
+    estimate_annual_ac_energy_kwh,
+    lifecycle_ac_energy_estimate,
+    loss_breakdown_with_temperature,
+    monthly_ac_energy_estimates,
+    simulate_zone_baseline,
+)
 from pydantic import BaseModel
 
 from .auth import require_role
@@ -65,6 +78,20 @@ class SLDOut(BaseModel):
     approximate_string_distribution: bool
 
 
+class MonthlyOut(BaseModel):
+    month: int
+    ac_energy_kwh: float
+    is_rainy_season: bool
+
+
+class LifecycleOut(BaseModel):
+    year_1_ac_energy_kwh: float
+    year_25_ac_energy_kwh: float
+    year_25_pct_of_year_1: float
+    lifetime_ac_energy_kwh: float
+    degradation_pct_per_year_assumed: float
+
+
 class EnergyReportResponse(BaseModel):
     zone: str
     simulated_zone: bool
@@ -73,6 +100,9 @@ class EnergyReportResponse(BaseModel):
     loss_breakdown_pct: dict[str, float]
     co2_saved_kg_per_year: float
     trees_equivalent_per_year: float
+    avg_solar_access_pct: float
+    monthly: list[MonthlyOut]
+    lifecycle: LifecycleOut
     sld: SLDOut
 
 
@@ -116,6 +146,21 @@ async def get_energy_report(zone: str, _user=Depends(require_role("viewer"))) ->
     co2_saved_kg_per_year = zone_obj.ac_capacity_kw * registry.environmental.co2_saved_kg_per_kw_per_year
     trees_equivalent_per_year = zone_obj.ac_capacity_kw * registry.environmental.trees_equivalent_per_kw_per_year
 
+    # Solar access at local solar noon today (Asia/Bangkok) - a stable,
+    # well-defined snapshot rather than "whenever the request happens to
+    # land" (which would make the same report show a different number
+    # depending on time of day); not a true annual energy-weighted average
+    # across the whole year's sun path (that's a follow-up, not this pass).
+    layout = generate_zone_layout(zone, registry)
+    lat, lon = nong_fab_site_location()
+    local_noon = pd.Timestamp.now(tz=NONG_FAB_TZ).normalize() + pd.Timedelta(hours=12)
+    solpos = compute_clearsky_and_position(pd.DatetimeIndex([local_noon]), lat, lon, tz=NONG_FAB_TZ)
+    access = zone_solar_access(layout, float(solpos["elevation_deg"].iloc[0]), float(solpos["azimuth_deg"].iloc[0]))
+    avg_access_pct = average_solar_access_pct(access)
+
+    monthly = monthly_ac_energy_estimates(zone, year=datetime.now().year)
+    lifecycle = lifecycle_ac_energy_estimate(annual_ac_energy_kwh)
+
     sld = build_sld(zone_obj)
 
     return EnergyReportResponse(
@@ -133,6 +178,15 @@ async def get_energy_report(zone: str, _user=Depends(require_role("viewer"))) ->
         loss_breakdown_pct=loss_breakdown,
         co2_saved_kg_per_year=co2_saved_kg_per_year,
         trees_equivalent_per_year=trees_equivalent_per_year,
+        avg_solar_access_pct=avg_access_pct,
+        monthly=[MonthlyOut(month=m.month, ac_energy_kwh=m.ac_energy_kwh, is_rainy_season=m.is_rainy_season) for m in monthly],
+        lifecycle=LifecycleOut(
+            year_1_ac_energy_kwh=lifecycle.year_1_ac_energy_kwh,
+            year_25_ac_energy_kwh=lifecycle.year_25_ac_energy_kwh,
+            year_25_pct_of_year_1=lifecycle.year_25_pct_of_year_1,
+            lifetime_ac_energy_kwh=lifecycle.lifetime_ac_energy_kwh,
+            degradation_pct_per_year_assumed=lifecycle.degradation_pct_per_year_assumed,
+        ),
         sld=SLDOut(
             module_model=sld.module_model, module_power_w=sld.module_power_w,
             optimizer_model=sld.optimizer_model,

@@ -218,7 +218,14 @@ management, config writes) has somewhere to plug in without a schema change.
   availability/inverter, Jetty's soiling correctly higher than GIS/ISB's),
   CO2 saved + trees-equivalent (from `config/assets.yaml`'s `environmental`
   block), and a real-equipment-derived interactive SLD topology
-  (`nongfab_features.sld.build_sld()`). 404 for an unknown zone.
+  (`nongfab_features.sld.build_sld()`). **(2026-07-16)** three more fields,
+  against reslink.org as a design reference: `avg_solar_access_pct` (real
+  per-panel row-to-row self-shading geometry, `nongfab_features.shading`, at
+  local solar noon today), `monthly` (12 real pvlib-solar-position-based
+  estimates with a documented rainy-season derate June-October, see
+  `simulation/README.md`'s own section on this), and `lifecycle` (25-year
+  degradation projection - see that same README section for the assumed
+  degradation rate). 404 for an unknown zone.
 - **`GET /irradiance-map?at=<ISO datetime>`** → Module 7's Feature E: a
   10x10 plant-wide irradiance grid (0-1000 W/m^2) plus the 3 zones' own
   pins, for a MapLibre overlay with a time scrubber. Built on
@@ -338,7 +345,7 @@ deliberately never auto-creates tables itself; see `db/migrations/
 
 ## Tests
 
-`pytest` - 99 tests, no real Postgres or MLflow server required
+`pytest` - 102 tests, no real Postgres or MLflow server required
 (`enable_background_ingestion=False` in the `settings` test fixture keeps
 `ingestion_scheduler.py`'s real network/training calls out of the suite -
 see "Real-data background ingestion" above):
@@ -354,12 +361,14 @@ see "Real-data background ingestion" above):
   `test_routes_solar3d.py` (12) - per-route auth requirement, RBAC
   enforcement, unknown-zone/horizon 404s, invalid-scenario 422, Monte Carlo
   interval bounds, day/night solar-access behavior, malformed-date 422.
-- `test_routes_energy_report.py` (9) + `test_routes_irradiance_map.py` (6) -
+- `test_routes_energy_report.py` (12) + `test_routes_irradiance_map.py` (6) -
   system-summary/annual-figure sanity, temperature present in the loss
   breakdown, Jetty's soiling higher than GIS's, CO2-saved arithmetic, SLD
   module-count totals matching `module_count` for both the approximate
   (GIS/ISB) and real (Jetty sub-array) cases, grid-value display-range
-  bounds, night-time all-zero grid.
+  bounds, night-time all-zero grid; **(2026-07-16)** solar-access percentage
+  range, 12-month coverage with the correct Jun-Oct rainy-season flags,
+  25-year lifecycle degradation sanity (year 25 < year 1).
 - `test_ws_live.py` (6) - snapshot shape, repeated pushes, missing/invalid
   token rejection, and a regression test for a real bug caught during live
   verification (see below).

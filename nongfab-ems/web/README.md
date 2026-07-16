@@ -18,9 +18,15 @@ STEP 8C (Feature D+E) is also built:
 - **`/energy-report`** - a per-zone Energy Report: system summary
   (capacity, module count, array area, inverter), annual generation
   (energy, specific yield, performance ratio - a flat extrapolation, see
-  `simulation/README.md`), a full loss breakdown including temperature
-  (Jetty's soiling correctly higher than GIS/ISB's), CO2 saved/trees
-  equivalent, and an interactive SLD viewer (`SLDViewer.tsx`) built from the
+  `simulation/README.md`), **(2026-07-16)** a monthly generation bar chart
+  (Recharts, real pvlib-solar-position-based monthly variation with a
+  rainy-season June-October legend - reslink.org used as the design
+  reference, see `simulation/README.md`'s own section), a full loss
+  breakdown including temperature (Jetty's soiling correctly higher than
+  GIS/ISB's), a sun-exposure card (average real per-panel solar access at
+  local solar noon), CO2 saved/trees equivalent, a 25-year lifecycle
+  estimate (lifetime generation + year-25 output as a documented-degradation
+  projection), and an interactive SLD viewer (`SLDViewer.tsx`) built from the
   zone's real equipment data (not a scanned image) - click any string or
   inverter node to see its specs.
 - **`/irradiance-map`** - a MapLibre GL map (`IrradianceMapView.tsx`)

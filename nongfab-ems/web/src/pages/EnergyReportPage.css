@@ -111,6 +111,57 @@
   color: var(--text-h);
 }
 
+/* --- Monthly generation chart --- */
+
+.energy-report-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.energy-report-chart-legend {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.energy-report-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.energy-report-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+/* --- Sun exposure --- */
+
+.energy-report-sun-exposure {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+}
+
+.energy-report-sun-exposure-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--ok);
+  flex: none;
+}
+
+.energy-report-sun-exposure-note {
+  margin: 0;
+}
+
 /* --- SLD viewer --- */
 
 .sld-viewer {

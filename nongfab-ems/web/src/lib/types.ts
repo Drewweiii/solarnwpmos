@@ -204,6 +204,20 @@ export interface SLDData {
   approximate_string_distribution: boolean
 }
 
+export interface MonthlyEnergyEstimate {
+  month: number
+  ac_energy_kwh: number
+  is_rainy_season: boolean
+}
+
+export interface LifecycleEstimate {
+  year_1_ac_energy_kwh: number
+  year_25_ac_energy_kwh: number
+  year_25_pct_of_year_1: number
+  lifetime_ac_energy_kwh: number
+  degradation_pct_per_year_assumed: number
+}
+
 export interface EnergyReportResponse {
   zone: string
   simulated_zone: boolean
@@ -212,6 +226,9 @@ export interface EnergyReportResponse {
   loss_breakdown_pct: Record<string, number>
   co2_saved_kg_per_year: number
   trees_equivalent_per_year: number
+  avg_solar_access_pct: number
+  monthly: MonthlyEnergyEstimate[]
+  lifecycle: LifecycleEstimate
   sld: SLDData
 }
 

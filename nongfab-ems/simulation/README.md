@@ -145,6 +145,43 @@ chain:
   `loss_model.py`'s own invariant (still temperature-free) - it's a report-
   side overlay computed from the `pv_conversion` side instead.
 
+## Monthly generation + 25-year lifecycle estimate (2026-07-16)
+
+Two more `pipeline.py` additions, requested against a Thai solar-monitoring
+reference site (reslink.org) as the Energy Report's design reference - both
+feed `api/routes_energy_report.py`'s new `monthly`/`lifecycle` response
+fields:
+
+- **`monthly_ac_energy_estimates(zone_id, year=None)`**: one AC energy
+  estimate per calendar month, built from a **real** pvlib solar-position/
+  Ineichen clear-sky day (`nongfab_features.clearsky`) at Nong Fab's actual
+  coordinates - genuine astronomy (day length, sun angle) driving the
+  month-to-month swing, not a fabricated seasonal curve. Unlike
+  `estimate_annual_ac_energy_kwh`'s single UTC-indexed synthetic day, the
+  representative day here is built in `Asia/Bangkok` local time
+  (`NONG_FAB_TZ`) specifically so "hour 12" actually means local solar noon
+  - the older synthetic generators (`dev_data.synthetic_day_irradiance_temp`,
+  and this same file's own `estimate_annual_ac_energy_kwh` input) still build
+  a `tz="UTC"` index and shape their sine curve against its raw hour number,
+  which is off by Thailand's UTC+7 offset; not fixed everywhere in this pass
+  (bigger blast radius, out of scope), just not repeated in the new code.
+  `RAINY_SEASON_MONTHS` (Jun-Oct, the Thai Meteorological Department's
+  conventional wet season) gets an extra cloud derate via `what_if.
+  apply_scenario`'s `extra_cloud_attenuation_pct` -
+  `RAINY_SEASON_EXTRA_CLOUD_ATTENUATION_PCT` is a **documented assumption**,
+  not a measured monthly cloud climatology (no such dataset exists in this
+  system - same "documented approximation" pattern as `pv_conversion.py`'s
+  temperature coefficient).
+- **`lifecycle_ac_energy_estimate(year_1_ac_energy_kwh, degradation_pct_per_year=DEFAULT_DEGRADATION_PCT_PER_YEAR, years=25)`**:
+  reuses `what_if.apply_scenario`'s own validated linear degradation model
+  (one call per year, since `apply_scenario` applies one uniform
+  `years_since_commissioning` per call, not a schedule) to project year 1 ->
+  year 25 output and a 25-year lifetime total.
+  `DEFAULT_DEGRADATION_PCT_PER_YEAR = 0.55` is a typical modern
+  crystalline-silicon linear warranty figure, not a Trina Vertex N-specific
+  measured value (same gap as the temperature coefficient - `config/
+  assets.yaml` doesn't carry a real one).
+
 ## Run locally
 
 ```bash

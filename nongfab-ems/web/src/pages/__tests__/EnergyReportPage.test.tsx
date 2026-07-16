@@ -55,6 +55,19 @@ function makeReport(zone: string): EnergyReportResponse {
     },
     co2_saved_kg_per_year: 45230,
     trees_equivalent_per_year: 5050,
+    avg_solar_access_pct: 96.4,
+    monthly: Array.from({ length: 12 }, (_, i) => ({
+      month: i + 1,
+      ac_energy_kwh: 7000 + i * 100,
+      is_rainy_season: i + 1 >= 6 && i + 1 <= 10,
+    })),
+    lifecycle: {
+      year_1_ac_energy_kwh: 87600,
+      year_25_ac_energy_kwh: 75816,
+      year_25_pct_of_year_1: 86.2,
+      lifetime_ac_energy_kwh: 2044680,
+      degradation_pct_per_year_assumed: 0.55,
+    },
     sld: {
       module_model: 'Trina Vertex N TSM-NEG21C.20',
       module_power_w: 715,
@@ -133,5 +146,20 @@ describe('EnergyReportPage', () => {
     expect(screen.getByText('45.2')).toBeInTheDocument() // co2 tonnes
     expect(screen.getByText(/single line diagram/i)).toBeInTheDocument()
     expect(screen.getByText('INV-1')).toBeInTheDocument()
+  })
+
+  it('renders the monthly generation chart with a rainy-season legend', async () => {
+    renderPage()
+    expect(await screen.findByText(/monthly generation/i)).toBeInTheDocument()
+    expect(screen.getByText('Normal season')).toBeInTheDocument()
+    expect(screen.getByText(/rainy season/i)).toBeInTheDocument()
+  })
+
+  it('renders sun exposure and the 25-year estimate', async () => {
+    renderPage()
+    expect(await screen.findByText(/sun exposure/i)).toBeInTheDocument()
+    expect(screen.getByText('96%')).toBeInTheDocument()
+    expect(screen.getByText(/25-year estimate/i)).toBeInTheDocument()
+    expect(screen.getByText(/86% of year 1/i)).toBeInTheDocument()
   })
 })

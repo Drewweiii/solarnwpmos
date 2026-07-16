@@ -1,10 +1,14 @@
 import { useState } from 'react'
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { SLDViewer } from '../components/SLDViewer'
 import { ZoneSelector } from '../components/ZoneSelector'
 import { useEnergyReport } from '../lib/queries'
+import type { MonthlyEnergyEstimate } from '../lib/types'
 import './EnergyReportPage.css'
 
 const REAL_ZONE_IDS = ['GIS', 'ISB', 'Jetty'] as const
+
+const MONTH_LABELS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D']
 
 const LOSS_LABELS: Record<string, string> = {
   temperature_pct: 'Temperature',
@@ -78,6 +82,44 @@ export function EnergyReportPage() {
             </p>
           </section>
 
+          <section className="energy-report-section" aria-label="Monthly generation">
+            <h2>Monthly generation (estimated)</h2>
+            <div className="energy-report-chart">
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={report.data.monthly}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="month" tickFormatter={(m: number) => MONTH_LABELS[m - 1]} stroke="var(--text)" fontSize={12} />
+                  <YAxis stroke="var(--text)" fontSize={12} />
+                  <Tooltip
+                    contentStyle={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8 }}
+                    labelFormatter={(m) => (typeof m === 'number' ? MONTH_LABELS[m - 1] : String(m))}
+                    formatter={(value) => [typeof value === 'number' ? `${value.toFixed(0)} kWh` : String(value), 'AC energy']}
+                  />
+                  <Bar dataKey="ac_energy_kwh" name="AC energy" radius={[4, 4, 0, 0]}>
+                    {report.data.monthly.map((m: MonthlyEnergyEstimate) => (
+                      <Cell key={m.month} fill={m.is_rainy_season ? 'var(--chart-rainy)' : 'var(--chart-forecast)'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <div className="energy-report-chart-legend">
+                <span className="energy-report-legend-item">
+                  <span className="energy-report-legend-swatch" style={{ background: 'var(--chart-forecast)' }} />
+                  Normal season
+                </span>
+                <span className="energy-report-legend-item">
+                  <span className="energy-report-legend-swatch" style={{ background: 'var(--chart-rainy)' }} />
+                  Rainy season (Jun-Oct)
+                </span>
+              </div>
+            </div>
+            <p className="energy-report-note">
+              Each month's real solar geometry (day length, sun angle) at Nong Fab's coordinates, from one
+              representative day scaled to that month's day count - plus an approximate rainy-season cloud
+              derate (not measured cloud climatology).
+            </p>
+          </section>
+
           <section className="energy-report-section" aria-label="Losses breakdown">
             <h2>Losses breakdown</h2>
             <ul className="energy-report-loss-list">
@@ -100,12 +142,43 @@ export function EnergyReportPage() {
             </p>
           </section>
 
+          <section className="energy-report-section" aria-label="Sun exposure">
+            <h2>Sun exposure</h2>
+            <div className="energy-report-sun-exposure">
+              <span className="energy-report-sun-exposure-value">{report.data.avg_solar_access_pct.toFixed(0)}%</span>
+              <p className="energy-report-note energy-report-sun-exposure-note">
+                Average unshaded fraction across all panels at local solar noon today - real per-panel row-to-row
+                self-shading geometry, not a measured value.
+              </p>
+            </div>
+          </section>
+
           <section className="energy-report-section" aria-label="Environmental impact">
             <h2>Environmental impact</h2>
             <div className="energy-report-cards">
               <SummaryCard label="CO₂ saved" value={(report.data.co2_saved_kg_per_year / 1000).toFixed(1)} unit="tonnes/yr" />
               <SummaryCard label="Trees equivalent" value={report.data.trees_equivalent_per_year.toFixed(0)} unit="trees/yr" />
             </div>
+          </section>
+
+          <section className="energy-report-section" aria-label="25-year estimate">
+            <h2>25-year estimate</h2>
+            <div className="energy-report-cards">
+              <SummaryCard
+                label="Lifetime generation"
+                value={(report.data.lifecycle.lifetime_ac_energy_kwh / 1000).toFixed(1)}
+                unit="MWh"
+              />
+              <SummaryCard
+                label="Year 25 output"
+                value={`${(report.data.lifecycle.year_25_ac_energy_kwh / 1000).toFixed(1)} MWh`}
+                unit={`(${report.data.lifecycle.year_25_pct_of_year_1.toFixed(0)}% of year 1)`}
+              />
+            </div>
+            <p className="energy-report-note">
+              Linear panel degradation assumed at {report.data.lifecycle.degradation_pct_per_year_assumed.toFixed(2)}%/year
+              (typical crystalline-silicon warranty range - not a Trina Vertex N-specific measured value).
+            </p>
           </section>
 
           <section className="energy-report-section" aria-label="Single line diagram">

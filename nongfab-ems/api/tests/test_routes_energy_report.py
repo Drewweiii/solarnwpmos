@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -85,3 +86,32 @@ def test_get_energy_report_jetty_sld_uses_real_sub_array_ids(app, token_factory)
     block_ids = {b["id"] for b in body["sld"]["blocks"]}
     assert block_ids == {"01A.L", "02A.L", "03A.R", "04A.R"}
     assert body["sld"]["approximate_string_distribution"] is False
+
+
+def test_get_energy_report_avg_solar_access_pct_in_valid_range(app, token_factory):
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get("/energy-report/GIS", headers={"Authorization": f"Bearer {token}"})
+    assert 0 <= resp.json()["avg_solar_access_pct"] <= 100
+
+
+def test_get_energy_report_monthly_has_12_months_with_rainy_season_flagged(app, token_factory):
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get("/energy-report/GIS", headers={"Authorization": f"Bearer {token}"})
+    monthly = resp.json()["monthly"]
+    assert [m["month"] for m in monthly] == list(range(1, 13))
+    assert all(m["ac_energy_kwh"] > 0 for m in monthly)
+    rainy_months = {m["month"] for m in monthly if m["is_rainy_season"]}
+    assert rainy_months == {6, 7, 8, 9, 10}
+
+
+def test_get_energy_report_lifecycle_year_25_is_less_than_year_1(app, token_factory):
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get("/energy-report/GIS", headers={"Authorization": f"Bearer {token}"})
+    lifecycle = resp.json()["lifecycle"]
+    assert lifecycle["year_1_ac_energy_kwh"] == pytest.approx(resp.json()["annual"]["ac_energy_kwh"])
+    assert lifecycle["year_25_ac_energy_kwh"] < lifecycle["year_1_ac_energy_kwh"]
+    assert 0 < lifecycle["year_25_pct_of_year_1"] < 100
+    assert lifecycle["lifetime_ac_energy_kwh"] > lifecycle["year_1_ac_energy_kwh"]

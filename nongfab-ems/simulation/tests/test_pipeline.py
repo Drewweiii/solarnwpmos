@@ -4,8 +4,11 @@ import pytest
 
 from nongfab_simulation.pipeline import (
     DAYS_PER_YEAR,
+    RAINY_SEASON_MONTHS,
     estimate_annual_ac_energy_kwh,
+    lifecycle_ac_energy_estimate,
     loss_breakdown_with_temperature,
+    monthly_ac_energy_estimates,
     simulate_zone_baseline,
 )
 
@@ -104,3 +107,58 @@ def test_loss_breakdown_with_temperature_is_positive_above_stc_temperature():
     baseline = simulate_zone_baseline("GIS", ssrd, hot_temp, idx)
     breakdown = loss_breakdown_with_temperature(baseline, ssrd, hot_temp)
     assert breakdown["temperature_pct"] > 0
+
+
+def test_monthly_ac_energy_estimates_returns_one_entry_per_calendar_month():
+    estimates = monthly_ac_energy_estimates("GIS", year=2026)
+    assert [e.month for e in estimates] == list(range(1, 13))
+
+
+def test_monthly_ac_energy_estimates_flags_rainy_season_months_correctly():
+    estimates = monthly_ac_energy_estimates("ISB", year=2026)
+    for e in estimates:
+        assert e.is_rainy_season == (e.month in RAINY_SEASON_MONTHS)
+
+
+def test_monthly_ac_energy_estimates_are_all_positive():
+    estimates = monthly_ac_energy_estimates("GIS", year=2026)
+    assert all(e.ac_energy_kwh > 0 for e in estimates)
+
+
+def test_monthly_ac_energy_estimates_rainy_season_is_lower_than_dry_season():
+    # Same zone, same latitude - the only thing distinguishing a rainy-season
+    # month from a similarly-sunny dry-season month here is the cloud derate
+    # (see RAINY_SEASON_EXTRA_CLOUD_ATTENUATION_PCT), so July (rainy) should
+    # come in lower than January (dry) even though both are reasonably sunny
+    # months at this latitude.
+    estimates = {e.month: e.ac_energy_kwh for e in monthly_ac_energy_estimates("GIS", year=2026)}
+    assert estimates[7] < estimates[1]
+
+
+def test_lifecycle_ac_energy_estimate_year_1_matches_input():
+    result = lifecycle_ac_energy_estimate(1000.0, degradation_pct_per_year=0.5)
+    assert result.year_1_ac_energy_kwh == pytest.approx(1000.0)
+
+
+def test_lifecycle_ac_energy_estimate_degrades_over_25_years():
+    result = lifecycle_ac_energy_estimate(1000.0, degradation_pct_per_year=0.5)
+    assert result.year_25_ac_energy_kwh < result.year_1_ac_energy_kwh
+    assert result.year_25_pct_of_year_1 == pytest.approx(100 - 0.5 * 24, abs=1e-6)
+
+
+def test_lifecycle_ac_energy_estimate_lifetime_is_sum_of_all_25_years():
+    result = lifecycle_ac_energy_estimate(1000.0, degradation_pct_per_year=0.5)
+    # Linear degradation -> arithmetic series: sum = years * average(first, last)
+    expected = 25 * (result.year_1_ac_energy_kwh + result.year_25_ac_energy_kwh) / 2
+    assert result.lifetime_ac_energy_kwh == pytest.approx(expected, rel=1e-6)
+
+
+def test_lifecycle_ac_energy_estimate_zero_degradation_is_flat():
+    result = lifecycle_ac_energy_estimate(1000.0, degradation_pct_per_year=0.0)
+    assert result.year_25_ac_energy_kwh == pytest.approx(1000.0)
+    assert result.lifetime_ac_energy_kwh == pytest.approx(25000.0)
+
+
+def test_lifecycle_ac_energy_estimate_rejects_negative_year_1():
+    with pytest.raises(ValueError):
+        lifecycle_ac_energy_estimate(-1.0)
