@@ -2,8 +2,25 @@ name: CI
 
 on:
   push:
-    branches: [master]
   pull_request:
+
+# This workflow file must live at the true repo root's .github/workflows/ (not
+# nongfab-ems/.github/workflows/) for GitHub Actions to ever pick it up at all -
+# it sat inert there for a while (0 runs ever) before this was caught, since the
+# actual git repo root is one level above nongfab-ems/ (it also holds unrelated
+# pre-existing research files - MATLAB/PDF - from before this project started;
+# see root README.md's own note on this). `defaults.run.working-directory`
+# below points every job's `run:` steps at nongfab-ems/ so the relative paths
+# throughout this file (e.g. `./libs/nongfab_common`) don't all need an
+# `nongfab-ems/` prefix - a handful of non-`run:` action inputs still need one
+# explicitly (cache-dependency-path, docker build context/file - see below).
+# No `branches:` filter on `push` (unlike this file's original `[master]`,
+# which never matched the actual working branch): the real development
+# happens on a per-session feature branch, not master, so restricting to one
+# named branch would just recreate the "CI never runs" problem.
+defaults:
+  run:
+    working-directory: nongfab-ems
 
 # Every Python job installs its own sibling packages *editable* (`pip install -e`)
 # straight from this checkout, in dependency order (nongfab-common -> features ->
@@ -136,14 +153,14 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: web
+        working-directory: nongfab-ems/web
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: nongfab-ems/web/package-lock.json
       - run: npm ci
       - run: npm run lint
       - run: npm run test -- --run
@@ -165,8 +182,8 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
-          context: .
-          file: api/Dockerfile
+          context: nongfab-ems
+          file: nongfab-ems/api/Dockerfile
           push: false
           tags: nongfab-api:ci
           cache-from: type=gha
