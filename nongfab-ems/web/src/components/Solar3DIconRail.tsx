@@ -1,10 +1,11 @@
 // Vertical icon rail overlaid on the 3D canvas, modeled on the reslink.org
 // reference video's left-side toolbar - but mapped onto the controls this
-// page actually has (view-mode toggle, play/pause, camera reset) rather
-// than reslink's own render-mode-switcher icons, which this app doesn't
-// have equivalents for yet (see web/README.md's own note on this). Hand-
-// drawn inline SVGs, same pattern as Compass.tsx - no icon library
-// dependency for 3 icons.
+// page actually has (view-mode toggle, play/pause, camera reset, ground
+// style) rather than reslink's own render-mode-switcher icons 1:1 (this
+// app now has a real grid/satellite ground toggle - see Solar3DScene.tsx's
+// groundStyle prop - but not reslink's full abstract/photorealistic/
+// satellite-map trio). Hand-drawn inline SVGs, same pattern as
+// Compass.tsx - no icon library dependency for 5 icons.
 
 interface Solar3DIconRailProps {
   viewMode: 'access' | 'string'
@@ -12,9 +13,19 @@ interface Solar3DIconRailProps {
   isPlaying: boolean
   onPlayToggle: () => void
   onResetCamera: () => void
+  groundStyle: 'grid' | 'satellite'
+  onGroundStyleChange: (style: 'grid' | 'satellite') => void
 }
 
-export function Solar3DIconRail({ viewMode, onViewModeChange, isPlaying, onPlayToggle, onResetCamera }: Solar3DIconRailProps) {
+export function Solar3DIconRail({
+  viewMode,
+  onViewModeChange,
+  isPlaying,
+  onPlayToggle,
+  onResetCamera,
+  groundStyle,
+  onGroundStyleChange,
+}: Solar3DIconRailProps) {
   return (
     <div className="solar3d-icon-rail" role="tablist" aria-label="3D view controls">
       <button
@@ -50,6 +61,20 @@ export function Solar3DIconRail({ viewMode, onViewModeChange, isPlaying, onPlayT
       </button>
       <button type="button" aria-label="Reset camera view" title="Reset camera view" className="solar3d-icon-btn" onClick={onResetCamera}>
         <ResetIcon />
+      </button>
+      <button
+        type="button"
+        aria-pressed={groundStyle === 'satellite'}
+        aria-label={groundStyle === 'satellite' ? 'Switch to grid ground' : 'Switch to satellite ground'}
+        title={
+          groundStyle === 'satellite'
+            ? 'Switch to grid ground'
+            : 'Switch to satellite ground (real imagery fetch, not verified from every environment)'
+        }
+        className={groundStyle === 'satellite' ? 'solar3d-icon-btn active' : 'solar3d-icon-btn'}
+        onClick={() => onGroundStyleChange(groundStyle === 'satellite' ? 'grid' : 'satellite')}
+      >
+        <SatelliteIcon />
       </button>
     </div>
   )
@@ -99,6 +124,16 @@ function PauseIcon() {
     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
       <rect x="6" y="4.5" width="4.5" height="15" rx="1" fill="currentColor" />
       <rect x="13.5" y="4.5" width="4.5" height="15" rx="1" fill="currentColor" />
+    </svg>
+  )
+}
+
+function SatelliteIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <ellipse cx="12" cy="12" rx="8.5" ry="3.2" fill="none" stroke="currentColor" strokeWidth="1.2" opacity="0.7" />
+      <path d="M3.5 12h17" stroke="currentColor" strokeWidth="1.2" opacity="0.7" />
     </svg>
   )
 }

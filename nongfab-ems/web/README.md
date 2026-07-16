@@ -19,9 +19,7 @@ docstrings for why these are documented literature defaults, not a survey -
 `config/assets.yaml` has no real building-height data), on a dark
 grid-line floor (`@react-three/drei`'s `<Grid>`) - the first step toward a
 reslink.org-style "digital twin" look the user asked to be replicated (see
-that commit's message for the fuller reference-video breakdown); a full
-photorealistic satellite-textured render is a bigger follow-up (needs a real
-imagery source and building-massing data this repo doesn't have yet).
+that commit's message for the fuller reference-video breakdown).
 
 **(2026-07-16, same pass)** `/3d`'s page chrome was also restyled toward the
 reslink.org reference, per the user's explicit choice to copy the card look
@@ -31,15 +29,14 @@ furniture:
 - **`Solar3DIconRail.tsx`** - a dark vertical icon rail overlaid on the
   canvas' top-left corner (reslink's own toolbar placement), replacing the
   old horizontal "Solar access / String view" tab row and the separate
-  Play/Pause button. Reslink's own rail switches between 3 render modes
-  this app doesn't have yet (abstract/photorealistic/satellite - see the
-  entry above); since there was nothing 1:1 to map those particular icons
-  to, the rail here holds the 4 controls this page actually has instead
-  (view-mode toggle x2, play/pause, and a new "reset camera view" button -
+  Play/Pause button. The rail holds the controls this page actually has
+  (view-mode toggle x2, play/pause, "reset camera view" -
   `Solar3DScene.tsx` now exposes a `resetCamera()` imperative handle via
-  React 19's plain-prop `ref`, no `forwardRef` wrapper needed). Hand-drawn
+  React 19's plain-prop `ref`, no `forwardRef` wrapper needed - plus a
+  grid/satellite ground-style toggle added in the follow-up entry below).
+  Hand-drawn
   inline SVG icons, same pattern as the existing `Compass.tsx` - no new
-  icon-library dependency for 4 icons.
+  icon-library dependency for 5 icons.
 - **`SolarAccessGauge.tsx`** - the red-yellow-green gradient status bar from
   reslink's header, now next to the zone selector, driven by
   `average_solar_access_pct` (the same metric the old plain-text readout
@@ -49,6 +46,49 @@ furniture:
   buttons were deliberately **not** replicated - the user's own call: those
   are marketing furniture for reslink's own embeddable-widget product, with
   no equivalent purpose inside this internal EMS dashboard.
+
+**(2026-07-16, follow-up)** The "photorealistic satellite-textured render"
+gap flagged above got a first real implementation, not just a punt to
+later - the user's own call after a feasibility check found this
+sandbox's egress policy blocks every map-tile provider outright
+(`arcgisonline.com`, `mapbox.com`, `maptiler.com`,
+`tile.openstreetmap.org` - all 403 at the CONNECT tunnel, same
+restriction that blocked reslink.org itself and NASA POWER earlier in
+this project) was to **write the code anyway without live verification**,
+the same precedent as the NASA POWER UV ingestion module:
+
+- **`lib/satelliteTile.ts`** - standard Web Mercator slippy-map tile math
+  (`latLonToTile`, unit-tested) plus `esriWorldImageryTileUrl()`, which
+  builds a single-tile URL against Esri World Imagery (chosen because it's
+  **keyless** - no Mapbox/MapTiler-style API token needed - reachable at
+  `server.arcgisonline.com` under Esri's free-tier ToS for this kind of
+  low-volume display use). `DEFAULT_SATELLITE_ZOOM = 17` was chosen so one
+  tile's real-world footprint (~300m at this latitude) comfortably covers
+  GIS/ISB's own panel-array footprint - not pixel-perfect georeferencing,
+  a single-tile visual approximation (Jetty's ~1.25km trestle span is
+  still far bigger than one tile regardless of zoom, so its texture only
+  covers the central portion of the layout - stitching multiple tiles is
+  a further follow-up, not attempted here).
+- **`Solar3DScene.tsx`'s new `SatelliteGroundPlane`** loads the tile via
+  `THREE.TextureLoader`'s callback API (not drei's Suspense-based
+  `useTexture`) specifically so a blocked/failed fetch degrades to
+  "render nothing" - the existing dark ground plane and grid floor
+  underneath stay exactly as they were, rather than throwing into a
+  Suspense boundary this scene doesn't otherwise need. A new 5th icon-rail
+  button (`groundStyle: 'grid' | 'satellite'`) toggles between the two;
+  `Solar3DPage.tsx` computes the tile URL from the current zone's own real
+  centroid (`config/assets.yaml` via `/assets`, not the plant's one shared
+  nominal center `/geometry` uses for solar position).
+- **Verified live** (headless Chromium, this sandbox): confirmed the
+  fetch does fail exactly as expected
+  (`net::ERR_TUNNEL_CONNECTION_FAILED`, one benign browser resource-load
+  console error, no uncaught JS exception) and the scene degrades
+  gracefully - grid hidden, dark ground plane still visible, panels/
+  building still render, no blank/broken canvas. Confirmed the toggle
+  button's `aria-pressed`/`aria-label`/active-class state all flip
+  correctly across grid -> satellite -> grid. **The actual tile image has
+  never been confirmed to load** - that only happens once this deploys
+  somewhere with real egress to `arcgisonline.com`.
 
 STEP 8C (Feature D+E) is also built:
 

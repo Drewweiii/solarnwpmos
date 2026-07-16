@@ -6,8 +6,9 @@
 
 import { Grid, Line, OrbitControls } from '@react-three/drei'
 import { Canvas } from '@react-three/fiber'
-import { useImperativeHandle, useMemo, useRef } from 'react'
+import { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { Ref } from 'react'
+import { TextureLoader, type Texture } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { solarAccessColor, sunPositionVector } from '../lib/solar3d'
 import type { Panel, SunPathPoint } from '../lib/types'
@@ -111,6 +112,55 @@ function BuildingMass({ minEast, maxEast, minNorth, maxNorth, isPier }: Building
   )
 }
 
+interface SatelliteGroundPlaneProps {
+  tileUrl: string
+  center: [number, number]
+  size: number
+}
+
+// Loads a single Esri World Imagery tile as a ground texture - the
+// reslink.org reference video's "photorealistic satellite" ground style
+// (see lib/satelliteTile.ts's own docstring for the tile-math/zoom-choice
+// rationale and, importantly, its "never confirmed to actually load from
+// this environment" caveat). Uses THREE.TextureLoader's callback API
+// directly rather than drei's Suspense-based useTexture, specifically so a
+// failed/blocked fetch degrades to "render nothing" (the existing grid
+// floor underneath stays visible) instead of throwing into a Suspense
+// boundary this scene doesn't otherwise need - the one deliberately
+// defensive piece of this component, given the fetch is genuinely unverified.
+function SatelliteGroundPlane({ tileUrl, center, size }: SatelliteGroundPlaneProps) {
+  const [texture, setTexture] = useState<Texture | null>(null)
+
+  useEffect(() => {
+    setTexture(null)
+    const loader = new TextureLoader()
+    loader.setCrossOrigin('anonymous')
+    let cancelled = false
+    loader.load(
+      tileUrl,
+      (loaded) => {
+        if (!cancelled) setTexture(loaded)
+      },
+      undefined,
+      () => {
+        // Blocked/failed fetch - stay null, grid floor remains the fallback.
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [tileUrl])
+
+  if (!texture) return null
+
+  return (
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center[0], 0.01, -center[1]]}>
+      <planeGeometry args={[size, size]} />
+      <meshStandardMaterial map={texture} />
+    </mesh>
+  )
+}
+
 interface Solar3DSceneProps {
   panels: Panel[]
   tiltDeg: number
@@ -126,6 +176,14 @@ interface Solar3DSceneProps {
   // knows about; a future zone with its own real structure type would need
   // this widened, not a reason to invent an abstraction for one case today.
   zone: string
+  // 'grid' (default): the dark grid-line floor. 'satellite': also attempts
+  // SatelliteGroundPlane using satelliteTileUrl (falls back to the grid
+  // floor showing through if the tile fetch fails/is blocked - see that
+  // component's own docstring). satelliteTileUrl is required when
+  // groundStyle is 'satellite' (Solar3DPage computes it from the zone's
+  // real centroid via lib/satelliteTile.ts).
+  groundStyle: 'grid' | 'satellite'
+  satelliteTileUrl?: string
 }
 
 export function Solar3DScene({
@@ -137,6 +195,8 @@ export function Solar3DScene({
   sunPathPoints,
   viewMode,
   zone,
+  groundStyle,
+  satelliteTileUrl,
   ref,
 }: Solar3DSceneProps & { ref?: Ref<Solar3DSceneHandle> }) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null)
@@ -219,26 +279,32 @@ export function Solar3DScene({
       <ambientLight intensity={0.6} />
       <directionalLight position={sunPosition} intensity={Math.max(0.2, Math.sin((sunElevationDeg * Math.PI) / 180))} />
 
-      {/* Dark ground plane + grid overlay - the "abstract block + grid floor"
-          style this was modeled on (a reference solar-monitoring product's
-          digital-twin widget), rather than the flat single-color ground
-          this scene had before. */}
+      {/* Dark ground plane, always rendered as the base/fallback - either
+          under the grid overlay (groundStyle="grid") or under the
+          satellite texture, which stays transparent-until-loaded and
+          simply never covers this if its fetch fails/is blocked (see
+          SatelliteGroundPlane's own docstring). */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[bounds.full.center[0], -0.05, -bounds.full.center[1]]}>
         <planeGeometry args={[bounds.full.span * 1.5, bounds.full.span * 1.5]} />
         <meshStandardMaterial color="#0f172a" />
       </mesh>
-      <Grid
-        position={[bounds.full.center[0], 0, -bounds.full.center[1]]}
-        args={[bounds.full.span * 1.5, bounds.full.span * 1.5]}
-        cellSize={5}
-        cellThickness={0.5}
-        cellColor="#334155"
-        sectionSize={25}
-        sectionThickness={1}
-        sectionColor="#475569"
-        fadeDistance={bounds.full.span * 3}
-        infiniteGrid={false}
-      />
+      {groundStyle === 'grid' && (
+        <Grid
+          position={[bounds.full.center[0], 0, -bounds.full.center[1]]}
+          args={[bounds.full.span * 1.5, bounds.full.span * 1.5]}
+          cellSize={5}
+          cellThickness={0.5}
+          cellColor="#334155"
+          sectionSize={25}
+          sectionThickness={1}
+          sectionColor="#475569"
+          fadeDistance={bounds.full.span * 3}
+          infiniteGrid={false}
+        />
+      )}
+      {groundStyle === 'satellite' && satelliteTileUrl && (
+        <SatelliteGroundPlane tileUrl={satelliteTileUrl} center={bounds.full.center} size={bounds.full.span * 1.5} />
+      )}
 
       {blockFootprints.map((f) => (
         <BuildingMass key={f.blockId} minEast={f.minEast} maxEast={f.maxEast} minNorth={f.minNorth} maxNorth={f.maxNorth} isPier={isPierStructure} />

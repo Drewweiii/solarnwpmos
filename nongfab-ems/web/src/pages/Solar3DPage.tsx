@@ -6,7 +6,8 @@ import { Solar3DScene } from '../components/Solar3DScene'
 import { Solar3DIconRail } from '../components/Solar3DIconRail'
 import { ZoneSelector } from '../components/ZoneSelector'
 import { nearestToTimestamp } from '../lib/chartData'
-import { useForecast, useGeometry, usePerformance, useSunPath } from '../lib/queries'
+import { useForecast, useGeometry, usePerformance, useSunPath, useZones } from '../lib/queries'
+import { esriWorldImageryTileUrl } from '../lib/satelliteTile'
 import { buildAtIso, minutesToHhMm, todayIso } from '../lib/timeScrub'
 import './Solar3DPage.css'
 
@@ -17,6 +18,7 @@ const AUTO_PLAY_INTERVAL_MS = 400
 export function Solar3DPage() {
   const [zone, setZone] = useState<string>(REAL_ZONE_IDS[0])
   const [viewMode, setViewMode] = useState<'access' | 'string'>('access')
+  const [groundStyle, setGroundStyle] = useState<'grid' | 'satellite'>('grid')
   const [date, setDate] = useState(todayIso())
   const [timeOfDayMinutes, setTimeOfDayMinutes] = useState(12 * 60)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -26,6 +28,15 @@ export function Solar3DPage() {
 
   const geometry = useGeometry(zone, atIso)
   const sunPath = useSunPath(zone, date)
+  const zones = useZones()
+  // The zone's own real surveyed centroid (config/assets.yaml via
+  // /assets), not the plant's one shared nominal center /geometry uses for
+  // solar position - see lib/satelliteTile.ts's own docstring for the
+  // "never confirmed to load from this sandbox" caveat on the fetch itself.
+  const satelliteTileUrl = useMemo(() => {
+    const zoneObj = zones.data?.zones.find((z) => z.id === zone)
+    return zoneObj ? esriWorldImageryTileUrl(zoneObj.centroid.lat, zoneObj.centroid.lon) : undefined
+  }, [zones.data, zone])
   // Feature C <-> Feature A: as the sun-path scrub moves, look up the
   // nearest day-ahead forecast point and the nearest actual/generated
   // point to that same scrubbed instant, so the 3D view can show
@@ -115,6 +126,8 @@ export function Solar3DPage() {
               isPlaying={isPlaying}
               onPlayToggle={() => setIsPlaying((p) => !p)}
               onResetCamera={() => sceneRef.current?.resetCamera()}
+              groundStyle={groundStyle}
+              onGroundStyleChange={setGroundStyle}
             />
             <Solar3DScene
               ref={sceneRef}
@@ -126,6 +139,8 @@ export function Solar3DPage() {
               sunPathPoints={sunPath.data?.points ?? []}
               viewMode={viewMode}
               zone={zone}
+              groundStyle={groundStyle}
+              satelliteTileUrl={satelliteTileUrl}
             />
           </>
         )}
