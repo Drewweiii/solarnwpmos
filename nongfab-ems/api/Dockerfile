@@ -38,11 +38,13 @@ COPY ingestion/himawari/pyproject.toml ./ingestion/himawari/pyproject.toml
 COPY ingestion/himawari/src ./ingestion/himawari/src
 COPY ingestion/nasa_power/pyproject.toml ./ingestion/nasa_power/pyproject.toml
 COPY ingestion/nasa_power/src ./ingestion/nasa_power/src
+COPY ingestion/pvgis/pyproject.toml ./ingestion/pvgis/pyproject.toml
+COPY ingestion/pvgis/src ./ingestion/pvgis/src
 COPY api/pyproject.toml ./api/pyproject.toml
 COPY api/src ./api/src
 RUN pip install --no-cache-dir \
       ./libs/nongfab_common ./features ./forecast ./simulation ./financial \
-      ./ingestion/nwp ./ingestion/himawari ./ingestion/nasa_power \
+      ./ingestion/nwp ./ingestion/himawari ./ingestion/nasa_power ./ingestion/pvgis \
       ./api
 
 # libs/nongfab_common's load_assets() falls back to a repo-relative path

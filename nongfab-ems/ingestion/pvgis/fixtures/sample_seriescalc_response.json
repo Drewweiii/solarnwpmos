@@ -1,0 +1,83 @@
+{
+  "inputs": {
+    "location": {
+      "latitude": 12.6834,
+      "longitude": 101.1199,
+      "elevation": 8.0
+    },
+    "meteo_data": {
+      "radiation_db": "PVGIS-ERA5",
+      "meteo_db": "ERA5",
+      "year_min": 2020,
+      "year_max": 2020,
+      "use_horizon": true,
+      "horizon_db": "DEM-calculated"
+    },
+    "mounting_system": {
+      "fixed": {
+        "slope": { "value": 0, "optimal": false },
+        "azimuth": { "value": 0, "optimal": false },
+        "type": "free-standing"
+      }
+    },
+    "pv_module": {
+      "technology": "c-Si",
+      "peak_power": 1.0,
+      "system_loss": 14.0
+    }
+  },
+  "outputs": {
+    "hourly": [
+      {
+        "time": "20200101:0030",
+        "P": 69.52,
+        "G(i)": 122.75,
+        "H_sun": 10.85,
+        "T2m": 24.79,
+        "WS10m": 4.0,
+        "Int": 0.0
+      },
+      {
+        "time": "20200101:0130",
+        "P": 254.96,
+        "G(i)": 340.26,
+        "H_sun": 23.59,
+        "T2m": 25.05,
+        "WS10m": 4.34,
+        "Int": 0.0
+      },
+      {
+        "time": "20200101:0230",
+        "P": 430.79,
+        "G(i)": 557.41,
+        "H_sun": 35.38,
+        "T2m": 29.38,
+        "WS10m": 5.03,
+        "Int": 0.0
+      }
+    ]
+  },
+  "meta": {
+    "inputs": {
+      "location": {
+        "description": "Selected location",
+        "variables": {
+          "latitude": { "description": "Latitude", "units": "decimal degree" },
+          "longitude": { "description": "Longitude", "units": "decimal degree" },
+          "elevation": { "description": "Elevation", "units": "m" }
+        }
+      },
+      "meteo_data": {
+        "description": "Sources of meteorological data",
+        "variables": {
+          "radiation_db": { "description": "Solar radiation database" },
+          "meteo_db": { "description": "Database used for meteorological variables other than solar radiation" },
+          "year_min": { "description": "First year of the calculations" },
+          "year_max": { "description": "Last year of the calculations" },
+          "use_horizon": { "description": "Include horizon shadows" },
+          "horizon_db": { "description": "Source of horizon data" }
+        }
+      }
+    }
+  }
+}

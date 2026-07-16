@@ -55,7 +55,13 @@ fixture explicitly turns it off so the suite stays hermetic/fast):
    Skipped entirely (not re-run) if the store already has a reasonable
    amount of data, so a redeploy with a persistent store (`API_REAL_DATA_DB_
    PATH` pointed at a real volume) doesn't re-backfill from scratch on every
-   restart.
+   restart. **(2026-07-16)** `_backfill_pvgis()` also seeds one full year of
+   real historical weather (irradiance/temperature) from PVGIS for Nong
+   Fab's own coordinates - gated on its own `pvgis-era5`-tagged row count
+   (`RealDataStore.count_nwp_rows_by_source`), independent of the GFS/NWP
+   gate above, so it seeds Day-ahead training even when GFS backfill is thin
+   or unreachable. Day-ahead only, not Intra-day - see `ingestion/pvgis/
+   README.md` and `forecast/README.md`'s matching dated entry for why.
 2. **Continuous live polling**: Himawari every `API_HIMAWARI_POLL_INTERVAL_
    SECONDS` (default 600s, matching its native 10-min product cadence), GFS
    every `API_NWP_POLL_INTERVAL_SECONDS` (default 3600s - GFS only

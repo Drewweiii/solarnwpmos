@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pvgis-ingestion"
+version = "0.1.0"
+description = "Nong Fab EMS: PVGIS (EU JRC) historical weather backfill service - real ERA5-based irradiance/temperature for the plant's own coordinates, used to seed Day-ahead training with real weather instead of synthetic noise"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.27",
+  "tenacity>=8.2",
+  "pydantic>=2.6",
+  "pydantic-settings>=2.2",
+  "nongfab-common",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+  "respx>=0.21",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = ["integration: requires live PVGIS access (set PVGIS_LIVE_TEST=1) - NOT reachable from this dev sandbox, confirmed reachable from the Railway deployment 2026-07-16 (see README)"]
+
+[tool.ruff]
+line-length = 150
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

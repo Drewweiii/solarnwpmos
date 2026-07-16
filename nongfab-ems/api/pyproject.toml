@@ -28,6 +28,7 @@ dependencies = [
   "nwp-ingestion",
   "himawari-ingestion",
   "nasa-power-ingestion",
+  "pvgis-ingestion",
 ]
 
 [project.optional-dependencies]

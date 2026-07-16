@@ -84,6 +84,26 @@ def test_insert_nwp_points_upserts_on_valid_time_issue_time_source():
     assert df.iloc[0]["ssrd_w_m2"] == 999.0
 
 
+def test_count_nwp_rows_by_source_counts_only_the_matching_source():
+    store = RealDataStore()
+    gfs_point = _FakeNWPPoint(
+        valid_time=datetime(2026, 7, 14, 0, tzinfo=timezone.utc), issue_time=datetime(2026, 7, 14, 0, tzinfo=timezone.utc),
+        ssrd_w_m2=100.0, temp2m_c=28.0, wind10m_u_ms=1.0, wind10m_v_ms=1.0, relative_humidity_pct=80.0, source="gfs-noaa",
+    )
+    pvgis_points = [
+        _FakeNWPPoint(
+            valid_time=datetime(2020, 1, 1, h, tzinfo=timezone.utc), issue_time=datetime(2020, 1, 1, h, tzinfo=timezone.utc),
+            ssrd_w_m2=200.0, temp2m_c=25.0, wind10m_u_ms=2.0, wind10m_v_ms=0.0, relative_humidity_pct=70.0, source="pvgis-era5",
+        )
+        for h in range(2)
+    ]
+    store.insert_nwp_points([gfs_point, *pvgis_points])
+
+    assert store.count_nwp_rows_by_source("pvgis-era5") == 2
+    assert store.count_nwp_rows_by_source("gfs-noaa") == 1
+    assert store.count_nwp_rows_by_source("nonexistent-source") == 0
+
+
 def test_insert_and_read_cloud_frames_roundtrips():
     store = RealDataStore()
     frames = [

@@ -401,6 +401,62 @@ train-then-forecast cycle produces (`algorithm in ("lightgbm",
 "random_forest")` with `error >= 0` for hour-ahead; fixed `"cnn_lstm"`/
 `"neuralprophet"` strings for minute/day).
 
+## Real historical weather from PVGIS seeds Day-ahead training (2026-07-16)
+
+The user's forecasting-optimization priority list ranked real plant
+telemetry (Huawei FusionSolar) as the top blocker for several items, but
+access is pending on credentials the user doesn't control yet. Rather than
+sit idle, the user asked for a substitute *weather* source usable
+immediately - explicitly ruling out anything that isn't genuinely
+pullable on demand (a one-time CSV download, e.g. Kaggle, didn't qualify)
+and anything that's real generation data from a *different* site (PVOutput/
+NREL PVDAQ/Ausgrid were all considered and rejected for this specific
+purpose - see `ingestion/pvgis/README.md`'s "Data source & ToS" for the
+full reasoning: bias-correction/Sum-k-LSTM validation needs Nong Fab's own
+measured output, which no other site's data can substitute for, real-time
+or not).
+
+PVGIS (EU JRC's public solar-resource API) passed both bars: free, no API
+key, and - unlike `ingestion/nasa_power`, which was built blind - actually
+**live-verified working** by the user running a one-off script in the
+Railway deployment's own console (this dev sandbox's own egress can't reach
+it either, same organization-policy block as everything else tried). See
+`ingestion/pvgis/README.md` for the full data-source story and exactly what
+was captured live vs. reconstructed from docs.
+
+New `ingestion/pvgis` package backfills a full year of real ERA5-based
+hourly irradiance/temperature for Nong Fab's own coordinates directly into
+`local_store.py`'s shared `nwp_history` table (tagged `source="pvgis-era5"`)
+via `api/ingestion_scheduler.py`'s new one-time `_backfill_pvgis()` seed (not
+a continuous poll - PVGIS returns a whole already-published year in one
+call). This module (`real_data.py`) needed **zero code changes** - its
+Day-ahead builders (`real_day_frame`/`real_future_regressors`) already read
+`nwp_history` regardless of which source populated it.
+
+**Day-ahead only, not Intra-day - a deliberate scope decision, discussed
+with the user before building, not an oversight.** Every PVGIS-sourced row
+has `issue_time == valid_time` (PVGIS is historical reanalysis, not a
+multi-lead forecast - see `pvgis_ingestion.schemas.PVGISHourlyPoint`'s own
+docstring), so `real_hour_frame_kstep`'s `lead_hours = valid_time -
+issue_time` filter never matches any of `HOUR_LEAD_HOURS` (1-6) for these
+rows - they're structurally invisible to Intra-day k-step training. Two
+options were weighed with the user (duplicate one reading across all 6
+lead buckets vs. Day-ahead-only); duplicating was rejected as
+methodologically weak (it would teach the k-step models nothing real about
+how forecast skill degrades with lead time, since every lead would see
+identical input) even though it's still a large realism upgrade over the
+current synthetic generator (`_synthetic_hour_df` is pure `rng.uniform(0,
+1000)` noise with no day/night structure at all). Intra-day still relies on
+real GFS/NWP backfill (`ingestion/nwp`), which does carry genuine per-lead
+structure, once/if that accumulates in a given deployment.
+
+New `RealDataStore.count_nwp_rows_by_source(source)` (local_store.py) lets
+the PVGIS backfill gate itself independently of however many rows GFS's own
+backfill has already contributed to the same shared table, so it seeds
+Day-ahead even when GFS/NWP backfill is thin or unreachable in a given
+deployment (and doesn't re-seed on every restart once it has already run
+once).
+
 ## Known gaps / next steps
 
 - **No automatic retraining pipeline of its own** - `registry.log_run()` +

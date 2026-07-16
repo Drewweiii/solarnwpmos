@@ -198,5 +198,17 @@ class RealDataStore:
                 for table in ("nwp_history", "cloud_history", "uv_history")
             }
 
+    def count_nwp_rows_by_source(self, source: str) -> int:
+        """Row count for one `source` tag within nwp_history - unlike counts()'s
+        per-table totals, this lets a caller gate a specific source's own one-time
+        backfill (e.g. pvgis_ingestion's) independently of however many rows a
+        *different* source (e.g. nwp_ingestion's live GFS poll) has already
+        contributed to the same shared table - see api/ingestion_scheduler.py's
+        _backfill_pvgis.
+        """
+        with self._connect() as conn:
+            row = conn.execute("SELECT COUNT(*) FROM nwp_history WHERE source = ?", (source,)).fetchone()
+        return row[0]
+
 
 __all__ = ["RealDataStore", "default_db_path"]

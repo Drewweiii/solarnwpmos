@@ -113,7 +113,7 @@ jobs:
       - run: >
           pip install ruff
           -e ./libs/nongfab_common -e ./features -e ./forecast -e ./simulation -e ./financial
-          -e ./ingestion/nwp -e ./ingestion/himawari -e ./ingestion/nasa_power
+          -e ./ingestion/nwp -e ./ingestion/himawari -e ./ingestion/nasa_power -e ./ingestion/pvgis
           -e "./api[dev]"
       - run: ruff check api/src api/tests
       - run: pytest api -v
@@ -143,6 +143,19 @@ jobs:
       - run: pip install ruff -e ./libs/nongfab_common -e "./ingestion/nwp[dev]"
       - run: ruff check ingestion/nwp/src ingestion/nwp/tests
       - run: pytest ingestion/nwp -v
+
+  pvgis-ingestion:
+    name: lint+test - ingestion/pvgis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install ruff -e ./libs/nongfab_common -e "./ingestion/pvgis[dev]"
+      - run: ruff check ingestion/pvgis/src ingestion/pvgis/tests
+      - run: pytest ingestion/pvgis -v
 
   orchestration:
     name: lint+test - orchestration/

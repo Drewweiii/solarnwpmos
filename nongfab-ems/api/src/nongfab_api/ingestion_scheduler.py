@@ -4,11 +4,12 @@ ingestion/nwp's and ingestion/himawari's own storage.py to write to (Railway hos
 only this one container; see root README "Known gaps" and
 nongfab_forecast.local_store's own docstring for why a local SQLite-backed store is
 used instead). On startup: backfills the last `backfill_lookback_days` if the store
-is thin, then runs continuous live polling (Himawari every ~10min, GFS every ~1h)
-and periodic retraining for every (zone, horizon) pair - all as plain asyncio
-background tasks (no new scheduler dependency; APScheduler is already used by the
-standalone ingestion modules for their own separate-deploy path, but this process
-just needs a handful of sleep loops, not a cron-like scheduler).
+is thin (plus a one-time PVGIS historical-weather seed, gated separately - see
+_backfill_pvgis), then runs continuous live polling (Himawari every ~10min, GFS
+every ~1h) and periodic retraining for every (zone, horizon) pair - all as plain
+asyncio background tasks (no new scheduler dependency; APScheduler is already used
+by the standalone ingestion modules for their own separate-deploy path, but this
+process just needs a handful of sleep loops, not a cron-like scheduler).
 
 Every network/training call is wrapped so one failure (a source unreachable from
 wherever this actually runs - see ingestion/nasa_power/README's own "not reachable
@@ -52,6 +53,8 @@ async def run_startup_backfill(store: RealDataStore, lookback_days: int) -> None
 
     if counts["uv_history"] == 0:
         await _backfill_uv(store, lookback_days)
+
+    await _backfill_pvgis(store)
 
 
 async def _backfill_nwp(store: RealDataStore, lookback_days: int) -> None:
@@ -163,6 +166,53 @@ async def _backfill_uv(store: RealDataStore, lookback_days: int) -> None:
     _, observations = result
     store.insert_uv_observations(observations)
     logger.info("startup backfill: nasa_power UV done, %d days ingested", len(observations))
+
+
+async def _backfill_pvgis(store: RealDataStore) -> None:
+    """One-time seed of real historical weather (PVGIS's seriescalc API - ERA5-
+    reanalysis irradiance/temperature for Nong Fab's own coordinates), gated on
+    the pvgis-era5-tagged row count specifically (count_nwp_rows_by_source), not
+    the shared nwp_history total `run_startup_backfill` already gates
+    `_backfill_nwp` on - so this seeds Day-ahead training with real weather even
+    in a deployment where GFS's own S3 backfill is thin/unreachable, and doesn't
+    re-run on every restart once it has already seeded once.
+
+    Unlike Himawari/GFS's continuous near-real-time polling, PVGIS returns a
+    whole already-published year of hourly data in a single call - there is
+    nothing to keep polling, so this has no `_poll_pvgis_forever` counterpart.
+
+    IMPORTANT: every row this writes has issue_time == valid_time (see
+    pvgis_ingestion.schemas.PVGISHourlyPoint's own docstring) - real_data.py's
+    k-step hour-ahead builders filter on lead_hours = valid_time - issue_time,
+    which is always 0 here, so these rows are invisible to Intra-day training by
+    construction. This is a deliberate 2026-07-16 scope decision (PVGIS is
+    historical reanalysis, not a multi-lead forecast - duplicating one reading
+    across 6 lead-hour buckets would teach the k-step models nothing real about
+    lead-time-dependent forecast skill), not an oversight - see forecast/
+    README.md's matching dated entry.
+    """
+    from pvgis_ingestion.backfill import backfill_year
+    from pvgis_ingestion.config import Settings
+    from pvgis_ingestion.schemas import SOURCE_NAME
+
+    if store.count_nwp_rows_by_source(SOURCE_NAME) > 0:
+        logger.info("startup backfill: pvgis already seeded, skipping")
+        return
+
+    settings = Settings(source_mode="http")
+    logger.info("startup backfill: pvgis starting (year=%d)", settings.year)
+    try:
+        async with httpx.AsyncClient() as client:
+            result = await backfill_year(settings, client)
+    except Exception:
+        logger.warning("startup backfill: pvgis unreachable from this deployment, skipping (non-fatal)", exc_info=True)
+        return
+    if result is None:
+        logger.info("startup backfill: pvgis returned no usable data")
+        return
+    _, points = result
+    store.insert_nwp_points(points)
+    logger.info("startup backfill: pvgis done, %d hourly rows ingested", len(points))
 
 
 async def _poll_himawari_forever(store: RealDataStore, interval_seconds: float) -> None:
