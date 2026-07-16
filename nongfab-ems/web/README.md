@@ -646,6 +646,43 @@ large THB figures (e.g. "5,000,000" rendered as ",000,000") - fixed by
 switching to a compact "฿12.9M" tick formatter instead of full digit
 strings.
 
+### Fixed - forecast x-axis kept drifting on every poll + added a model info panel (2026-07-16)
+
+The user spotted a real bug: the Forecast chart's x-axis tick labels kept
+changing on every page load/60s auto-refresh - "01:47" one poll, "02:29"
+the next - and asked why, worried it would confuse viewers. Root cause:
+`forecast/serving.py`'s timestamp grids (`get_forecast_with_fallback()` and
+`get_latest_forecast()`) were anchored directly to the raw, unrounded
+`datetime.now(timezone.utc)`, which includes whatever random seconds/
+minutes happened to be on the clock at request time - every poll baked a
+different sub-minute offset into every forecast timestamp. This was always
+latent, but the 60s `refetchInterval` added earlier this session (see this
+file's own dated entry above) made it constantly visible instead of only
+on a manual reload.
+
+Fixed with a new `_ceil_to(dt, step)` helper that rounds a timestamp up to
+the next clean boundary (`:00` for hourly grids, `:00/:10/:20...` for the
+10-minute minute-ahead grid) before it's used as the anchor - applied to
+both the physics-fallback path (the one actually serving live now) and the
+real-ML-model path (so this doesn't resurface once a model trains), plus
+`_synthetic_day_df()`'s own internal anchor. 7 new tests in
+`test_serving.py`, including a direct regression test that two calls a few
+seconds apart now produce identical timestamp grids.
+
+Also added, per the same request: a collapsible "ℹ️ โมเดลพยากรณ์ที่ใช้ใน
+หน้านี้" info panel (native `<details>`/`<summary>`, no extra JS state)
+below the horizon toggle, with a table naming every forecast model (Day-
+ahead → NeuralProphet, Intra-day → LightGBM/Random Forest auto-select,
+Minute-ahead → CNN-LSTM, the last of which isn't exposed via this page's
+toggle but is used elsewhere) plus a plain-language explanation of what
+each horizon is actually for.
+
+**Verified live**: real `uvicorn` + `vite dev` + Playwright. The chart's
+x-axis ticks now read clean hour boundaries (`00:00`, `09:00`, `18:00`,
+`03:00`...) instead of the previous drifting `:47`/`:29` offsets, and the
+tooltip on hover shows a clean `16:00` too. The collapsible model info
+panel opens correctly, showing all three models with their ranges/purpose.
+
 ## Run locally
 
 ```bash

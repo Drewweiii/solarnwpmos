@@ -35,6 +35,52 @@
   color: #fff;
 }
 
+.model-info-panel {
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.model-info-panel summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-h);
+  padding: 4px 0;
+}
+
+.model-info-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  font-size: 12.5px;
+}
+
+.model-info-table th,
+.model-info-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.model-info-table th {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.model-info-table td {
+  color: var(--text-h);
+}
+
+.model-info-note {
+  font-size: 11.5px;
+  color: var(--text);
+  opacity: 0.8;
+  margin: 10px 0 0;
+}
+
 .kpi-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

@@ -24,6 +24,26 @@ from .pv_conversion import nong_fab_zone_capacities_kwp
 
 VALID_HORIZONS = ("minute", "hour", "day")
 
+
+def _ceil_to(dt: datetime, step: timedelta) -> datetime:
+    """Rounds `dt` up to the next clean multiple of `step` since the Unix
+    epoch (or returns it unchanged if already exactly on a boundary) - e.g.
+    with `step=timedelta(hours=1)`, 14:23:07 -> 15:00:00.
+
+    Forecast timestamp grids are anchored to this instead of the raw
+    sub-minute `datetime.now()`, so they stay fixed at clean boundaries
+    across repeated polls instead of drifting by a few random seconds every
+    time - found live 2026-07-16: the dashboard's x-axis kept visibly
+    shifting on every 60s auto-refresh (e.g. tick labels "01:47" one poll,
+    "02:29" the next), because every poll baked that exact instant's own
+    seconds/minutes into the timestamp anchor, and the newly-added 60s
+    refetch (see web/README.md's own dated entry) made that constant drift
+    obvious instead of only showing up on a manual page reload.
+    """
+    epoch = datetime(1970, 1, 1, tzinfo=dt.tzinfo)
+    remainder = (dt - epoch) % step
+    return dt if remainder == timedelta(0) else dt + (step - remainder)
+
 # Fallback-only prediction interval: a fixed symmetric +/-20% band around the
 # physics estimate, NOT a real uncertainty quantification (the physics
 # baseline is deterministic - there are no model residuals to measure a
@@ -112,7 +132,8 @@ def _synthetic_hour_df(n: int, seed: int) -> tuple[pd.DataFrame, pd.Series]:
 
 def _synthetic_day_df(n_hours: int, seed: int) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
-    idx = pd.date_range(datetime.now(timezone.utc) - timedelta(hours=n_hours), periods=n_hours, freq="h", tz="UTC")
+    anchor = _ceil_to(datetime.now(timezone.utc), timedelta(hours=1))
+    idx = pd.date_range(anchor - timedelta(hours=n_hours), periods=n_hours, freq="h", tz="UTC")
     hour = idx.hour.to_numpy()
     ssrd = np.clip(800 * np.sin(np.pi * (hour - 6) / 12), 0, None)
     temp = 28 + 5 * np.sin(np.pi * (hour - 6) / 12) + rng.normal(0, 0.5, size=n_hours)
@@ -175,7 +196,8 @@ def get_latest_forecast(zone: str, horizon: str, store: RealDataStore | None = N
         except real_data.InsufficientHistoryError:
             window = _synthetic_minute_df(n=model.lookback, seed=hash((zone, "minute-now")) % 1000)
         pred = predict_minute_ahead(model, window)
-        points = [ForecastPoint(timestamp=now + timedelta(minutes=10 * (i + 1)), pred=float(v)) for i, v in enumerate(pred)]
+        minute_anchor = _ceil_to(now, timedelta(minutes=10))
+        points = [ForecastPoint(timestamp=minute_anchor + timedelta(minutes=10 * i), pred=float(v)) for i, v in enumerate(pred)]
 
     elif horizon == "hour":
         X_by_lead_hour: dict[int, pd.DataFrame] = {}
@@ -189,9 +211,13 @@ def get_latest_forecast(zone: str, horizon: str, store: RealDataStore | None = N
                 X_by_lead_hour[lead] = X_lead
         data_source = "real" if any_real else "synthetic"
         result = predict_hour_ahead_kstep(model, X_by_lead_hour)
+        hour_anchor = _ceil_to(now, timedelta(hours=1))
         points = [
             ForecastPoint(
-                timestamp=now + timedelta(hours=int(lead)), pred=float(row.pred), lower=float(row.lower), upper=float(row.upper)
+                timestamp=hour_anchor + timedelta(hours=int(lead) - 1),
+                pred=float(row.pred),
+                lower=float(row.lower),
+                upper=float(row.upper),
             )
             for lead, row in result.iterrows()
         ]
@@ -242,11 +268,11 @@ def get_forecast_with_fallback(zone: str, horizon: str, store: RealDataStore | N
 
     now = datetime.now(timezone.utc)
     if horizon == "minute":
-        timestamps = pd.date_range(now + timedelta(minutes=10), periods=6, freq="10min")
+        timestamps = pd.date_range(_ceil_to(now, timedelta(minutes=10)), periods=6, freq="10min")
     elif horizon == "hour":
-        timestamps = pd.date_range(now + timedelta(hours=1), periods=len(HOUR_LEAD_HOURS), freq="h")
+        timestamps = pd.date_range(_ceil_to(now, timedelta(hours=1)), periods=len(HOUR_LEAD_HOURS), freq="h")
     else:
-        timestamps = pd.date_range(now, periods=MAX_DAY_AHEAD_HOURS, freq="h")
+        timestamps = pd.date_range(_ceil_to(now, timedelta(hours=1)), periods=MAX_DAY_AHEAD_HOURS, freq="h")
 
     baseline = real_data.physics_baseline_series(zone, timestamps, store)
     points = [

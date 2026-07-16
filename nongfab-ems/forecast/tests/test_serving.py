@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from nongfab_forecast.serving import (
@@ -5,6 +7,7 @@ from nongfab_forecast.serving import (
     ModelNotTrainedError,
     UnknownHorizonError,
     UnknownZoneError,
+    _ceil_to,
     get_forecast_with_fallback,
     get_latest_forecast,
     validate_horizon,
@@ -63,3 +66,54 @@ def test_get_forecast_with_fallback_gives_the_physics_baseline_a_bounded_pi(tmp_
         assert point.lower <= point.pred <= point.upper
         assert point.lower == pytest.approx(max(0.0, point.pred * (1 - FALLBACK_PI_HALF_WIDTH_PCT)))
         assert point.upper == pytest.approx(point.pred * (1 + FALLBACK_PI_HALF_WIDTH_PCT))
+
+
+def test_ceil_to_rounds_up_to_the_next_hour_boundary():
+    dt = datetime(2026, 7, 17, 14, 23, 7, tzinfo=timezone.utc)
+    assert _ceil_to(dt, timedelta(hours=1)) == datetime(2026, 7, 17, 15, 0, 0, tzinfo=timezone.utc)
+
+
+def test_ceil_to_leaves_an_exact_boundary_unchanged():
+    dt = datetime(2026, 7, 17, 15, 0, 0, tzinfo=timezone.utc)
+    assert _ceil_to(dt, timedelta(hours=1)) == dt
+
+
+def test_ceil_to_rounds_up_to_the_next_ten_minute_boundary():
+    dt = datetime(2026, 7, 17, 14, 23, 7, tzinfo=timezone.utc)
+    assert _ceil_to(dt, timedelta(minutes=10)) == datetime(2026, 7, 17, 14, 30, 0, tzinfo=timezone.utc)
+
+
+def test_get_forecast_with_fallback_timestamps_land_on_clean_hour_boundaries(tmp_path, monkeypatch):
+    """2026-07-16: the dashboard's x-axis kept visibly shifting by a few
+    seconds on every 60s auto-refresh poll, because the forecast timestamp
+    grid was anchored directly to the unrounded datetime.now(). Regression
+    test: every hour/day-horizon point should now land exactly on :00."""
+    db_path = tmp_path / "mlflow.db"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{db_path}")
+    for horizon in ("hour", "day"):
+        result = get_forecast_with_fallback("GIS", horizon)
+        for point in result.points:
+            assert point.timestamp.minute == 0
+            assert point.timestamp.second == 0
+            assert point.timestamp.microsecond == 0
+
+
+def test_get_forecast_with_fallback_minute_timestamps_land_on_ten_minute_boundaries(tmp_path, monkeypatch):
+    db_path = tmp_path / "mlflow.db"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{db_path}")
+    result = get_forecast_with_fallback("GIS", "minute")
+    for point in result.points:
+        assert point.timestamp.minute % 10 == 0
+        assert point.timestamp.second == 0
+        assert point.timestamp.microsecond == 0
+
+
+def test_get_forecast_with_fallback_timestamps_are_stable_across_repeated_calls_within_the_same_window(tmp_path, monkeypatch):
+    """Regression test for the actual bug report: two calls a few seconds
+    apart (simulating two dashboard polls) should produce the *same*
+    timestamp grid, not one shifted by however many seconds elapsed."""
+    db_path = tmp_path / "mlflow.db"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{db_path}")
+    first = get_forecast_with_fallback("GIS", "hour")
+    second = get_forecast_with_fallback("GIS", "hour")
+    assert [p.timestamp for p in first.points] == [p.timestamp for p in second.points]

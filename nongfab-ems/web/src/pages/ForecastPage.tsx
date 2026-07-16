@@ -109,6 +109,56 @@ export function ForecastPage() {
         </div>
       </div>
 
+      <details className="model-info-panel">
+        <summary>ℹ️ โมเดลพยากรณ์ที่ใช้ในหน้านี้ / Forecast models used here</summary>
+        <table className="model-info-table">
+          <thead>
+            <tr>
+              <th>โหมด (Horizon)</th>
+              <th>โมเดล (Model)</th>
+              <th>ช่วงเวลา (Range)</th>
+              <th>ใช้เพื่อ (Purpose)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <strong>Day-ahead</strong>
+                <br />
+                พยากรณ์รายวัน
+              </td>
+              <td>NeuralProphet</td>
+              <td>ล่วงหน้าสูงสุด 72 ชม. (3 วัน)</td>
+              <td>ดูแนวโน้มการผลิตไฟฟ้าล่วงหน้าหลายวัน สำหรับวางแผนระยะกลาง</td>
+            </tr>
+            <tr>
+              <td>
+                <strong>Intra-day</strong>
+                <br />
+                พยากรณ์ภายในวัน
+              </td>
+              <td>LightGBM / Random Forest (ระบบเลือกตัวที่แม่นยำกว่าอัตโนมัติในแต่ละชั่วโมง)</td>
+              <td>ล่วงหน้า 1-6 ชม.</td>
+              <td>ดูแนวโน้มระยะสั้นภายในวันเดียวกัน</td>
+            </tr>
+            <tr>
+              <td>
+                <strong>Minute-ahead</strong>
+                <br />
+                <span className="model-info-note">(ไม่แสดงในหน้านี้ - ใช้ในส่วนอื่นของระบบ)</span>
+              </td>
+              <td>CNN-LSTM</td>
+              <td>ล่วงหน้า 10-60 นาที</td>
+              <td>พยากรณ์ระยะสั้นมากแบบเกือบเรียลไทม์</td>
+            </tr>
+          </tbody>
+        </table>
+        <p className="model-info-note">
+          ทุกโมเดลใช้ข้อมูลอากาศจริง (NWP/ดาวเทียมเมฆ) เมื่อสะสมเพียงพอ - ถ้ายังไม่พอ ระบบจะสำรองด้วยแบบจำลองฟิสิกส์ (physics
+          baseline) แทน ไม่ได้ทำนายมั่วๆ แต่ก็ยังไม่ใช่ ML ที่ train จากข้อมูลจริง (ดู caption ใต้กราฟเมื่อกำลังใช้โหมดสำรอง)
+        </p>
+      </details>
+
       <div className="kpi-row">
         <KpiCard label="Capacity" value={capacityKw.toFixed(1)} unit="kW" />
         <KpiCard label="Daily cumulative energy" value={dailyEnergyKwh.toFixed(1)} unit="kWh" />
