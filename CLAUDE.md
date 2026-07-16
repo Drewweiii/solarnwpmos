@@ -27,3 +27,13 @@ exhaustive prose, just enough to not have to ask again.
 3. **เป้าหมายและงานต่อไป (Next Steps for the Next Session)** — a numbered,
    unambiguous list of what to do first when the next session opens, so the
    incoming Claude can start immediately without asking redundant questions.
+
+## Run-code status updates — every time, not just at handoff
+
+Separately from the Handoff Report above: every time you actually run code
+(tests, build, lint, dev server boot, Playwright checks, background installs,
+etc.), send the user a short status update in the chat about what ran and
+the result (pass/fail, what it showed) — don't just run it silently and only
+surface the outcome later in a bigger summary. Keep each one brief (a
+sentence or two); this is a running visibility habit, not a second Handoff
+Report.
