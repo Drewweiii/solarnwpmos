@@ -32,7 +32,14 @@ def test_historical_cycles_zero_lookback_returns_cycles_up_to_end_only():
 
 @pytest.mark.asyncio
 async def test_backfill_range_yields_one_pair_per_cycle_in_order():
+    # Fixed `end` (13:00) so both the 00Z and 12Z cycles are in the past
+    # regardless of what wall-clock time this test happens to run at - without
+    # it, this test was flaky (failed whenever CI ran before 12:00 UTC, since
+    # `backfill_range()`'s default "now" anchor correctly excludes cycles that
+    # haven't published yet - a real behavior, not a bug, but one this test
+    # needs to control rather than inherit from the clock).
     settings = Settings(source_mode="http", gfs_cycles=[0, 12], publish_latency_minutes=0)
+    fixed_end = datetime(2026, 7, 15, 13, 0, tzinfo=timezone.utc)
     fake_points = [object(), object()]
 
     async def fake_fetch_cycle(issue_time, forecast_hour):
@@ -42,7 +49,7 @@ async def test_backfill_range_yields_one_pair_per_cycle_in_order():
         with patch.object(S3GfsBackfillDataSource, "fetch_cycle", new=AsyncMock(side_effect=fake_fetch_cycle)):
             results = [
                 r
-                async for r in backfill_range(settings, client, RateLimiter(0.0), lookback_days=0)
+                async for r in backfill_range(settings, client, RateLimiter(0.0), lookback_days=0, end=fixed_end)
             ]
 
     assert len(results) == 2  # cycles [0, 12] on the anchor day
@@ -52,7 +59,9 @@ async def test_backfill_range_yields_one_pair_per_cycle_in_order():
 
 @pytest.mark.asyncio
 async def test_backfill_range_yields_none_for_a_failed_cycle_and_continues():
+    # Same fixed-`end` reasoning as the test above.
     settings = Settings(source_mode="http", gfs_cycles=[0, 12], publish_latency_minutes=0)
+    fixed_end = datetime(2026, 7, 15, 13, 0, tzinfo=timezone.utc)
 
     async def flaky_fetch_cycle(issue_time, forecast_hour):
         if issue_time.hour == 0:
@@ -63,7 +72,7 @@ async def test_backfill_range_yields_none_for_a_failed_cycle_and_continues():
         with patch.object(S3GfsBackfillDataSource, "fetch_cycle", new=AsyncMock(side_effect=flaky_fetch_cycle)):
             results = [
                 r
-                async for r in backfill_range(settings, client, RateLimiter(0.0), lookback_days=0)
+                async for r in backfill_range(settings, client, RateLimiter(0.0), lookback_days=0, end=fixed_end)
             ]
 
     assert results[0] is None

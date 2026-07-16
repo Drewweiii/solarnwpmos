@@ -217,6 +217,26 @@ libeccodes0` (Debian/Ubuntu) before `pip install cfgrib`.
   `test_byte_range_for_field_uses_next_messages_offset_as_end`.
 - `ruff check` clean; full suite (38 tests, 3 integration-gated) passes.
 
+## Flaky test caught by finally getting CI to run at all (2026-07-16)
+
+This repo's root `.github/workflows/ci.yml` had never actually triggered a
+single run (it lived one directory below the real git repo root - see the
+root README's own note on this) until this date. The very first real run
+surfaced a genuine pre-existing bug here:
+`test_backfill_range_yields_one_pair_per_cycle_in_order` and
+`test_backfill_range_yields_none_for_a_failed_cycle_and_continues` called
+`backfill_range(..., lookback_days=0)` with `gfs_cycles=[0, 12]` but never
+controlled `backfill_range()`'s internal "now" anchor
+(`datetime.now(timezone.utc)`) - `historical_cycles()` correctly excludes any
+cycle later than that anchor (you can't backfill a GFS cycle that hasn't
+published yet, that's real, intended behavior), so whichever test happened to
+run before 12:00 UTC only saw the 00Z cycle and failed asserting on 2 results.
+Not a functional bug in `backfill_range()` itself - a test-determinism gap.
+Fixed by giving `backfill_range()` an optional `end: datetime | None`
+override (defaults to the original wall-clock behavior for every real
+caller, which passes none) and pinning both tests to a fixed `end` that
+puts both cycles in the past. `ingestion/nwp -v`: 41 passed, 5 skipped.
+
 ## Known gaps / next steps
 
 - `db/migrations/0003_nwp_forecast.sql` is written but, like Module 1's

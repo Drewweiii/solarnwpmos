@@ -43,15 +43,22 @@ async def backfill_range(
     lookback_days: int | None = None,
     target_latitude: float | None = None,
     target_longitude: float | None = None,
+    end: datetime | None = None,
 ) -> AsyncIterator[tuple[RawFetchResult, NWPForecastPoint] | None]:
     """Yields one (raw, point) pair per successfully-fetched historical cycle, in
     chronological order, or None for a cycle that failed after retries (logged, not
     raised - a gap in a 30-day backfill shouldn't abort the whole job; the caller
     decides whether too many gaps means the backfill itself failed).
+
+    `end` (defaults to "now", minus `publish_latency_minutes`) is the anchor
+    `historical_cycles()` treats as "the latest cycle that could plausibly have
+    published yet" - overridable so callers with a real-time dependency (this
+    default) are still deterministically testable; every real caller in this repo
+    leaves it as None and gets the original wall-clock behavior.
     """
     source = S3GfsBackfillDataSource(settings, client, rate_limiter, target_latitude, target_longitude)
     days = lookback_days if lookback_days is not None else settings.backfill_lookback_days
-    end = datetime.now(timezone.utc) - timedelta(minutes=settings.publish_latency_minutes)
+    end = (end if end is not None else datetime.now(timezone.utc)) - timedelta(minutes=settings.publish_latency_minutes)
 
     cycles = historical_cycles(end, days, settings.gfs_cycles)
     logger.info("nwp backfill: %d candidate cycles over %d days", len(cycles), days)
