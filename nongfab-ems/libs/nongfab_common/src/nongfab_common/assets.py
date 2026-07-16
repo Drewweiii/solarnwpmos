@@ -143,6 +143,12 @@ class Site(BaseModel):
     nominal_center: LatLon
     total_ac_capacity_kw_current_phase: float
     optimizer_common: str
+    # Defaulted (not required) so existing minimal test fixtures/YAML don't
+    # need updating - added 2026-07-16 from the user's own Google Earth
+    # pin annotations confirming the plant's formal facility code and
+    # street, not previously captured anywhere in this registry.
+    facility_code: str = ""
+    street_address: str = ""
 
 
 class CloudTileConfig(BaseModel):

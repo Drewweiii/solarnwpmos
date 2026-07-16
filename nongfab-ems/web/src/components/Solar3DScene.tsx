@@ -36,6 +36,30 @@ const BUILDING_HEIGHT_M = 10
 // meters above water, not building-scale).
 const PIER_DECK_HEIGHT_M = 4
 const PIER_DECK_THICKNESS_M = 0.6
+// GIS is ground-mount, not rooftop - config/assets.yaml's own tilt_deg
+// comment already says so ("not measured - SLD is electrical-only; looks
+// ground-mount from photos"), confirmed again by the user's own Google
+// Earth corner-pin screenshots (2026-07-16): GIS's panel array sits at
+// grade in an open yard next to the substation building, not on its roof.
+// A solid BUILDING_HEIGHT_M block there would misrepresent a real
+// building that isn't under those panels. Typical minimum ground
+// clearance under a fixed-tilt ground-mount rack's low edge - not a
+// measurement.
+const GROUND_MOUNT_CLEARANCE_M = 1.0
+
+type MountType = 'ground' | 'rooftop' | 'pier'
+
+// ISB ("Instrument Substation Building") is the one zone config/assets.
+// yaml's own tilt_deg comment calls rooftop ("looks like rooftop tilted
+// rows from photos") - it's the BUILDING_HEIGHT_M default below. Jetty is
+// the pier. GIS is ground-mount (see GROUND_MOUNT_CLEARANCE_M's own
+// docstring). Keyed by zone id, same reasoning as the pier check this
+// replaces - see Solar3DSceneProps' own `zone` field docstring.
+function mountTypeForZone(zone: string): MountType {
+  if (zone === 'Jetty') return 'pier'
+  if (zone === 'GIS') return 'ground'
+  return 'rooftop'
+}
 
 function stringColor(blockId: string): string {
   let hash = 0
@@ -71,7 +95,7 @@ interface BuildingMassProps {
   maxEast: number
   minNorth: number
   maxNorth: number
-  isPier: boolean
+  mountType: MountType
 }
 
 // Roof/deck overhang beyond the panels' own footprint, purely so panel edges
@@ -79,14 +103,39 @@ interface BuildingMassProps {
 // measurement.
 const FOOTPRINT_MARGIN_M = 2
 
-function BuildingMass({ minEast, maxEast, minNorth, maxNorth, isPier }: BuildingMassProps) {
+function BuildingMass({ minEast, maxEast, minNorth, maxNorth, mountType }: BuildingMassProps) {
   const width = maxEast - minEast + FOOTPRINT_MARGIN_M * 2
   const depth = maxNorth - minNorth + FOOTPRINT_MARGIN_M * 2
   const centerEast = (minEast + maxEast) / 2
   const centerNorth = (minNorth + maxNorth) / 2
+  const legRadius = 0.4
+  const corners: [number, number][] = [
+    [minEast, minNorth],
+    [minEast, maxNorth],
+    [maxEast, minNorth],
+    [maxEast, maxNorth],
+  ]
+
+  if (mountType === 'ground') {
+    // No solid mass at all - GIS's real structure is ground-mount racking
+    // in an open yard, not a building (see GROUND_MOUNT_CLEARANCE_M's own
+    // docstring). Short corner support legs are the same "this isn't
+    // solid ground" visual cue the pier deck uses below, just much shorter.
+    return (
+      <group>
+        {corners.map(([e, n]) => (
+          <mesh key={`${e}-${n}`} position={[e, GROUND_MOUNT_CLEARANCE_M / 2, -n]}>
+            <cylinderGeometry args={[legRadius * 0.5, legRadius * 0.5, GROUND_MOUNT_CLEARANCE_M, 8]} />
+            <meshStandardMaterial color="#374151" />
+          </mesh>
+        ))}
+      </group>
+    )
+  }
+
+  const isPier = mountType === 'pier'
   const height = isPier ? PIER_DECK_THICKNESS_M : BUILDING_HEIGHT_M
   const baseY = isPier ? PIER_DECK_HEIGHT_M : 0
-  const legRadius = 0.4
 
   return (
     <group>
@@ -97,12 +146,7 @@ function BuildingMass({ minEast, maxEast, minNorth, maxNorth, isPier }: Building
       {isPier &&
         // Support piles at the deck's 4 corners, purely a visual "this is
         // an elevated pier, not solid ground" cue - not a structural model.
-        [
-          [minEast, minNorth],
-          [minEast, maxNorth],
-          [maxEast, minNorth],
-          [maxEast, maxNorth],
-        ].map(([e, n]) => (
+        corners.map(([e, n]) => (
           <mesh key={`${e}-${n}`} position={[e, baseY / 2, -n]}>
             <cylinderGeometry args={[legRadius, legRadius, baseY, 8]} />
             <meshStandardMaterial color="#374151" />
@@ -251,7 +295,7 @@ export function Solar3DScene({
       }
     })
   }, [panels])
-  const isPierStructure = zone === 'Jetty'
+  const mountType = mountTypeForZone(zone)
 
   const sunPathLine = useMemo(
     () => sunPathPoints.map((p) => sunPositionVector(p.azimuth_deg, p.elevation_deg, SUN_MARKER_RADIUS_M)),
@@ -260,9 +304,15 @@ export function Solar3DScene({
   const sunPosition = useMemo(() => sunPositionVector(sunAzimuthDeg, sunElevationDeg, SUN_MARKER_RADIUS_M), [sunAzimuthDeg, sunElevationDeg])
 
   const focusCenterScene: [number, number] = [bounds.focus.center[0], -bounds.focus.center[1]]
-  // Panels sit on top of the roof/deck, not at ground level - see
-  // BUILDING_HEIGHT_M/PIER_DECK_HEIGHT_M's own docstrings.
-  const panelBaseY = isPierStructure ? PIER_DECK_HEIGHT_M + PIER_DECK_THICKNESS_M : BUILDING_HEIGHT_M
+  // Panels sit on top of the roof/deck (rooftop/pier), or just above grade on
+  // their support legs (ground-mount) - see BUILDING_HEIGHT_M/PIER_DECK_HEIGHT_M/
+  // GROUND_MOUNT_CLEARANCE_M's own docstrings.
+  const panelBaseY =
+    mountType === 'pier'
+      ? PIER_DECK_HEIGHT_M + PIER_DECK_THICKNESS_M
+      : mountType === 'ground'
+        ? GROUND_MOUNT_CLEARANCE_M
+        : BUILDING_HEIGHT_M
 
   return (
     <Canvas
@@ -307,7 +357,7 @@ export function Solar3DScene({
       )}
 
       {blockFootprints.map((f) => (
-        <BuildingMass key={f.blockId} minEast={f.minEast} maxEast={f.maxEast} minNorth={f.minNorth} maxNorth={f.maxNorth} isPier={isPierStructure} />
+        <BuildingMass key={f.blockId} minEast={f.minEast} maxEast={f.maxEast} minNorth={f.minNorth} maxNorth={f.maxNorth} mountType={mountType} />
       ))}
 
       {panels.map((panel) => (

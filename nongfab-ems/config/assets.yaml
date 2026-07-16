@@ -12,6 +12,13 @@ site:
   nominal_center: { lat: 12.71, lon: 101.15 }  # approximate; all 3 zones share one NWP grid cell (Module 2)
   total_ac_capacity_kw_current_phase: 400  # GIS 50 + ISB 150 + Jetty 200
   optimizer_common: "Huawei MERC-1300W-P (2:1)"  # used by all 3 zones
+  # From the user's own Google Earth screenshots (2026-07-16, GIS/ISB/Jetty
+  # corner-pin confirmation pass) - the facility's formal code and street,
+  # not previously captured here. "PTTLNG Nong Fab (LMPT2), Rong Pui Alley,
+  # Mueang Rayong District, Rayong" as given; district above already had
+  # the Thai-language subdistrict/district/province.
+  facility_code: "LMPT2"
+  street_address: "Rong Pui Alley, Mueang Rayong District, Rayong"
 
 zones:
   - id: GIS
