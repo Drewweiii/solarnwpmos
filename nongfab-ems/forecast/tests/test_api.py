@@ -52,10 +52,16 @@ def test_hour_ahead_train_then_forecast_round_trip(client):
     assert train_resp.status_code == 200
     train_body = train_resp.json()
     assert train_body["model_version"] == 1
-    # k-step: one LightGBM-vs-RF-vs-bias-correction metric bundle per lead hour
-    # (HOUR_LEAD_HOURS = 1..6), not a single flat metrics dict - see
-    # training.py's _train_hour_ahead_kstep.
-    per_lead_metric_keys = {"rmse", "mae", "mbe", "nrmse", "picp", "pinaw", "lgbm_rmse", "rf_rmse", "residual_std"}
+    # k-step: one LightGBM-vs-RF-vs-Sum-k-LSTM-vs-bias-correction metric bundle
+    # per lead hour (HOUR_LEAD_HOURS = 1..6), not a single flat metrics dict -
+    # see training.py's _train_hour_ahead_kstep. sum_k_rmse is present here
+    # because this test's fixed synthetic fallback data (300 rows/lead,
+    # deterministic seeds) always clears sum_k_lstm.train_sum_k_lstm_model's
+    # own minimum-aligned-rows bar - a real deployment with thin history could
+    # have it (harmlessly) missing for a given training run instead, see that
+    # function's own docstring on why a Sum-k LSTM training failure is
+    # non-fatal to the other two candidates.
+    per_lead_metric_keys = {"rmse", "mae", "mbe", "nrmse", "picp", "pinaw", "lgbm_rmse", "rf_rmse", "sum_k_rmse", "residual_std"}
     expected_metrics = {f"lead{lead}_{key}" for lead in range(1, 7) for key in per_lead_metric_keys}
     assert set(train_body["metrics"]) == expected_metrics
 
@@ -72,11 +78,12 @@ def test_hour_ahead_train_then_forecast_round_trip(client):
     for point in body["points"]:
         assert point["timestamp"].endswith("Z")
         assert point["lower"] <= point["pred"] <= point["upper"]
-        # each lead hour's winning candidate (LightGBM vs Random Forest, see
-        # training.py's per-lead competition) and its own validation RMSE
-        # travel with the point - this is what lets the dashboard color-code
-        # which model won and show a real (not invented) error line.
-        assert point["algorithm"] in ("lightgbm", "random_forest")
+        # each lead hour's winning candidate (LightGBM vs Random Forest vs
+        # Sum-k LSTM, see training.py's per-lead competition) and its own
+        # validation RMSE travel with the point - this is what lets the
+        # dashboard color-code which model won and show a real (not invented)
+        # error line.
+        assert point["algorithm"] in ("lightgbm", "random_forest", "sum_k_lstm")
         assert point["error"] >= 0
 
 

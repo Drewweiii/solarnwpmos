@@ -32,14 +32,15 @@ type HorizonToggle = 'day' | 'hour'
 
 const WEATHER_HOURS = [6, 9, 12, 15]
 
-// Intra-day's k-step forecast auto-selects LightGBM vs Random Forest
-// independently per lead hour (see forecast/hour_ahead.py's
+// Intra-day's k-step forecast auto-selects LightGBM vs Random Forest vs
+// Sum-k LSTM independently per lead hour (see forecast/hour_ahead.py's
 // HourAheadKStepModel) - coloring each point's dot by which one actually won
 // is what makes that adaptive selection visible instead of just claimed in
 // the model-info panel text.
 const ALGORITHM_DOT_COLOR: Record<string, string> = {
   lightgbm: 'var(--chart-lgbm)',
   random_forest: 'var(--chart-rf)',
+  sum_k_lstm: 'var(--chart-sumk)',
 }
 
 function forecastDot(props: DotItemDotProps) {
@@ -183,7 +184,7 @@ export function ForecastPage() {
                 <br />
                 พยากรณ์ภายในวัน
               </td>
-              <td>LightGBM / Random Forest (ระบบเลือกตัวที่แม่นยำกว่าอัตโนมัติในแต่ละชั่วโมง)</td>
+              <td>LightGBM / Random Forest / Sum-k LSTM (ระบบเลือกตัวที่แม่นยำกว่าอัตโนมัติในแต่ละชั่วโมง)</td>
               <td>ล่วงหน้า 1-6 ชม.</td>
               <td>ดูแนวโน้มระยะสั้นภายในวันเดียวกัน</td>
             </tr>
@@ -286,8 +287,8 @@ export function ForecastPage() {
           )}
           {!isLoading && !forecastError && showsAlgorithmDots && (
             <p className="forecast-status forecast-status-caption">
-              🟢 LightGBM &nbsp; 🟠 Random Forest — ระบบเลือกโมเดลที่แม่นยำกว่าโดยอัตโนมัติในแต่ละชั่วโมง (ดูสีจุดบนกราฟ) | เส้นประ
-              "Model error (RMSE)" คือค่าความคลาดเคลื่อนของโมเดลที่ชนะ วัดจากชุดข้อมูล validation จริง ไม่ใช่ค่าประมาณ
+              🟢 LightGBM &nbsp; 🟠 Random Forest &nbsp; 🔵 Sum-k LSTM — ระบบเลือกโมเดลที่แม่นยำกว่าโดยอัตโนมัติในแต่ละชั่วโมง (ดูสีจุดบนกราฟ)
+              | เส้นประ "Model error (RMSE)" คือค่าความคลาดเคลื่อนของโมเดลที่ชนะ วัดจากชุดข้อมูล validation จริง ไม่ใช่ค่าประมาณ
             </p>
           )}
         </section>

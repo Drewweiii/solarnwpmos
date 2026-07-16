@@ -7,6 +7,7 @@ instead of duplicating this horizon-branching block a second time.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import numpy as np
@@ -28,6 +29,9 @@ from .serving import (
     validate_horizon,
     validate_zone,
 )
+from .sum_k_lstm import align_common_rows, predict_sum_k_lstm, train_sum_k_lstm_model
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -134,13 +138,25 @@ def train_now(zone: str, horizon: str, store: RealDataStore | None = None) -> Tr
 def _train_hour_ahead_kstep(zone: str, store: RealDataStore) -> tuple[HourAheadKStepModel, dict, dict, str]:
     """Trains HourAheadKStepModel's 6 per-lead-hour sub-models (see that
     class's own docstring for why 6 independent models, not one multi-output
-    model). For each lead hour: trains both LightGBM and Random Forest
-    candidates, registers whichever wins on held-out validation RMSE (see
-    hour_ahead.py's own module docstring for the "this compares which
-    algorithm fits a deterministic physics target more closely, not real
-    forecast skill" caveat - genuinely real once real telemetry exists), then
-    trains a bias-correction cascade on that winner's own validation residual
+    model). For each lead hour: trains LightGBM, Random Forest, and (jointly,
+    once, across all 6 leads - see below) Sum-k LSTM, registers whichever
+    candidate wins that lead on held-out validation RMSE (see hour_ahead.py's
+    own module docstring for the "this compares which algorithm fits a
+    deterministic physics target more closely, not real forecast skill"
+    caveat - genuinely real once real telemetry exists), then trains a
+    bias-correction cascade on that winner's own validation residual
     (bias_correction.py - same "near-zero residual" caveat applies).
+
+    Sum-k LSTM (sum_k_lstm.py, added 2026-07-16 from the user's own reference
+    slides) is trained *once*, jointly across every lead's own training split
+    (not per-lead like LightGBM/Random Forest - its shared backbone needs
+    gradient signal from all 6 heads at once, see that module's own
+    docstring), then scored per lead the same RMSE way as the other two so
+    the three genuinely compete rather than Sum-k LSTM being treated
+    specially. If Sum-k LSTM fails to train (e.g. too little aligned history
+    across leads - see sum_k_lstm.train_sum_k_lstm_model's own ValueError),
+    the other two candidates still compete normally; a training failure here
+    is never fatal to the rest of hour-ahead.
 
     Returns (model, params, metrics, data_source) in the same shape train_now()
     logs for every other horizon - data_source is "real" if *any* lead hour
@@ -154,10 +170,21 @@ def _train_hour_ahead_kstep(zone: str, store: RealDataStore) -> tuple[HourAheadK
     metrics: dict[str, float] = {}
     any_real = False
 
+    X_train_by_lead: dict[int, pd.DataFrame] = {}
+    y_train_by_lead: dict[int, pd.Series] = {}
+    X_val_by_lead: dict[int, pd.DataFrame] = {}
+    y_val_by_lead: dict[int, pd.Series] = {}
+    lgbm_by_lead: dict[int, object] = {}
+    rf_by_lead: dict[int, object] = {}
+    lgbm_pred_by_lead: dict[int, pd.DataFrame] = {}
+    rf_pred_by_lead: dict[int, pd.DataFrame] = {}
+    lgbm_rmse_by_lead: dict[int, float] = {}
+    rf_rmse_by_lead: dict[int, float] = {}
+
     for lead in HOUR_LEAD_HOURS:
         try:
             X_all, y_all = real_data.real_hour_frame_kstep(zone, store, lead)
-            lead_source = "real"
+            source_by_lead[lead] = "real"
             any_real = True
             split = int(len(X_all) * 0.7)
         except real_data.InsufficientHistoryError:
@@ -166,43 +193,73 @@ def _train_hour_ahead_kstep(zone: str, store: RealDataStore) -> tuple[HourAheadK
             # so the 6 synthetic frames aren't identical) to avoid perturbing
             # already-tested/live-verified synthetic behavior.
             X_all, y_all = _synthetic_hour_df(n=300, seed=lead)
-            lead_source = "synthetic"
+            source_by_lead[lead] = "synthetic"
             split = 200
         X_train, y_train, X_val, y_val = X_all.iloc[:split], y_all.iloc[:split], X_all.iloc[split:], y_all.iloc[split:]
+        X_train_by_lead[lead], y_train_by_lead[lead] = X_train, y_train
+        X_val_by_lead[lead], y_val_by_lead[lead] = X_val, y_val
 
         lgbm_model = train_hour_ahead_model(X_train, y_train, X_val, y_val, n_trials=5)
         rf_model = train_rf_hour_ahead_model(X_train, y_train, X_val, y_val)
         lgbm_pred = predict_hour_ahead(lgbm_model, X_val)
         rf_pred = predict_hour_ahead(rf_model, X_val)
-        lgbm_rmse = float(np.sqrt(np.mean((lgbm_pred["pred"].to_numpy() - y_val.to_numpy()) ** 2)))
-        rf_rmse = float(np.sqrt(np.mean((rf_pred["pred"].to_numpy() - y_val.to_numpy()) ** 2)))
+        lgbm_by_lead[lead], rf_by_lead[lead] = lgbm_model, rf_model
+        lgbm_pred_by_lead[lead], rf_pred_by_lead[lead] = lgbm_pred, rf_pred
+        lgbm_rmse_by_lead[lead] = float(np.sqrt(np.mean((lgbm_pred["pred"].to_numpy() - y_val.to_numpy()) ** 2)))
+        rf_rmse_by_lead[lead] = float(np.sqrt(np.mean((rf_pred["pred"].to_numpy() - y_val.to_numpy()) ** 2)))
 
-        if rf_rmse < lgbm_rmse:
-            winner_model, winner_pred, algo, winner_rmse = rf_model, rf_pred, "random_forest", rf_rmse
-        else:
-            winner_model, winner_pred, algo, winner_rmse = lgbm_model, lgbm_pred, "lightgbm", lgbm_rmse
+    sum_k_model = None
+    sum_k_rmse_by_lead: dict[int, float] = {}
+    sum_k_pred_by_lead: dict[int, pd.DataFrame] = {}
+    aligned_X_val: dict[int, pd.DataFrame] = {}
+    aligned_y_val: dict[int, pd.Series] = {}
+    try:
+        sum_k_model = train_sum_k_lstm_model(X_train_by_lead, y_train_by_lead)
+        aligned_X_val, aligned_y_val, _ = align_common_rows(X_val_by_lead, y_val_by_lead, HOUR_LEAD_HOURS)
+        for lead in sum_k_model.lead_hours:
+            if lead not in aligned_X_val:
+                continue
+            pred = predict_sum_k_lstm(sum_k_model, lead, aligned_X_val)
+            sum_k_pred_by_lead[lead] = pred
+            sum_k_rmse_by_lead[lead] = float(np.sqrt(np.mean((pred["pred"].to_numpy() - aligned_y_val[lead].to_numpy()) ** 2)))
+    except Exception:
+        logger.warning("sum_k_lstm training/scoring failed for zone=%s - LightGBM/Random Forest still compete normally", zone, exc_info=True)
+
+    for lead in HOUR_LEAD_HOURS:
+        X_val, y_val = X_val_by_lead[lead], y_val_by_lead[lead]
+        candidates = [
+            (lgbm_rmse_by_lead[lead], "lightgbm", lgbm_by_lead[lead], lgbm_pred_by_lead[lead], X_val, y_val),
+            (rf_rmse_by_lead[lead], "random_forest", rf_by_lead[lead], rf_pred_by_lead[lead], X_val, y_val),
+        ]
+        if lead in sum_k_rmse_by_lead:
+            candidates.append(
+                (sum_k_rmse_by_lead[lead], "sum_k_lstm", None, sum_k_pred_by_lead[lead], aligned_X_val[lead], aligned_y_val[lead])
+            )
+        winner_rmse, algo, winner_model, winner_pred, winner_X, winner_y = min(candidates, key=lambda c: c[0])
+
         models_by_lead[lead] = winner_model
         algo_by_lead[lead] = algo
         rmse_by_lead[lead] = winner_rmse
 
-        day_corrector = train_bias_correction(X_val, winner_pred["pred"], y_val)
+        day_corrector = train_bias_correction(winner_X, winner_pred["pred"], winner_y)
         bias_correctors_by_lead[lead] = day_corrector
 
         lead_metrics = {
-            **evaluate_point_forecast(y_val, winner_pred["pred"]),
-            **evaluate_prediction_interval(y_val, winner_pred["lower"], winner_pred["upper"]),
+            **evaluate_point_forecast(winner_y, winner_pred["pred"]),
+            **evaluate_prediction_interval(winner_y, winner_pred["lower"], winner_pred["upper"]),
         }
         for key, value in lead_metrics.items():
             metrics[f"lead{lead}_{key}"] = value
-        metrics[f"lead{lead}_lgbm_rmse"] = lgbm_rmse
-        metrics[f"lead{lead}_rf_rmse"] = rf_rmse
+        metrics[f"lead{lead}_lgbm_rmse"] = lgbm_rmse_by_lead[lead]
+        metrics[f"lead{lead}_rf_rmse"] = rf_rmse_by_lead[lead]
+        if lead in sum_k_rmse_by_lead:
+            metrics[f"lead{lead}_sum_k_rmse"] = sum_k_rmse_by_lead[lead]
         metrics[f"lead{lead}_residual_std"] = day_corrector.residual_std_train
-        source_by_lead[lead] = lead_source
 
     model = HourAheadKStepModel(
         models_by_lead_hour=models_by_lead, algorithm_by_lead_hour=algo_by_lead,
         bias_correctors_by_lead_hour=bias_correctors_by_lead, rmse_by_lead_hour=rmse_by_lead,
-        lead_hours=HOUR_LEAD_HOURS,
+        lead_hours=HOUR_LEAD_HOURS, sum_k_model=sum_k_model,
     )
     params = {f"lead{lead}_algorithm": algo for lead, algo in algo_by_lead.items()}
     params.update({f"lead{lead}_data_source": source for lead, source in source_by_lead.items()})

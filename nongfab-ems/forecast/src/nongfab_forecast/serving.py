@@ -126,7 +126,22 @@ def _synthetic_hour_df(n: int, seed: int) -> tuple[pd.DataFrame, pd.Series]:
     temp = rng.uniform(20, 40, size=n)
     lag_power = rng.uniform(0, 200, size=n)
     power = 0.2 * irradiance - 0.5 * temp + 0.1 * lag_power + 10 + rng.normal(0, 5, size=n)
-    X = pd.DataFrame({"ssrd_w_m2": irradiance, "temp2m_c": temp, "power_lag1": lag_power})
+    # clear_sky_ssrd_w_m2/cloud_index: synthetic stand-ins for real_data.py's
+    # I_clr/CI columns (see that module's _clear_sky_ssrd_w_m2/
+    # _cloud_index_nearest_to) - no real timestamps exist in this synthetic path
+    # to compute a genuine clear-sky value from, so a plausible independent
+    # range is used instead, just to keep Sum-k LSTM's feature schema identical
+    # whether trained on real or synthetic data (same reasoning as this
+    # function's other columns - not accuracy-relevant, keeps the pipeline
+    # exercised end-to-end).
+    clear_sky = rng.uniform(400, 1000, size=n)
+    cloud_index = rng.uniform(0, 1, size=n)
+    X = pd.DataFrame(
+        {
+            "ssrd_w_m2": irradiance, "temp2m_c": temp, "power_lag1": lag_power,
+            "clear_sky_ssrd_w_m2": clear_sky, "cloud_index": cloud_index,
+        }
+    )
     return X, pd.Series(power, name="power_kw")
 
 

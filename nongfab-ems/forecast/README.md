@@ -457,6 +457,83 @@ Day-ahead even when GFS/NWP backfill is thin or unreachable in a given
 deployment (and doesn't re-seed on every restart once it has already run
 once).
 
+## Sum-k LSTM: a third competing candidate for Intra-day (2026-07-16)
+
+The user's own reference material (course slides on probabilistic hour-ahead
+irradiance forecasting) described a specific architecture - "Sum-k LSTM" -
+that neither this module nor its priority-list notes had ever defined; the
+user supplied the slides directly (four images: study sites, features, model
+architecture, results) rather than have this built from a guess.
+
+**Architecture** (`sum_k_lstm.py`): one shared "common model" `M_c` (an LSTM
+- the slides' headlined/winning variant) processes only *lagged* regressors;
+K independent small head networks `M_1..M_k`, one per forecast step, each
+combine the shared representation with *that step's own future regressors*
+to predict a prediction interval (not a bare point value); trained *jointly*,
+one loss `L_total = Σ L_i(θ_c, θ_i)` across every head at once, not K
+independently-trained models. Each head's loss (`qd_loss()`) balances
+coverage (PICP) against interval width - a genuine Quality-Driven-style
+(Pearce et al., 2018) objective, not plain point-accuracy error, matching
+the slides' "loss = PICP + sum of large width".
+
+**Adaptations from the literal slides** (discussed with the user before
+building, not silent deviations - see `sum_k_lstm.py`'s own module
+docstring for the full reasoning):
+- K=6 steps at **1-hour** resolution (this project's own `HOUR_LEAD_HOURS`),
+  not the slides' K=4 steps at 15-minute resolution.
+- LSTM backbone only - the slides' alternative ANN backbone isn't built.
+- "Auto-lagged regressors" = a length-K sequence of each lead-hour bucket's
+  own `[power_lag1, cloud_index]` (this project's k-step data is bucketed by
+  lead hour, not one continuous per-minute series the way the slides'
+  dataset apparently was); "future regressors" per head =
+  `[ssrd_w_m2, temp2m_c, clear_sky_ssrd_w_m2]`, matching the slides' I_nwp/
+  T_nwp/I_clr roles. This required two new real features on *all three*
+  candidates' shared input (`real_data.py`'s `real_hour_frame_kstep`/
+  `current_hour_conditions_kstep`), not just Sum-k LSTM's:
+  - `clear_sky_ssrd_w_m2` (I_clr) - clear-sky GHI at the *future* valid_time,
+    via `nongfab_features.clearsky` - needs no forecast at all, since it's a
+    deterministic function of solar geometry and time.
+  - `cloud_index` (CI) - real Himawari-derived cloud index nearest the
+    forecast's *issue* time (a lagged/exogenous regressor, not a future
+    one), falling back to a documented neutral default when no fresh
+    reading exists rather than blocking training.
+
+**Integration** (per the user's own explicit decision): Sum-k LSTM competes
+as a genuine third candidate in `training.py`'s existing per-lead-hour
+auto-select, picked by the same held-out validation RMSE LightGBM/Random
+Forest already use (not by its own PICP/width metrics, which are recorded as
+extra `lead{N}_sum_k_rmse` metrics but don't drive selection) - keeps the
+3-way comparison on one consistent, simple criterion. Trained *once* jointly
+across all 6 leads' own training splits (aligned to a common row count via
+`align_common_rows` - real per-lead series can differ in length, so this
+truncates to the shortest lead's own row count, most-recent rows first);
+LightGBM/Random Forest are unaffected and keep training on each lead's
+*full* own series independently, since forcing Sum-k LSTM's alignment onto
+them would shrink their data for no benefit of their own. A lead won by
+Sum-k LSTM records `None` in `HourAheadKStepModel.models_by_lead_hour` (not
+a duplicate model object) - the one shared `sum_k_model` field is read
+instead, dispatched by `algorithm_by_lead_hour`. A Sum-k LSTM training
+failure (e.g. too little aligned history) is logged and non-fatal - the
+other two candidates still compete normally that training run.
+
+**Not (yet) wired in this round, by explicit scope decision**: the "data
+closest to Huawei" question (PVOutput.org/NREL PVDAQ/Ausgrid, considered and
+set aside - see this file's PVGIS entry above and `ingestion/pvgis/
+README.md`'s "Data source & ToS" for why real generation data from a
+*different* site can't substitute for Nong Fab's own measured output) and
+real bias-correction validation (item 3 of the user's priority list) both
+still need Nong Fab's own telemetry (Huawei FusionSolar, access pending) -
+building Sum-k LSTM's architecture didn't need to wait on either.
+
+Verified end-to-end: `test_hour_ahead_train_then_forecast_round_trip`/
+`test_hour_ahead_retrain_bumps_version` (both `@pytest.mark.slow`, real
+training) confirm Sum-k LSTM trains successfully, wins some leads (observed
+alternating with LightGBM/Random Forest across leads in a real run, not a
+fixed winner), and survives a full MLflow/cloudpickle registry round-trip
+(register -> load -> predict) with its torch modules intact. 8 new
+`test_sum_k_lstm.py` unit tests plus 3 new `real_data.py` feature tests -
+119 tests in the whole `forecast/` module now (was 107).
+
 ## Known gaps / next steps
 
 - **No automatic retraining pipeline of its own** - `registry.log_run()` +

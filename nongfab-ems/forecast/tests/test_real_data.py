@@ -99,6 +99,74 @@ def test_real_hour_frame_dedupes_by_valid_time_keeping_latest():
     assert len(X) == real_data.MIN_HOUR_ROWS  # not +1 - the duplicate valid_time collapsed to one row
 
 
+def _seed_nwp_history_kstep(store: RealDataStore, n: int, lead_hour: int, base_issue: datetime, step: timedelta = timedelta(hours=6)) -> None:
+    """Seeds `n` rows all at the same `lead_hour` bucket (valid_time = issue_time
+    + lead_hour), issue_times `step` apart - mirrors real GFS cycles arriving
+    periodically, each contributing one row per lead hour."""
+    points = []
+    for i in range(n):
+        issue_time = base_issue + i * step
+        valid_time = issue_time + timedelta(hours=lead_hour)
+        ssrd = max(0.0, 700 * (1 - abs(valid_time.hour - 12) / 6))
+        points.append(
+            _FakeNWPPoint(
+                valid_time=valid_time, issue_time=issue_time, ssrd_w_m2=ssrd, temp2m_c=28.0,
+                wind10m_u_ms=1.0, wind10m_v_ms=1.0, relative_humidity_pct=75.0, source="test",
+            )
+        )
+    store.insert_nwp_points(points)
+
+
+def test_real_hour_frame_kstep_builds_expected_columns_above_minimum():
+    store = RealDataStore()
+    _seed_nwp_history_kstep(
+        store, n=real_data.MIN_HOUR_ROWS_PER_LEAD + 2, lead_hour=3, base_issue=datetime(2026, 7, 1, tzinfo=timezone.utc)
+    )
+
+    X, y = real_data.real_hour_frame_kstep("GIS", store, lead_hour=3)
+    assert list(X.columns) == ["ssrd_w_m2", "temp2m_c", "power_lag1", "clear_sky_ssrd_w_m2", "cloud_index"]
+    assert len(X) == len(y) == real_data.MIN_HOUR_ROWS_PER_LEAD + 2
+    assert (X["clear_sky_ssrd_w_m2"] >= 0).all()
+    # no cloud history seeded - every row falls back to the documented neutral default
+    assert (X["cloud_index"] == real_data._UNKNOWN_CLOUD_INDEX_DEFAULT).all()
+
+
+def test_real_hour_frame_kstep_uses_real_cloud_index_near_issue_time():
+    store = RealDataStore()
+    lead_hour = 2
+    base_issue = datetime(2026, 7, 1, 6, tzinfo=timezone.utc)
+    _seed_nwp_history_kstep(store, n=real_data.MIN_HOUR_ROWS_PER_LEAD, lead_hour=lead_hour, base_issue=base_issue)
+    # a real cloud reading exactly at the first row's own issue_time - later rows'
+    # issue_times are 6h+ apart, well outside _CLOUD_INDEX_MAX_AGE_MINUTES
+    store.insert_cloud_frames(
+        [_FakeCloudFrame(observed_at=base_issue, nong_fab_cloud_opacity_pct=80.0, nong_fab_cloud_index=0.8, source="test")]
+    )
+
+    X, _ = real_data.real_hour_frame_kstep("GIS", store, lead_hour=lead_hour)
+    assert X["cloud_index"].iloc[0] == pytest.approx(0.8)
+    assert X["cloud_index"].iloc[-1] == real_data._UNKNOWN_CLOUD_INDEX_DEFAULT
+
+
+def test_current_hour_conditions_kstep_includes_clear_sky_and_cloud_index():
+    store = RealDataStore()
+    lead_hour = 1
+    issue_time = datetime(2026, 7, 1, 4, tzinfo=timezone.utc)
+    valid_time = issue_time + timedelta(hours=lead_hour)
+    store.insert_nwp_points(
+        [
+            _FakeNWPPoint(
+                valid_time=valid_time, issue_time=issue_time, ssrd_w_m2=500.0, temp2m_c=28.0,
+                wind10m_u_ms=1.0, wind10m_v_ms=1.0, relative_humidity_pct=75.0, source="test",
+            )
+        ]
+    )
+
+    row = real_data.current_hour_conditions_kstep("GIS", store, lead_hour=lead_hour, now=issue_time)
+    assert list(row.columns) == ["ssrd_w_m2", "temp2m_c", "power_lag1", "clear_sky_ssrd_w_m2", "cloud_index"]
+    assert row.iloc[0]["clear_sky_ssrd_w_m2"] >= 0
+    assert row.iloc[0]["cloud_index"] == real_data._UNKNOWN_CLOUD_INDEX_DEFAULT
+
+
 def test_real_day_frame_raises_below_minimum_and_builds_indexed_frame_above():
     store = RealDataStore()
     _seed_nwp_history(store, n=10, start=datetime(2026, 7, 1, tzinfo=timezone.utc))

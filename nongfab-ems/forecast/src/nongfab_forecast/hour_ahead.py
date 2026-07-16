@@ -35,6 +35,8 @@ import optuna
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 
+from .sum_k_lstm import SumKLSTMModel, predict_sum_k_lstm
+
 optuna.logging.set_verbosity(optuna.logging.WARNING)  # Optuna is chatty by default; one line per cycle is enough
 
 
@@ -194,25 +196,36 @@ class HourAheadKStepModel:
     NWP-forecast-skill/feature relationship as lead time grows (matching the
     reference deck's own "Forecast results: k-step" evaluation, which scores
     each k separately too - see forecast/README.md's "Reference" section).
-    Each sub-model independently won an RF-vs-LightGBM comparison at training
-    time (training.py's k-step orchestration) - `algorithm_by_lead_hour`
-    records which. Bundled into one object (not 6 separately MLflow-registered
-    models) so the existing one-model-per-(horizon,zone) registry/versioning
-    scheme (registry.py) needed no changes for this - see forecast/README.md.
+    Each sub-model independently won an RF-vs-LightGBM-vs-Sum-k-LSTM comparison
+    at training time (training.py's k-step orchestration, three-way since
+    2026-07-16 - see sum_k_lstm.py) - `algorithm_by_lead_hour` records which.
+    A lead won by Sum-k LSTM has `None` in `models_by_lead_hour` for that lead
+    (not a duplicate/separate object): Sum-k LSTM is one jointly-trained model
+    shared across every lead it wins (see `sum_k_model` below), not six
+    independent ones like LightGBM/Random Forest are - `predict_hour_ahead_kstep`
+    dispatches to it via `sum_k_model` + `algorithm_by_lead_hour` instead.
+    Bundled into one object (not 6 separately MLflow-registered models) so the
+    existing one-model-per-(horizon,zone) registry/versioning scheme
+    (registry.py) needed no changes for this - see forecast/README.md.
     """
 
-    models_by_lead_hour: dict[int, HourAheadModel | RFHourAheadModel]
+    models_by_lead_hour: dict[int, HourAheadModel | RFHourAheadModel | None]
     algorithm_by_lead_hour: dict[int, str]
     bias_correctors_by_lead_hour: dict[int, object] = field(default_factory=dict)  # bias_correction.BiasCorrectionModel, see that module
     # The winning algorithm's own held-out validation RMSE per lead hour (the
-    # smaller of training.py's lgbm_rmse/rf_rmse comparison) - carried on the
-    # model itself (not just logged to MLflow) so serving.py can attach it to
-    # each forecast point as a "how much this model's own competition-winning
-    # result was typically off by" figure, without a separate MLflow lookup at
-    # request time. Same "measured from real training, not invented" spirit as
-    # bias_correctors_by_lead_hour's residual_std_train.
+    # smallest of training.py's lgbm_rmse/rf_rmse/sum_k_rmse comparison) -
+    # carried on the model itself (not just logged to MLflow) so serving.py can
+    # attach it to each forecast point as a "how much this model's own
+    # competition-winning result was typically off by" figure, without a
+    # separate MLflow lookup at request time. Same "measured from real
+    # training, not invented" spirit as bias_correctors_by_lead_hour's
+    # residual_std_train.
     rmse_by_lead_hour: dict[int, float] = field(default_factory=dict)
     lead_hours: tuple[int, ...] = (1, 2, 3, 4, 5, 6)
+    # The one jointly-trained Sum-k LSTM model (see sum_k_lstm.py), shared by
+    # every lead hour in algorithm_by_lead_hour that it won - None if Sum-k
+    # LSTM never won any lead (or failed to train) for this (zone, horizon).
+    sum_k_model: SumKLSTMModel | None = None
 
 
 def predict_hour_ahead_kstep(model: HourAheadKStepModel, X_by_lead_hour: dict[int, pd.DataFrame]) -> pd.DataFrame:
@@ -221,13 +234,22 @@ def predict_hour_ahead_kstep(model: HourAheadKStepModel, X_by_lead_hour: dict[in
     and `X_by_lead_hour` (a lead hour missing real/synthetic input data at
     serving time is silently skipped, not an error - see serving.py's caller),
     indexed by lead_hour ascending, columns pred/lower/upper/algorithm/
-    error_rmse. `algorithm` ("lightgbm"/"random_forest") and `error_rmse`
-    (that lead's winning validation RMSE) come straight from the model's own
-    `algorithm_by_lead_hour`/`rmse_by_lead_hour` - this is what lets the
-    dashboard show which candidate actually won each lead hour's competition,
-    and how far off its own validation run was, not just the point forecast.
-    Applies each lead's bias corrector (if one was trained) after the base
-    prediction - see bias_correction.py.
+    error_rmse. `algorithm` ("lightgbm"/"random_forest"/"sum_k_lstm") and
+    `error_rmse` (that lead's winning validation RMSE) come straight from the
+    model's own `algorithm_by_lead_hour`/`rmse_by_lead_hour` - this is what
+    lets the dashboard show which candidate actually won each lead hour's
+    competition, and how far off its own validation run was, not just the
+    point forecast. Applies each lead's bias corrector (if one was trained)
+    after the base prediction - see bias_correction.py.
+
+    A lead whose winner is Sum-k LSTM (`sub_model is None` - see
+    HourAheadKStepModel's own docstring) dispatches to `model.sum_k_model`
+    instead of `predict_hour_ahead`, and needs *every* lead present in
+    `X_by_lead_hour` (not just its own), since Sum-k LSTM's shared backbone
+    reads across all of them (see sum_k_lstm.py's own docstring) - a lead
+    whose winner is Sum-k LSTM but whose sibling leads are missing from
+    `X_by_lead_hour` is skipped (same "not an error" spirit as a plain missing
+    lead above), since there is nothing to build its auto-lagged sequence from.
     """
     from .bias_correction import apply_bias_correction
 
@@ -236,7 +258,12 @@ def predict_hour_ahead_kstep(model: HourAheadKStepModel, X_by_lead_hour: dict[in
         if lead_hour not in X_by_lead_hour:
             continue
         X = X_by_lead_hour[lead_hour]
-        result = predict_hour_ahead(sub_model, X)
+        if sub_model is None:
+            if model.sum_k_model is None or not set(model.sum_k_model.lead_hours) <= set(X_by_lead_hour):
+                continue
+            result = predict_sum_k_lstm(model.sum_k_model, lead_hour, X_by_lead_hour)
+        else:
+            result = predict_hour_ahead(sub_model, X)
         pred, lower, upper = float(result["pred"].iloc[0]), float(result["lower"].iloc[0]), float(result["upper"].iloc[0])
         corrector = model.bias_correctors_by_lead_hour.get(lead_hour)
         if corrector is not None:

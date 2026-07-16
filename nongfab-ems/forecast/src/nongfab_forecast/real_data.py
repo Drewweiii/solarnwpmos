@@ -41,6 +41,24 @@ MIN_MINUTE_ROWS = 30
 # in sync deliberately (both exist for the same "no real reading yet" reason).
 NOMINAL_AMBIENT_TEMP_C = 30.0
 
+# Sum-k LSTM's reference architecture (see forecast/README.md's dated entry) calls
+# for two real signals the original hour-ahead feature set didn't carry: I_clr
+# (clear-sky irradiance at the *future* valid_time - see _clear_sky_ssrd_w_m2) and
+# CI (cloud index observed *now*, at issue_time - see _cloud_index_nearest_to).
+# Added to real_hour_frame_kstep/current_hour_conditions_kstep so all three
+# competing candidates (LightGBM/Random Forest/Sum-k LSTM) see the same features,
+# not just Sum-k LSTM - LightGBM/RF simply get two more real inputs to split on.
+#
+# No fresh cloud reading within this many minutes of issue_time -> fall back to
+# this neutral default rather than raising InsufficientHistoryError: cloud
+# backfill maturing on its own schedule (a separate ingestion source, see
+# api/ingestion_scheduler.py) shouldn't block hour-ahead training that's
+# otherwise ready to go on NWP data alone. Same "assume mostly-clear, explicitly
+# optimistic bias" spirit as physics_baseline_series's own documented default,
+# not a measurement.
+_UNKNOWN_CLOUD_INDEX_DEFAULT = 0.3
+_CLOUD_INDEX_MAX_AGE_MINUTES = 60.0
+
 
 class InsufficientHistoryError(RuntimeError):
     """Real history exists but hasn't reached this builder's minimum row count yet."""
@@ -91,6 +109,45 @@ def real_hour_frame(zone: str, store: RealDataStore) -> tuple[pd.DataFrame, pd.S
 MIN_HOUR_ROWS_PER_LEAD = 8  # lower than MIN_HOUR_ROWS: k-step data is split across 6 lead-hour buckets, not pooled
 
 
+def _clear_sky_ssrd_w_m2(valid_times) -> np.ndarray:
+    """Clear-sky GHI (Ineichen model, via nongfab_features.clearsky) at each of
+    `valid_times` - Sum-k LSTM's I_clr, a genuine *future* regressor: unlike NWP,
+    it needs no forecast at all, since clear-sky irradiance is a deterministic
+    function of solar geometry and time, computable exactly for any future
+    instant, not just observed history.
+    """
+    from nongfab_features.clearsky import compute_clearsky_and_position, nong_fab_site_location
+
+    lat, lon = nong_fab_site_location()
+    idx = pd.DatetimeIndex(valid_times)
+    if idx.tz is None:
+        idx = idx.tz_localize("UTC")
+    clearsky = compute_clearsky_and_position(idx, lat, lon)
+    return clearsky["ghi_clearsky"].to_numpy()
+
+
+def _cloud_index_nearest_to(store: RealDataStore, issue_times) -> np.ndarray:
+    """Real cloud index (Himawari-derived, via store.cloud_history_df()) nearest
+    each of `issue_times` - Sum-k LSTM's CI, a lagged/exogenous regressor known
+    at forecast-*issue* time (cloud conditions right now), not the future
+    valid_time being forecast. Falls back to _UNKNOWN_CLOUD_INDEX_DEFAULT (not
+    InsufficientHistoryError) wherever no cloud observation exists within
+    _CLOUD_INDEX_MAX_AGE_MINUTES - see that constant's own docstring.
+    """
+    issue_times = pd.DatetimeIndex(issue_times)
+    cloud = store.cloud_history_df()
+    if len(cloud) == 0:
+        return np.full(len(issue_times), _UNKNOWN_CLOUD_INDEX_DEFAULT)
+
+    cloud = cloud[["observed_at", "cloud_index"]].sort_values("observed_at")
+    left = pd.DataFrame({"issue_time": issue_times, "_order": range(len(issue_times))}).sort_values("issue_time")
+    merged = pd.merge_asof(
+        left, cloud, left_on="issue_time", right_on="observed_at", direction="nearest",
+        tolerance=pd.Timedelta(minutes=_CLOUD_INDEX_MAX_AGE_MINUTES),
+    ).sort_values("_order")
+    return merged["cloud_index"].fillna(_UNKNOWN_CLOUD_INDEX_DEFAULT).to_numpy()
+
+
 def _nwp_history_with_lead_hours(store: RealDataStore) -> pd.DataFrame:
     """Real NWP history with an added `lead_hours` column (valid_time - issue_time,
     whole hours) - deliberately NOT deduped by valid_time alone (unlike
@@ -114,7 +171,10 @@ def real_hour_frame_kstep(zone: str, store: RealDataStore, lead_hour: int) -> tu
     hours before its own valid_time - not "whatever the latest forecast for that
     valid_time happens to be now", see _nwp_history_with_lead_hours) plus
     power_lag1 (physics power of the previous row *within this same lead_hour's
-    own series* - a same-lead persistence anchor), y is power_kw at that lead.
+    own series* - a same-lead persistence anchor), plus clear_sky_ssrd_w_m2/
+    cloud_index (Sum-k LSTM's I_clr/CI - see those helpers' own docstrings; also
+    available to LightGBM/Random Forest, since all three candidates train on the
+    same X), y is power_kw at that lead.
     """
     df = _nwp_history_with_lead_hours(store)
     at_lead = df[df["lead_hours"] == lead_hour].reset_index(drop=True) if len(df) else df
@@ -128,6 +188,8 @@ def real_hour_frame_kstep(zone: str, store: RealDataStore, lead_hour: int) -> tu
             "ssrd_w_m2": at_lead["ssrd_w_m2"].to_numpy(),
             "temp2m_c": at_lead["temp2m_c"].to_numpy(),
             "power_lag1": power.shift(1).bfill().to_numpy(),
+            "clear_sky_ssrd_w_m2": _clear_sky_ssrd_w_m2(at_lead["valid_time"]),
+            "cloud_index": _cloud_index_nearest_to(store, at_lead["issue_time"]),
         }
     )
     y = pd.Series(power.to_numpy(), name="power_kw")
@@ -159,7 +221,15 @@ def current_hour_conditions_kstep(zone: str, store: RealDataStore, lead_hour: in
         prev = at_lead.iloc[pos - 1]
         lag_power = float(pv_conversion.predict_power_kw(prev["ssrd_w_m2"], prev["temp2m_c"], params))
 
-    return pd.DataFrame({"ssrd_w_m2": [row["ssrd_w_m2"]], "temp2m_c": [row["temp2m_c"]], "power_lag1": [lag_power]})
+    return pd.DataFrame(
+        {
+            "ssrd_w_m2": [row["ssrd_w_m2"]],
+            "temp2m_c": [row["temp2m_c"]],
+            "power_lag1": [lag_power],
+            "clear_sky_ssrd_w_m2": _clear_sky_ssrd_w_m2([row["valid_time"]]),
+            "cloud_index": _cloud_index_nearest_to(store, [row["issue_time"]]),
+        }
+    )
 
 
 def real_day_frame(zone: str, store: RealDataStore) -> pd.DataFrame:

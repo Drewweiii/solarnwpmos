@@ -756,6 +756,18 @@ explanatory caption appears only on the Intra-day tab (confirmed absent on
 Day-ahead), and the Minute-ahead panel renders a connected red line for all
 6 points on every tab.
 
+### Added - Sum-k LSTM as a third dot color on the Intra-day chart (2026-07-16)
+
+Follow-up to the entry above: the backend gained a third Intra-day
+candidate, Sum-k LSTM (a shared-backbone, multi-head prediction-interval
+architecture from the user's own reference course slides - see
+`forecast/README.md`'s matching dated entry for the full architecture and
+integration story). `ALGORITHM_DOT_COLOR` gained a `sum_k_lstm` entry
+(`var(--chart-sumk)`, a teal distinct from LightGBM's green/Random Forest's
+orange/Minute-ahead's red/the error line's gray), the legend caption below
+the Intra-day chart now names all three candidates, and the model-info
+panel's Intra-day row lists all three too.
+
 ## Run locally
 
 ```bash
