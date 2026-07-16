@@ -23,6 +23,33 @@ that commit's message for the fuller reference-video breakdown); a full
 photorealistic satellite-textured render is a bigger follow-up (needs a real
 imagery source and building-massing data this repo doesn't have yet).
 
+**(2026-07-16, same pass)** `/3d`'s page chrome was also restyled toward the
+reslink.org reference, per the user's explicit choice to copy the card look
+including its CTAs - but mapped onto real controls, not literal marketing
+furniture:
+
+- **`Solar3DIconRail.tsx`** - a dark vertical icon rail overlaid on the
+  canvas' top-left corner (reslink's own toolbar placement), replacing the
+  old horizontal "Solar access / String view" tab row and the separate
+  Play/Pause button. Reslink's own rail switches between 3 render modes
+  this app doesn't have yet (abstract/photorealistic/satellite - see the
+  entry above); since there was nothing 1:1 to map those particular icons
+  to, the rail here holds the 4 controls this page actually has instead
+  (view-mode toggle x2, play/pause, and a new "reset camera view" button -
+  `Solar3DScene.tsx` now exposes a `resetCamera()` imperative handle via
+  React 19's plain-prop `ref`, no `forwardRef` wrapper needed). Hand-drawn
+  inline SVG icons, same pattern as the existing `Compass.tsx` - no new
+  icon-library dependency for 4 icons.
+- **`SolarAccessGauge.tsx`** - the red-yellow-green gradient status bar from
+  reslink's header, now next to the zone selector, driven by
+  `average_solar_access_pct` (the same metric the old plain-text readout
+  already showed - this is a visual treatment of existing data, not a new
+  metric).
+- Reslink's `DESKTOP`/`MOBILE` toggle and `Book a demo`/`Get 3D Access` CTA
+  buttons were deliberately **not** replicated - the user's own call: those
+  are marketing furniture for reslink's own embeddable-widget product, with
+  no equivalent purpose inside this internal EMS dashboard.
+
 STEP 8C (Feature D+E) is also built:
 
 - **`/energy-report`** - a per-zone Energy Report: system summary
@@ -396,6 +423,29 @@ under "Known gaps" above (`/3d` defaults to a night view for a Thailand
 plant because its slider is UTC-indexed) - pre-existing behavior, unrelated
 to the building-massing/grid-floor work itself, just noticed while
 screenshotting it.
+
+### Verified live - `/3d` icon rail + solar-access gauge (2026-07-16)
+
+Same real `uvicorn` + `vite dev` pair, headless Chromium. Screenshotted the
+new chrome at night (page default) and after driving the time slider to
+local noon:
+
+- The gradient gauge's white marker sits at the far left with "0%" at
+  night, and at the far right with "100%" at noon - correctly tracking
+  `average_solar_access_pct` live as the time scrub moves, not a static
+  decoration.
+- The icon rail's sun/layers icons correctly reflect the active view mode
+  (purple highlight moves between them on click); clicking the layers icon
+  switches GIS to string-color mode - panels stay uniformly green rather
+  than showing distinct per-string colors, which is *correct*, not a bug:
+  GIS has only one `block_id` (no real per-string survey - see
+  `panel_geometry.py`'s own docstring), so `stringColor()` hashes to one
+  color for the whole grid; Jetty's 4 real sub-arrays would show 4 distinct
+  colors instead.
+- Clicking play switches the icon to the pause glyph and the time slider
+  visibly advances (05:00 -> 05:15 across one screenshot); clicking reset
+  camera view doesn't throw and the scene remains rendered. No console or
+  WebGL errors across any of it.
 
 ## Run locally
 

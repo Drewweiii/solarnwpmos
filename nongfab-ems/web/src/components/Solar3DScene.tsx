@@ -6,9 +6,18 @@
 
 import { Grid, Line, OrbitControls } from '@react-three/drei'
 import { Canvas } from '@react-three/fiber'
-import { useMemo } from 'react'
+import { useImperativeHandle, useMemo, useRef } from 'react'
+import type { Ref } from 'react'
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { solarAccessColor, sunPositionVector } from '../lib/solar3d'
 import type { Panel, SunPathPoint } from '../lib/types'
+
+// Exposed to Solar3DPage's icon rail "reset camera" button - React 19 takes
+// `ref` as a plain prop (no forwardRef wrapper needed), see this component's
+// own signature below.
+export interface Solar3DSceneHandle {
+  resetCamera: () => void
+}
 
 const SUN_MARKER_RADIUS_M = 40
 
@@ -119,7 +128,20 @@ interface Solar3DSceneProps {
   zone: string
 }
 
-export function Solar3DScene({ panels, tiltDeg, azimuthDeg, sunAzimuthDeg, sunElevationDeg, sunPathPoints, viewMode, zone }: Solar3DSceneProps) {
+export function Solar3DScene({
+  panels,
+  tiltDeg,
+  azimuthDeg,
+  sunAzimuthDeg,
+  sunElevationDeg,
+  sunPathPoints,
+  viewMode,
+  zone,
+  ref,
+}: Solar3DSceneProps & { ref?: Ref<Solar3DSceneHandle> }) {
+  const controlsRef = useRef<OrbitControlsImpl | null>(null)
+  useImperativeHandle(ref, () => ({ resetCamera: () => controlsRef.current?.reset() }), [])
+
   // Default camera frames the *first block* (sub-array), not the whole
   // layout's bounding box: Jetty's 4 real sub-arrays are spread across its
   // ~1.25km trestle span, so a camera fit to the whole layout would either
@@ -241,7 +263,7 @@ export function Solar3DScene({ panels, tiltDeg, azimuthDeg, sunAzimuthDeg, sunEl
         </mesh>
       )}
 
-      <OrbitControls target={[focusCenterScene[0], panelBaseY, focusCenterScene[1]]} />
+      <OrbitControls ref={controlsRef} target={[focusCenterScene[0], panelBaseY, focusCenterScene[1]]} />
     </Canvas>
   )
 }

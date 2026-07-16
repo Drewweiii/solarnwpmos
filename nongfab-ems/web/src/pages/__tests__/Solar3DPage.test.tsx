@@ -153,6 +153,17 @@ describe('Solar3DPage', () => {
     expect(await screen.findByRole('button', { name: /pause/i })).toBeInTheDocument()
   })
 
+  it('clicking reset camera view does not throw when the scene has no imperative handle attached', async () => {
+    // Solar3DScene is mocked above as a plain component (no forwardRef/
+    // useImperativeHandle), so sceneRef.current is never populated in this
+    // test - the click handler's optional chaining (sceneRef.current?.
+    // resetCamera()) must tolerate that silently rather than throw.
+    const user = userEvent.setup()
+    renderPage()
+    const resetButton = await screen.findByRole('button', { name: /reset camera view/i })
+    await expect(user.click(resetButton)).resolves.not.toThrow()
+  })
+
   it('shows forecast vs actual readout tied to the scrub time (Feature A<->C)', async () => {
     renderPage()
     expect(await screen.findByText('42.5 kW')).toBeInTheDocument() // forecast

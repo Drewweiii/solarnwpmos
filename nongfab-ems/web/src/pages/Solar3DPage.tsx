@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Compass } from '../components/Compass'
+import { SolarAccessGauge } from '../components/SolarAccessGauge'
+import type { Solar3DSceneHandle } from '../components/Solar3DScene'
 import { Solar3DScene } from '../components/Solar3DScene'
+import { Solar3DIconRail } from '../components/Solar3DIconRail'
 import { ZoneSelector } from '../components/ZoneSelector'
 import { nearestToTimestamp } from '../lib/chartData'
 import { useForecast, useGeometry, usePerformance, useSunPath } from '../lib/queries'
@@ -17,6 +20,7 @@ export function Solar3DPage() {
   const [date, setDate] = useState(todayIso())
   const [timeOfDayMinutes, setTimeOfDayMinutes] = useState(12 * 60)
   const [isPlaying, setIsPlaying] = useState(false)
+  const sceneRef = useRef<Solar3DSceneHandle>(null)
 
   const atIso = useMemo(() => buildAtIso(date, timeOfDayMinutes), [date, timeOfDayMinutes])
 
@@ -44,26 +48,7 @@ export function Solar3DPage() {
     <div className="solar3d-page">
       <div className="solar3d-controls">
         <ZoneSelector value={zone} onChange={setZone} includeAll={false} />
-        <div className="view-mode-toggle" role="tablist" aria-label="Panel color mode">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={viewMode === 'access'}
-            className={viewMode === 'access' ? 'view-mode-tab active' : 'view-mode-tab'}
-            onClick={() => setViewMode('access')}
-          >
-            Solar access
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={viewMode === 'string'}
-            className={viewMode === 'string' ? 'view-mode-tab active' : 'view-mode-tab'}
-            onClick={() => setViewMode('string')}
-          >
-            String view
-          </button>
-        </div>
+        {geometry.data && <SolarAccessGauge pct={geometry.data.average_solar_access_pct} />}
       </div>
 
       <div className="solar3d-sweep-controls">
@@ -85,19 +70,10 @@ export function Solar3DPage() {
           onChange={(e) => setTimeOfDayMinutes(Number(e.target.value))}
         />
         <span className="solar3d-time-readout">{minutesToHhMm(timeOfDayMinutes)}</span>
-        <button type="button" onClick={() => setIsPlaying((p) => !p)} aria-pressed={isPlaying}>
-          {isPlaying ? 'Pause' : 'Play'}
-        </button>
       </div>
 
       <div className="solar3d-readouts">
         {geometry.data && <Compass azimuthDeg={geometry.data.sun.azimuth_deg} elevationDeg={geometry.data.sun.elevation_deg} />}
-        {geometry.data && (
-          <div className="solar-access-readout">
-            <span className="solar-access-value">{Math.round(geometry.data.average_solar_access_pct)}%</span>
-            <span className="solar-access-label">avg solar access</span>
-          </div>
-        )}
         {geometry.data?.simulated_zone && (
           <span className="solar3d-simulated-badge">Simulated zone - no panels installed yet</span>
         )}
@@ -132,16 +108,26 @@ export function Solar3DPage() {
       <div className="solar3d-canvas-wrapper">
         {geometry.isLoading && <p className="forecast-status">Loading geometry…</p>}
         {geometry.data && (
-          <Solar3DScene
-            panels={geometry.data.panels}
-            tiltDeg={geometry.data.tilt_deg}
-            azimuthDeg={geometry.data.azimuth_deg}
-            sunAzimuthDeg={geometry.data.sun.azimuth_deg}
-            sunElevationDeg={geometry.data.sun.elevation_deg}
-            sunPathPoints={sunPath.data?.points ?? []}
-            viewMode={viewMode}
-            zone={zone}
-          />
+          <>
+            <Solar3DIconRail
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              isPlaying={isPlaying}
+              onPlayToggle={() => setIsPlaying((p) => !p)}
+              onResetCamera={() => sceneRef.current?.resetCamera()}
+            />
+            <Solar3DScene
+              ref={sceneRef}
+              panels={geometry.data.panels}
+              tiltDeg={geometry.data.tilt_deg}
+              azimuthDeg={geometry.data.azimuth_deg}
+              sunAzimuthDeg={geometry.data.sun.azimuth_deg}
+              sunElevationDeg={geometry.data.sun.elevation_deg}
+              sunPathPoints={sunPath.data?.points ?? []}
+              viewMode={viewMode}
+              zone={zone}
+            />
+          </>
         )}
       </div>
     </div>
