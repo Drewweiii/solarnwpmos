@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildAtIso, minutesToHhMm, todayIso } from '../timeScrub'
+import { buildAtIso, formatDateHourUtc, formatHourUtc, minutesToHhMm, todayIso } from '../timeScrub'
 
 describe('minutesToHhMm', () => {
   it('pads hours and minutes to two digits', () => {
@@ -23,5 +23,22 @@ describe('buildAtIso', () => {
 describe('todayIso', () => {
   it('returns a YYYY-MM-DD formatted date', () => {
     expect(todayIso()).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+})
+
+describe('formatHourUtc', () => {
+  it('formats an ISO timestamp as 24h HH:MM in UTC, ignoring the local timezone', () => {
+    expect(formatHourUtc('2026-07-17T05:30:00Z')).toBe('05:30')
+  })
+})
+
+describe('formatDateHourUtc', () => {
+  it('formats an ISO timestamp with a short date plus 24h time, both in UTC', () => {
+    expect(formatDateHourUtc('2026-07-17T05:30:00Z')).toBe('17 Jul 05:30')
+  })
+
+  it('advances the date part across a UTC midnight boundary', () => {
+    expect(formatDateHourUtc('2026-07-17T23:00:00Z')).toBe('17 Jul 23:00')
+    expect(formatDateHourUtc('2026-07-18T00:00:00Z')).toBe('18 Jul 00:00')
   })
 })

@@ -27,3 +27,19 @@ export function buildAtIso(date: string, minutes: number): string {
 export function formatHourUtc(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' })
 }
+
+/** "17 Jul 01:00" in UTC - for charts spanning more than one calendar day
+ * (ForecastPage's day-ahead horizon runs 72h/3 days), where HH:MM alone
+ * repeats every day and gives no sense of which day a tick is on. User
+ * asked for the date to visibly advance across the x-axis, not just the
+ * time (2026-07-17). */
+export function formatDateHourUtc(iso: string): string {
+  const d = new Date(iso)
+  // 'en-GB' forces day-month order ("17 Jul") deterministically - the
+  // browser's default locale (passing []) would otherwise flip to
+  // month-day ("Jul 17") for e.g. US-locale viewers, making the axis
+  // format depend on who's looking at it.
+  const datePart = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', timeZone: 'UTC' })
+  const timePart = formatHourUtc(iso)
+  return `${datePart} ${timePart}`
+}

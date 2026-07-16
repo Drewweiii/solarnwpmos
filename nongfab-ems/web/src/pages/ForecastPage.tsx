@@ -22,7 +22,7 @@ import {
   weatherIconFor,
 } from '../lib/chartData'
 import { ALL_ZONES_ID, useAllZonesForecast, useAllZonesPerformance, useForecast, usePerformance, useZones } from '../lib/queries'
-import { formatHourUtc as formatHour } from '../lib/timeScrub'
+import { formatDateHourUtc, formatHourUtc as formatHour } from '../lib/timeScrub'
 import type { ForecastHorizon, ForecastPoint, HourlyPoint } from '../lib/types'
 import './ForecastPage.css'
 
@@ -194,10 +194,10 @@ export function ForecastPage() {
             <ResponsiveContainer width="100%" height={320}>
               <ComposedChart data={chartRows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                <XAxis dataKey="timestamp" tickFormatter={formatHour} minTickGap={24} />
+                <XAxis dataKey="timestamp" tickFormatter={formatDateHourUtc} minTickGap={60} />
                 <YAxis unit=" kW" width={80} />
                 <Tooltip
-                  labelFormatter={(label) => (typeof label === 'string' ? formatHour(label) : String(label))}
+                  labelFormatter={(label) => (typeof label === 'string' ? formatDateHourUtc(label) : String(label))}
                   formatter={(value) => (typeof value === 'number' ? value.toFixed(1) : String(value))}
                 />
                 <Legend />

@@ -683,6 +683,26 @@ x-axis ticks now read clean hour boundaries (`00:00`, `09:00`, `18:00`,
 tooltip on hover shows a clean `16:00` too. The collapsible model info
 panel opens correctly, showing all three models with their ranges/purpose.
 
+### Added - date shown on the forecast x-axis, not just time (2026-07-16)
+
+Follow-up to the fix above: the day-ahead horizon spans 72h/3 calendar
+days, but the x-axis and tooltip still only showed `HH:MM` - the same
+`09:00` label repeats three times across the chart with nothing to tell
+which day it's on. User asked for the date to visibly progress alongside
+the time.
+
+Added `formatDateHourUtc()` in `timeScrub.ts`, combining a short UTC date
+(`17 Jul`) with the existing `HH:MM` into `"17 Jul 09:00"`. Used for both
+the chart's `XAxis` tick formatter and the `Tooltip` label formatter
+(`minTickGap` raised from 24 to 60 to keep the wider labels from
+overlapping). The minute-ahead/intra-day weather strip elsewhere on the
+page keeps the plain `HH:MM` formatter, since that view never spans a day
+boundary. Date is pinned to `'en-GB'` day-month order explicitly (not the
+browser's default locale) so the axis reads the same regardless of the
+viewer's locale settings. 2 new tests in `timeScrub.test.ts`, including a
+UTC-midnight boundary check (`23:00` on one day → `00:00` on the next
+shows the date advancing correctly).
+
 ## Run locally
 
 ```bash
