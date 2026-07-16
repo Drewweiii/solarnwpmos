@@ -487,6 +487,38 @@ local noon:
   camera view doesn't throw and the scene remains rendered. No console or
   WebGL errors across any of it.
 
+### Fixed - GIS ground-mount vs rooftop 3D representation (2026-07-16)
+
+The user shared their own Google Earth screenshots (corner-pinned
+UL/UR/LL/LR for GIS, ISB, Jetty) for "PTTLNG Nong Fab (LMPT2), Rong Pui
+Alley, Mueang Rayong District, Rayong" and asked for a recheck before going
+live. That prompted re-reading `config/assets.yaml`'s own `tilt_deg`
+comments, which had already documented (predating the building-massing
+feature above) that GIS "looks ground-mount from photos" while only ISB
+"looks like rooftop tilted rows from photos" - a distinction the
+building-massing work above missed, rendering GIS under the same solid
+`BUILDING_HEIGHT_M` block as ISB.
+
+Replaced the binary building/pier split in `Solar3DScene.tsx` with a 3-way
+`MountType` (`'ground' | 'rooftop' | 'pier'`), keyed off zone id via
+`mountTypeForZone()`. Ground-mount (GIS) now renders 4 short corner support
+legs (`GROUND_MOUNT_CLEARANCE_M = 1.0`, a typical fixed-tilt rack's minimum
+clearance - not a measurement) instead of a solid mass, with panels sitting
+just above grade rather than atop a 10m building that doesn't exist there.
+
+Also added `facility_code: "LMPT2"` and `street_address` to `Site` in
+`config/assets.yaml`/`assets.py` (defaulted fields, so existing minimal test
+fixtures didn't need updating) - previously not captured anywhere in the
+asset registry.
+
+**Verified live**: same real `uvicorn` + `vite dev` pair, headless
+Chromium, time slider driven to 05:00 UTC (local noon) via Playwright:
+- GIS: panels now sit near grade with no solid mass beneath them (short
+  support legs, not visible at this camera distance/angle) - previously a
+  gray building block identical to ISB's.
+- ISB: unchanged, still a solid rooftop block.
+- Jetty: unchanged, still the thin elevated pier deck.
+
 ## Run locally
 
 ```bash
