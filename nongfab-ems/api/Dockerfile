@@ -30,6 +30,8 @@ COPY forecast/pyproject.toml ./forecast/pyproject.toml
 COPY forecast/src ./forecast/src
 COPY simulation/pyproject.toml ./simulation/pyproject.toml
 COPY simulation/src ./simulation/src
+COPY financial/pyproject.toml ./financial/pyproject.toml
+COPY financial/src ./financial/src
 COPY ingestion/nwp/pyproject.toml ./ingestion/nwp/pyproject.toml
 COPY ingestion/nwp/src ./ingestion/nwp/src
 COPY ingestion/himawari/pyproject.toml ./ingestion/himawari/pyproject.toml
@@ -39,7 +41,7 @@ COPY ingestion/nasa_power/src ./ingestion/nasa_power/src
 COPY api/pyproject.toml ./api/pyproject.toml
 COPY api/src ./api/src
 RUN pip install --no-cache-dir \
-      ./libs/nongfab_common ./features ./forecast ./simulation \
+      ./libs/nongfab_common ./features ./forecast ./simulation ./financial \
       ./ingestion/nwp ./ingestion/himawari ./ingestion/nasa_power \
       ./api
 

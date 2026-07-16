@@ -24,6 +24,7 @@ from . import (
     metrics,
     routes_assets,
     routes_energy_report,
+    routes_financial,
     routes_forecast,
     routes_irradiance_map,
     routes_performance,
@@ -143,6 +144,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     app.include_router(routes_performance.router)
     app.include_router(routes_solar3d.router)
     app.include_router(routes_energy_report.router)
+    app.include_router(routes_financial.router)
     app.include_router(routes_irradiance_map.router)
     app.include_router(ws_live.router)
 

@@ -5,6 +5,7 @@ import './App.css'
 import { Layout } from './components/Layout'
 import { Login } from './components/Login'
 import { AuthProvider, useAuth } from './lib/auth'
+import { FinancialPage } from './pages/FinancialPage'
 import { ForecastPage } from './pages/ForecastPage'
 import { SimulationPlaygroundPage } from './pages/SimulationPlaygroundPage'
 
@@ -33,6 +34,7 @@ function RequireAuth() {
         <Route index element={<Navigate to="/forecast" replace />} />
         <Route path="/forecast" element={<ForecastPage />} />
         <Route path="/simulation" element={<SimulationPlaygroundPage />} />
+        <Route path="/financial" element={<FinancialPage />} />
         <Route
           path="/3d"
           element={

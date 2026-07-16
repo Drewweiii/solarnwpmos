@@ -1,6 +1,16 @@
 import { keepPreviousData, useMutation, useQueries, useQuery } from '@tanstack/react-query'
-import { getAssets, getEnergyReport, getForecast, getGeometry, getIrradianceMap, getPerformance, getSunPath, postSimulate } from './api'
-import type { ForecastHorizon, SimulateRequest } from './types'
+import {
+  getAssets,
+  getEnergyReport,
+  getForecast,
+  getGeometry,
+  getIrradianceMap,
+  getPerformance,
+  getSunPath,
+  postFinancial,
+  postSimulate,
+} from './api'
+import type { FinancialRequest, ForecastHorizon, SimulateRequest } from './types'
 import { useAuth } from './auth'
 
 export const ALL_ZONES_ID = 'ALL'
@@ -138,5 +148,15 @@ export function useSimulate() {
   const { token } = useAuth()
   return useMutation({
     mutationFn: ({ zone, request }: { zone: string; request: SimulateRequest }) => postSimulate(zone, request, token!),
+  })
+}
+
+/** POST /financial is also a mutation, not a query, same reasoning as
+ * useSimulate() above - a heavier what-if computation run on demand, not a
+ * plain read. */
+export function useFinancial() {
+  const { token } = useAuth()
+  return useMutation({
+    mutationFn: (request: FinancialRequest) => postFinancial(request, token!),
   })
 }

@@ -24,8 +24,8 @@ defaults:
 
 # Every Python job installs its own sibling packages *editable* (`pip install -e`)
 # straight from this checkout, in dependency order (nongfab-common -> features ->
-# forecast -> simulation -> api; ingestion/orchestration branch off nongfab-common
-# too). That's deliberate, not an oversight: none of these packages are published to
+# forecast -> simulation -> financial -> api; ingestion/orchestration branch off
+# nongfab-common too). That's deliberate, not an oversight: none of these packages are published to
 # PyPI, so an editable install is what lets a bare `nongfab-common` requirement in
 # e.g. api/pyproject.toml resolve to the sibling checked out right here instead of
 # pip trying (and failing) to fetch it from the index. Editable also keeps each
@@ -88,6 +88,19 @@ jobs:
       - run: ruff check simulation/src simulation/tests
       - run: pytest simulation -v
 
+  financial:
+    name: lint+test - financial/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install ruff -e ./libs/nongfab_common -e ./features -e ./forecast -e ./simulation -e "./financial[dev]"
+      - run: ruff check financial/src financial/tests
+      - run: pytest financial -v
+
   api:
     name: lint+test - api/
     runs-on: ubuntu-latest
@@ -99,7 +112,7 @@ jobs:
           cache: pip
       - run: >
           pip install ruff
-          -e ./libs/nongfab_common -e ./features -e ./forecast -e ./simulation
+          -e ./libs/nongfab_common -e ./features -e ./forecast -e ./simulation -e ./financial
           -e ./ingestion/nwp -e ./ingestion/himawari -e ./ingestion/nasa_power
           -e "./api[dev]"
       - run: ruff check api/src api/tests

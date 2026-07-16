@@ -115,6 +115,46 @@ export interface SimulateResponse {
   loss_breakdown: Record<string, number>
 }
 
+// Every field here overrides one of financial/nongfab_financial/model.py's
+// FinancialAssumptions defaults - see that module's own docstring for which
+// are documented placeholders (CAPEX/tariff/WACC/BOI) vs. real facts
+// (Thailand's standard corporate tax rate).
+export interface FinancialRequest {
+  capex_thb?: number
+  opex_pct_of_capex_per_year?: number
+  tariff_thb_per_kwh?: number
+  tariff_escalation_pct_per_year?: number
+  opex_escalation_pct_per_year?: number
+  discount_rate_pct?: number
+  tax_rate_pct?: number
+  boi_tax_holiday_years?: number
+  degradation_pct_per_year?: number
+  lifetime_years?: number
+}
+
+export interface CashFlowYearOut {
+  year: number
+  ac_energy_kwh: number
+  avoided_cost_thb: number
+  opex_thb: number
+  tax_thb: number
+  net_cash_flow_thb: number
+  cumulative_undiscounted_cash_flow_thb: number
+  cumulative_discounted_cash_flow_thb: number
+}
+
+export interface FinancialResponse {
+  installed_dc_capacity_kwp: number
+  year_1_ac_energy_kwh: number
+  capex_thb: number
+  npv_thb: number
+  irr_pct: number | null
+  lcoe_thb_per_kwh: number
+  simple_payback_years: number | null
+  discounted_payback_years: number | null
+  cash_flows: CashFlowYearOut[]
+}
+
 export interface SolarPosition {
   azimuth_deg: number
   elevation_deg: number

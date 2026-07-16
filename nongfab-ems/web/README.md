@@ -609,6 +609,43 @@ block correctly showed Thai local time exactly +7h ahead of the UTC line
 band rendered as a visible shaded region around each of the 3 forecast
 peaks, with the "approximate ±20%" caption present underneath.
 
+### Added - `/financial` investment-analysis playground (2026-07-16)
+
+The user reframed the whole project's priorities partway through this
+session: sub-daily/hour-ahead/day-ahead forecasting (Module 4) has little
+operational value at this site (fully grid-tied, no battery, capacity
+capped by available land - nothing dispatch-related changes based on a
+forecast), and what actually matters is investment payback. New page
+`FinancialPage.tsx`, mirroring the Simulation Playground's slider-input +
+output-card UX rather than inventing a new layout:
+
+- Sliders for every `nongfab_financial.model.FinancialAssumptions` field
+  (OPEX %, tariff, tariff/OPEX escalation, WACC, tax rate, BOI holiday
+  years, degradation, lifetime), plus a CAPEX auto-estimate/custom-figure
+  toggle.
+- KPI cards: CAPEX, NPV, IRR, LCOE, simple payback, discounted payback.
+- A 25-year cumulative (discounted vs. undiscounted) cash flow chart with
+  a zero reference line, so the payback crossing is visible directly on
+  the chart, not just in the KPI numbers.
+- A persistent warning banner: every assumption is a documented
+  placeholder pending the user's real CAPEX/PEA-tariff/WACC/BOI figures
+  (Thailand's 20% corporate tax rate is the one real fact) - see
+  `financial/README.md`'s own table.
+- Runs once automatically on mount with placeholder defaults so the page
+  isn't empty on first load, then re-runs on demand as the user adjusts
+  sliders (`useEffect` + `useFinancial()` mutation, same "run on demand"
+  pattern as `useSimulate()`).
+
+**Verified live**: real `uvicorn` + `vite dev` + Playwright. Loaded with
+default placeholders: CAPEX ฿6,006,000 (auto from 200.2 kWp installed),
+NPV ฿12,886,082, IRR 26.2%, LCOE ฿1.47/kWh, simple payback 4.0yr,
+discounted payback 5.0yr - the cumulative cash flow chart's zero-crossing
+matched those payback years visually. Caught and fixed a real bug during
+this pass: the Y-axis's default 90px width clipped the leading digit off
+large THB figures (e.g. "5,000,000" rendered as ",000,000") - fixed by
+switching to a compact "฿12.9M" tick formatter instead of full digit
+strings.
+
 ## Run locally
 
 ```bash

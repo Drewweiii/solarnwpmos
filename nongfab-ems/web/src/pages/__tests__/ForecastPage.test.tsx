@@ -61,6 +61,8 @@ function makeForecast(zone: string): ForecastResponse {
     issued_at: '2026-07-14T00:00:00Z',
     model_version: 1,
     points: [{ timestamp: '2026-07-14T12:00:00Z', pred: 40, lower: 32, upper: 48 }],
+    data_source: 'real',
+    model_type: 'ml',
   }
 }
 

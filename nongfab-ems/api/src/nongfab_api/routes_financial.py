@@ -1,0 +1,117 @@
+"""POST /financial - plant-wide NPV/IRR/LCOE/payback investment analysis,
+built on Module 11's (`nongfab_financial.model`) financial engine.
+
+Plant-wide, not per-zone, unlike every other route in this API: CAPEX,
+financing, and payback are evaluated at the investment level, not one
+number per sub-array. Only the currently-installed zones (GIS, ISB) feed
+the year-1 energy estimate - Jetty is excluded (`simulated: true` in
+config/assets.yaml - design-mode, no panels installed yet, so it isn't a
+real capital outlay to analyze the payback of).
+
+Gated at "operator" or higher, same reasoning as /simulate: a heavier
+what-if computation carrying business-sensitive assumptions, not a plain
+read like /assets or /performance.
+
+Every request field is optional and overrides one of
+`nongfab_financial.model.FinancialAssumptions`'s own documented-placeholder
+defaults (CAPEX/tariff/WACC/BOI/tax) - see that module's own docstring for
+which of those are real facts (Thailand's standard corporate tax rate) vs.
+placeholders pending the user's real figures.
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException
+from nongfab_common.assets import load_assets
+from nongfab_financial.model import FinancialAssumptions, compute_financial_analysis
+from nongfab_simulation.dev_data import synthetic_day_irradiance_temp
+from nongfab_simulation.pipeline import estimate_annual_ac_energy_kwh, simulate_zone_baseline
+from pydantic import BaseModel
+
+from .auth import require_role
+
+router = APIRouter(tags=["financial"])
+
+# Zones with real installed panels to analyze the investment of - see this
+# file's own docstring for why Jetty is excluded.
+INSTALLED_ZONE_IDS = ("GIS", "ISB")
+
+
+class FinancialRequest(BaseModel):
+    capex_thb: float | None = None
+    opex_pct_of_capex_per_year: float | None = None
+    tariff_thb_per_kwh: float | None = None
+    tariff_escalation_pct_per_year: float | None = None
+    opex_escalation_pct_per_year: float | None = None
+    discount_rate_pct: float | None = None
+    tax_rate_pct: float | None = None
+    boi_tax_holiday_years: int | None = None
+    degradation_pct_per_year: float | None = None
+    lifetime_years: int | None = None
+
+
+class CashFlowYearOut(BaseModel):
+    year: int
+    ac_energy_kwh: float
+    avoided_cost_thb: float
+    opex_thb: float
+    tax_thb: float
+    net_cash_flow_thb: float
+    cumulative_undiscounted_cash_flow_thb: float
+    cumulative_discounted_cash_flow_thb: float
+
+
+class FinancialResponse(BaseModel):
+    installed_dc_capacity_kwp: float
+    year_1_ac_energy_kwh: float
+    capex_thb: float
+    npv_thb: float
+    irr_pct: float | None
+    lcoe_thb_per_kwh: float
+    simple_payback_years: float | None
+    discounted_payback_years: float | None
+    cash_flows: list[CashFlowYearOut]
+
+
+@router.post("/financial", response_model=FinancialResponse)
+async def get_financial_analysis(req: FinancialRequest, _user=Depends(require_role("operator"))) -> FinancialResponse:
+    registry = load_assets()
+    idx, ssrd, temp = synthetic_day_irradiance_temp()
+
+    year_1_ac_energy_kwh = 0.0
+    installed_dc_capacity_kwp = 0.0
+    for zone_id in INSTALLED_ZONE_IDS:
+        baseline = simulate_zone_baseline(zone_id, ssrd, temp, idx)
+        year_1_ac_energy_kwh += estimate_annual_ac_energy_kwh(baseline)
+        installed_dc_capacity_kwp += registry.zone(zone_id).dc_capacity_kwp
+
+    overrides = req.model_dump(exclude_none=True)
+    try:
+        assumptions = FinancialAssumptions(**overrides)
+        result = compute_financial_analysis(year_1_ac_energy_kwh, installed_dc_capacity_kwp, assumptions)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return FinancialResponse(
+        installed_dc_capacity_kwp=installed_dc_capacity_kwp,
+        year_1_ac_energy_kwh=year_1_ac_energy_kwh,
+        capex_thb=result.capex_thb,
+        npv_thb=result.npv_thb,
+        irr_pct=result.irr_pct,
+        lcoe_thb_per_kwh=result.lcoe_thb_per_kwh,
+        simple_payback_years=result.simple_payback_years,
+        discounted_payback_years=result.discounted_payback_years,
+        cash_flows=[
+            CashFlowYearOut(
+                year=cf.year,
+                ac_energy_kwh=cf.ac_energy_kwh,
+                avoided_cost_thb=cf.avoided_cost_thb,
+                opex_thb=cf.opex_thb,
+                tax_thb=cf.tax_thb,
+                net_cash_flow_thb=cf.net_cash_flow_thb,
+                cumulative_undiscounted_cash_flow_thb=cf.cumulative_undiscounted_cash_flow_thb,
+                cumulative_discounted_cash_flow_thb=cf.cumulative_discounted_cash_flow_thb,
+            )
+            for cf in result.cash_flows
+        ],
+    )

@@ -36,7 +36,7 @@ configured, but Railway itself shows "Auto deploy unavailable" and
 troubleshooting with Railway's own documented steps didn't fix it (full
 details in `nongfab-ems/README.md`'s "Deployment notes"). Every push that
 touches `api/` or anything it depends on (`libs/`, `features/`, `forecast/`,
-`simulation/`, `ingestion/`) needs a **manual click** on Railway's dashboard
+`simulation/`, `financial/`, `ingestion/`) needs a **manual click** on Railway's dashboard
 (`api` service → Deployments tab → purple "Deploy" button) to actually go
 live. Cloudflare (the frontend) still auto-deploys fine — this only affects
 the API.
@@ -52,6 +52,31 @@ the API.
 Stop adding this reminder once the user confirms Railway's auto-deploy has
 been fixed (e.g. by Railway support) — update this note then, don't keep
 repeating a stale warning.
+
+## Standing reminder: the Financial module runs on placeholder assumptions (as of 2026-07-16)
+
+`/financial` (`financial/` module, `POST /financial` API route) computes
+NPV/IRR/LCOE/payback for the solar investment, but **every cost/tariff/rate
+input defaults to a documented placeholder, not a real figure for this
+project** (see `financial/README.md`'s table): CAPEX (฿30,000/kWp
+estimate), the PEA electricity tariff (฿4.0/kWh blended guess), WACC (8%),
+BOI tax-holiday length (assumed 0 = none). Only the 20% corporate tax rate
+is a real fact (Thailand's actual standard rate), not a placeholder.
+
+This module exists because the user determined (2026-07-16) that
+sub-daily/hour-ahead/day-ahead forecasting has little operational value at
+this site (fully grid-tied, no battery, capacity capped by land) - what
+actually matters is whether the investment pays back, which is what this
+module answers, once given real numbers.
+
+**Always include this reminder** in Handoff Reports (section 2, Current
+Context & State) and at natural check-in points if the conversation touches
+`/financial` or investment figures: ask the user whether they can now
+supply the real CAPEX, PEA tariff/contract, WACC, and BOI status, so the
+placeholder defaults in `financial/src/nongfab_financial/model.py` can be
+replaced with confirmed figures. Stop reminding once the user has supplied
+all four and they've been wired in as the new defaults - update this note
+then.
 
 ## Run-code status updates — every time, not just at handoff
 

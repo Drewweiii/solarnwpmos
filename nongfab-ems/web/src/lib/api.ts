@@ -1,6 +1,8 @@
 import type {
   AssetRegistry,
   EnergyReportResponse,
+  FinancialRequest,
+  FinancialResponse,
   ForecastHorizon,
   ForecastResponse,
   GeometryResponse,
@@ -70,6 +72,9 @@ export const getPerformance = (zone: string, token: string): Promise<Performance
 
 export const postSimulate = (zone: string, body: SimulateRequest, token: string): Promise<SimulateResponse> =>
   request(`/simulate/${zone}`, token, { method: 'POST', body: JSON.stringify(body) })
+
+export const postFinancial = (body: FinancialRequest, token: string): Promise<FinancialResponse> =>
+  request('/financial', token, { method: 'POST', body: JSON.stringify(body) })
 
 export const getGeometry = (zone: string, at: string | undefined, token: string): Promise<GeometryResponse> =>
   request(`/geometry/${zone}${at ? `?at=${encodeURIComponent(at)}` : ''}`, token)
