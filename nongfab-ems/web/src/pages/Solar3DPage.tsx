@@ -140,6 +140,7 @@ export function Solar3DPage() {
             sunElevationDeg={geometry.data.sun.elevation_deg}
             sunPathPoints={sunPath.data?.points ?? []}
             viewMode={viewMode}
+            zone={zone}
           />
         )}
       </div>

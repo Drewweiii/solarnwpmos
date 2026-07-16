@@ -12,6 +12,16 @@ a real Three.js scene (`@react-three/fiber`) showing each zone's panel grid
 colored by solar-access % (or by string, toggle-able), a compass/altitude
 readout, a sun-path arc line, and a date + time scrubber (with auto-play)
 that drives both the sun position and every panel's shading live.
+**(2026-07-16)** panels now sit on a real building volume (GIS/ISB) or an
+elevated pier deck (Jetty, matching its real trestle-over-water structure -
+see `Solar3DScene.tsx`'s own `BUILDING_HEIGHT_M`/`PIER_DECK_HEIGHT_M`
+docstrings for why these are documented literature defaults, not a survey -
+`config/assets.yaml` has no real building-height data), on a dark
+grid-line floor (`@react-three/drei`'s `<Grid>`) - the first step toward a
+reslink.org-style "digital twin" look the user asked to be replicated (see
+that commit's message for the fuller reference-video breakdown); a full
+photorealistic satellite-textured render is a bigger follow-up (needs a real
+imagery source and building-massing data this repo doesn't have yet).
 
 STEP 8C (Feature D+E) is also built:
 
@@ -165,6 +175,19 @@ page shows a plain status message rather than fabricating a forecast line.
   (trees/structures) exists yet (see `features/README.md`'s own "Known
   gaps"), so a panel can never show less than 100% access purely from an
   external obstruction, only from another row of panels.
+- **`/3d`'s time-of-day slider is labeled and operates in UTC, not Nong
+  Fab's local time (Asia/Bangkok, UTC+7)** - confirmed live while verifying
+  the 2026-07-16 building-massing change: the page's own default (12:00 UTC)
+  renders as full nighttime (0% solar access, sun altitude -4°) for a plant
+  at ~12.7N, 101.1E, since that's actually 19:00 local. The label is honest
+  (says "UTC", doesn't claim local time), so this isn't a data-correctness
+  bug, but it is a real first-impression gap for a Thailand-focused
+  dashboard - a visitor opening `/3d` sees a dark, panel-less-looking scene
+  by default instead of the plant lit up at whatever the actual local time
+  of day is. Not fixed this pass (out of the requested scope, and the same
+  UTC-indexed-sine-curve pattern exists in a few other synthetic generators
+  - see `simulation/README.md`'s own note on this in the monthly-estimate
+  section); flagged here as a concrete follow-up candidate.
 - `String view` colors each sub-array/block with a hash-derived color for
   visual distinction, not a designed palette - can land on a dark, low-
   contrast color against the night scene's dark background (a cosmetic gap,
@@ -345,6 +368,34 @@ before that animation settled. Confirmed by re-screenshotting the same
 state after a longer wait: bars appeared exactly as expected. A real
 product bug would have been an empty/wrong DOM, not a mistimed screenshot,
 so this was reported as "verified, no bug" rather than "fixed."
+
+### Verified live - `/3d` building massing + grid floor (2026-07-16)
+
+Same real `uvicorn` + `vite dev` pair, headless Chromium (no explicit
+`--use-gl=swiftshader` needed this time - software WebGL rendered
+correctly by default). Screenshotted all 3 zones at night (page default,
+12:00 UTC) and again after driving the time-of-day slider to 05:00 UTC
+(~noon local) via Playwright:
+
+- GIS/ISB: a solid gray building volume now sits under the panel grid
+  (previously panels floated directly over a flat ground plane with no
+  structure at all), panels correctly colored red at night / green at
+  midday, sun-path arc line and compass both still correct.
+- Jetty: a thin elevated deck (not a solid building block) with visible
+  support-pile legs at its corners, matching its real trestle-over-water
+  structure - the `simulated_zone` badge still appears correctly.
+- The dark-navy grid floor (`@react-three/drei`'s `<Grid>`) is clearly
+  visible extending toward the horizon in Jetty's far-zoomed default camera
+  framing (its 4 sub-arrays are spread across a ~1.25km trestle - see the
+  existing camera-framing note above) - visually the closest this scene has
+  gotten to the reslink.org reference's "abstract block + grid" mode.
+
+**Found something worth flagging, not a bug in this change**: this same
+pass is what surfaced the UTC-vs-local-time default-view gap now documented
+under "Known gaps" above (`/3d` defaults to a night view for a Thailand
+plant because its slider is UTC-indexed) - pre-existing behavior, unrelated
+to the building-massing/grid-floor work itself, just noticed while
+screenshotting it.
 
 ## Run locally
 
