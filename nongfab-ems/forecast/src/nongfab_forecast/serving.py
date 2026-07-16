@@ -24,6 +24,23 @@ from .pv_conversion import nong_fab_zone_capacities_kwp
 
 VALID_HORIZONS = ("minute", "hour", "day")
 
+# Fallback-only prediction interval: a fixed symmetric +/-20% band around the
+# physics estimate, NOT a real uncertainty quantification (the physics
+# baseline is deterministic - there are no model residuals to measure a
+# quantile from). Documented approximation, not a measurement - same pattern
+# as this codebase's other "no real data yet" placeholders (e.g.
+# nongfab_simulation.dev_data.live_efficiency_factor's bounded multiplier).
+# Exists purely so the dashboard shows *some* honest-looking uncertainty band
+# instead of none while too little real history has accumulated to train a
+# real quantile model - approved by the user 2026-07-16 over leaving the
+# fallback path bandless. No explicit "switch-over" logic needed: the
+# try/except below already prefers get_latest_forecast()'s real ML quantile
+# output (see hour_ahead.py/day_ahead.py) the moment a model exists, and only
+# reaches this fallback while ModelNotTrainedError still applies - so once
+# enough real NWP/cloud history accumulates and a model trains, this fixed
+# band stops being used automatically, with no separate migration step.
+FALLBACK_PI_HALF_WIDTH_PCT = 0.20
+
 # Hour-ahead's k-step lead hours - HourAheadKStepModel holds one independently-
 # trained model per lead (see hour_ahead.py's own docstring for why not one
 # multi-output model), replacing the original single "+1h only" point forecast.
@@ -232,7 +249,15 @@ def get_forecast_with_fallback(zone: str, horizon: str, store: RealDataStore | N
         timestamps = pd.date_range(now, periods=MAX_DAY_AHEAD_HOURS, freq="h")
 
     baseline = real_data.physics_baseline_series(zone, timestamps, store)
-    points = [ForecastPoint(timestamp=ts.to_pydatetime(), pred=float(row.pred)) for ts, row in baseline.iterrows()]
+    points = [
+        ForecastPoint(
+            timestamp=ts.to_pydatetime(),
+            pred=float(row.pred),
+            lower=max(0.0, float(row.pred) * (1 - FALLBACK_PI_HALF_WIDTH_PCT)),
+            upper=float(row.pred) * (1 + FALLBACK_PI_HALF_WIDTH_PCT),
+        )
+        for ts, row in baseline.iterrows()
+    ]
     return ForecastResult(
         zone=zone, horizon=horizon, issued_at=now, model_version=0, points=points, data_source="real", model_type="physics_baseline"
     )

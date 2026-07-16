@@ -74,6 +74,15 @@ export function ForecastPage() {
 
   const forecastError = isAllZones ? allForecast.find((q) => q.error) : singleForecast.error ? singleForecast : undefined
 
+  // Whether the currently-shown forecast (and its prediction-interval band)
+  // came from the physics-only fallback rather than a trained ML model - see
+  // types.ts's ForecastResponse.model_type docstring. Drives the honest
+  // caption below the chart rather than letting the fixed +/-20% band look
+  // like a real quantile model's output.
+  const isPhysicsBaseline = isAllZones
+    ? allForecast.some((q) => q.data?.model_type === 'physics_baseline')
+    : singleForecast.data?.model_type === 'physics_baseline'
+
   return (
     <div className="forecast-page">
       <div className="forecast-page-controls">
@@ -162,6 +171,12 @@ export function ForecastPage() {
                 />
               </ComposedChart>
             </ResponsiveContainer>
+          )}
+          {!isLoading && !forecastError && isPhysicsBaseline && chartRows.some((r) => r.band != null) && (
+            <p className="forecast-status forecast-status-caption">
+              Prediction interval shown is an approximate ±20% band (no trained ML model yet, see day-ahead pipeline) - not a
+              measured confidence interval.
+            </p>
           )}
         </section>
         <LiveClock />

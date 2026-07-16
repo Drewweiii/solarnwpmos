@@ -1,9 +1,11 @@
 import pytest
 
 from nongfab_forecast.serving import (
+    FALLBACK_PI_HALF_WIDTH_PCT,
     ModelNotTrainedError,
     UnknownHorizonError,
     UnknownZoneError,
+    get_forecast_with_fallback,
     get_latest_forecast,
     validate_horizon,
     validate_zone,
@@ -44,3 +46,20 @@ def test_get_latest_forecast_validates_before_touching_mlflow():
         get_latest_forecast("Nowhere", "hour")
     with pytest.raises(UnknownHorizonError):
         get_latest_forecast("GIS", "century")
+
+
+def test_get_forecast_with_fallback_gives_the_physics_baseline_a_bounded_pi(tmp_path, monkeypatch):
+    """2026-07-16: the user asked for *some* prediction-interval band on the
+    dashboard even while running the no-ML physics fallback (previously
+    lower/upper were always None here - see FALLBACK_PI_HALF_WIDTH_PCT's own
+    docstring for why this is a fixed approximation, not a real PI)."""
+    db_path = tmp_path / "mlflow.db"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{db_path}")
+    result = get_forecast_with_fallback("GIS", "hour")
+    assert result.model_type == "physics_baseline"
+    for point in result.points:
+        assert point.lower is not None
+        assert point.upper is not None
+        assert point.lower <= point.pred <= point.upper
+        assert point.lower == pytest.approx(max(0.0, point.pred * (1 - FALLBACK_PI_HALF_WIDTH_PCT)))
+        assert point.upper == pytest.approx(point.pred * (1 + FALLBACK_PI_HALF_WIDTH_PCT))

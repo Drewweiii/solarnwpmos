@@ -59,6 +59,13 @@ export interface ForecastResponse {
   issued_at: string
   model_version: number
   points: ForecastPoint[]
+  data_source: string
+  // "ml" once a real model is trained, "physics_baseline" while too little
+  // real history has accumulated - see forecast/serving.py's
+  // get_forecast_with_fallback() docstring. The dashboard uses this to
+  // caption the prediction-interval band honestly (fixed +/-20% placeholder
+  // vs. a real quantile model's output), not to imply it's ML when it isn't.
+  model_type: string
 }
 
 export interface HourlyPoint {

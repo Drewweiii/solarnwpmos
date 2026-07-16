@@ -175,6 +175,12 @@
   color: var(--danger);
 }
 
+.forecast-status-caption {
+  font-size: 12px;
+  opacity: 0.75;
+  font-style: italic;
+}
+
 .weather-strip {
   display: flex;
   gap: 12px;
