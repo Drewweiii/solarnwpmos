@@ -12,3 +12,4 @@ mlruns/
 mlflow.db
 .dev-mlflow.db
 lightning_logs/
+dev.db
