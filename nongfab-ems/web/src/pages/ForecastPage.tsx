@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Area,
   Bar,
@@ -121,48 +121,51 @@ export function ForecastPage() {
         </section>
       )}
 
-      <section className="forecast-chart-section" aria-label="Power forecast chart">
-        {isLoading && <p className="forecast-status">Loading…</p>}
-        {!isLoading && forecastError && (
-          <p className="forecast-status forecast-status-warn">
-            No {horizonToggle === 'day' ? 'day-ahead' : 'intra-day'} forecast model has been trained for this zone yet -
-            showing generated power only.
-          </p>
-        )}
-        {!isLoading && chartRows.length === 0 && <p className="forecast-status">No data yet.</p>}
-        {chartRows.length > 0 && (
-          <ResponsiveContainer width="100%" height={320}>
-            <ComposedChart data={chartRows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-              <XAxis dataKey="timestamp" tickFormatter={formatHour} minTickGap={24} />
-              <YAxis unit=" kW" width={80} />
-              <Tooltip
-                labelFormatter={(label) => (typeof label === 'string' ? formatHour(label) : String(label))}
-                formatter={(value) => (typeof value === 'number' ? value.toFixed(1) : String(value))}
-              />
-              <Legend />
-              <Bar dataKey="generated" name="Generated power" fill="var(--accent)" fillOpacity={0.55} barSize={18} />
-              <Area dataKey="lower" name="lower" stackId="pi" stroke="none" fill="transparent" legendType="none" />
-              <Area
-                dataKey="band"
-                name="Prediction interval"
-                stackId="pi"
-                stroke="none"
-                fill="var(--chart-forecast)"
-                fillOpacity={0.2}
-              />
-              <Line
-                dataKey="pred"
-                name="Forecast"
-                stroke="var(--chart-forecast)"
-                strokeWidth={2}
-                dot={{ r: 2 }}
-                connectNulls
-              />
-            </ComposedChart>
-          </ResponsiveContainer>
-        )}
-      </section>
+      <div className="forecast-chart-row">
+        <section className="forecast-chart-section" aria-label="Power forecast chart">
+          {isLoading && <p className="forecast-status">Loading…</p>}
+          {!isLoading && forecastError && (
+            <p className="forecast-status forecast-status-warn">
+              No {horizonToggle === 'day' ? 'day-ahead' : 'intra-day'} forecast model has been trained for this zone yet -
+              showing generated power only.
+            </p>
+          )}
+          {!isLoading && chartRows.length === 0 && <p className="forecast-status">No data yet.</p>}
+          {chartRows.length > 0 && (
+            <ResponsiveContainer width="100%" height={320}>
+              <ComposedChart data={chartRows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <XAxis dataKey="timestamp" tickFormatter={formatHour} minTickGap={24} />
+                <YAxis unit=" kW" width={80} />
+                <Tooltip
+                  labelFormatter={(label) => (typeof label === 'string' ? formatHour(label) : String(label))}
+                  formatter={(value) => (typeof value === 'number' ? value.toFixed(1) : String(value))}
+                />
+                <Legend />
+                <Bar dataKey="generated" name="Generated power" fill="var(--accent)" fillOpacity={0.55} barSize={18} />
+                <Area dataKey="lower" name="lower" stackId="pi" stroke="none" fill="transparent" legendType="none" />
+                <Area
+                  dataKey="band"
+                  name="Prediction interval"
+                  stackId="pi"
+                  stroke="none"
+                  fill="var(--chart-forecast)"
+                  fillOpacity={0.2}
+                />
+                <Line
+                  dataKey="pred"
+                  name="Forecast"
+                  stroke="var(--chart-forecast)"
+                  strokeWidth={2}
+                  dot={{ r: 2 }}
+                  connectNulls
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+        </section>
+        <LiveClock />
+      </div>
 
       <section className="weather-strip" aria-label="Weather forecast">
         {weatherPoints.map((point) => (
@@ -208,5 +211,42 @@ function ZoneInfoItem({ label, value }: ZoneInfoItemProps) {
       <span className="zone-info-label">{label}</span>
       <span className="zone-info-value">{value}</span>
     </div>
+  )
+}
+
+// Shows both Thai local time and UTC side by side - the chart's own x-axis
+// is UTC-labeled (formatHourUtc), and this whole app has a history of "why
+// don't the numbers match what time it really is in Thailand" confusion
+// (see web/README.md's 2026-07-16 dated entries) - a visible live clock
+// naming both zones directly next to the chart heads that off rather than
+// making the user do the +7h math themselves.
+function LiveClock() {
+  const [now, setNow] = useState(() => new Date())
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 1000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  const thaiDate = now.toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'long', year: 'numeric' })
+  const thaiTime = now.toLocaleTimeString('th-TH', {
+    timeZone: 'Asia/Bangkok',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+  const utcTime = now.toLocaleTimeString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+
+  return (
+    <aside className="forecast-clock-block" aria-label="Current date and time">
+      <span className="forecast-clock-time">{thaiTime}</span>
+      <span className="forecast-clock-tz">เวลาไทย (ICT)</span>
+      <span className="forecast-clock-date">{thaiDate}</span>
+      <div className="forecast-clock-utc-row">
+        <span className="forecast-clock-utc">{utcTime} UTC</span>
+        <span className="forecast-clock-hint">(แกนเวลาในกราฟใช้ UTC)</span>
+      </div>
+    </aside>
   )
 }
