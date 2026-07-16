@@ -18,7 +18,17 @@ Deployed and publicly reachable:
   auto-built from this branch on every push (see `web/wrangler.jsonc`,
   `web/.env.production`).
 - **API**: https://api-production-f161c.up.railway.app — Module 6
-  (`api/`), hosted on Railway from `api/Dockerfile`.
+  (`api/`), hosted on Railway from `api/Dockerfile`. **⚠ Does NOT
+  auto-deploy on push** (as of 2026-07-16 - the GitHub source is connected
+  in Railway's Settings → Source, root directory `nongfab-ems`, but the
+  "Branch connected to production" panel shows "Auto deploy unavailable" /
+  intermittently "Bad credentials"; Railway's own troubleshooting steps
+  were exhausted without resolving it - see "Deployment notes" below).
+  **After every push that touches `api/` or anything it depends on
+  (`libs/`, `features/`, `forecast/`, `simulation/`, `ingestion/`), someone
+  has to manually open the Railway dashboard → the `api` service →
+  Deployments, and click the purple "Deploy" button** to actually put the
+  new code live. The Cloudflare dashboard above needs no such step.
 
 Demo accounts (seeded on startup — throwaway credentials, see
 `api/src/nongfab_api/auth.py`): `admin`/`admin-demo-pw`,
@@ -26,6 +36,26 @@ Demo accounts (seeded on startup — throwaway credentials, see
 
 Deployment notes:
 
+- **Railway (API) has no working auto-deploy - manual "Deploy" click
+  required after every push (2026-07-16).** The Railway service's GitHub
+  source is connected (repo `Drewweiii/solarnwpmos`, branch
+  `claude/solar-optimization-forecasting-jryux7`, root directory
+  `nongfab-ems`, Dockerfile path resolved via the `RAILWAY_DOCKERFILE_PATH`
+  variable to `api/Dockerfile`) and the GitHub Railway App has "All
+  repositories" access with no pending permission requests - correctly
+  configured by every check Railway's own docs list - but the service still
+  shows "Auto deploy unavailable" (at one point "Bad credentials" after a
+  full App uninstall/reinstall). Full troubleshooting was done live with the
+  user: verified GitHub App access, verified the Railway account's GitHub
+  connection, disconnected/reconnected the repo source multiple times,
+  uninstalled and reinstalled the Railway GitHub App entirely - none of it
+  fixed the auto-deploy trigger itself. **Workaround**: every deploy has to
+  be triggered manually - Railway dashboard → `api` service → Deployments
+  tab → the purple "Deploy" button (appears whenever there's a pending
+  source change to apply). A real fix likely needs Railway support directly
+  (this looks like a backend-side sync bug, not a misconfiguration - see
+  https://docs.railway.com/deployments/github-autodeploys#troubleshooting
+  for the checklist that was already exhausted).
 - The API's auth store is an **ephemeral SQLite file** on the demo, not a
   separate Postgres service — the only thing the API persists is the demo
   accounts (re-seeded each boot); all forecast/simulation data is synthetic
