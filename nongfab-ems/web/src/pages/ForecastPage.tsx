@@ -21,6 +21,7 @@ import {
   pickHoursOfDay,
   sumForecastAcrossZones,
   sumHourlyAcrossZones,
+  truncateGeneratedToNow,
   WEATHER_ICON_GLYPH,
   weatherIconFor,
 } from '../lib/chartData'
@@ -97,7 +98,10 @@ export function ForecastPage() {
     return singleForecast.data?.points ?? []
   }, [isAllZones, allForecast, singleForecast.data])
 
-  const chartRows = useMemo(() => mergeGeneratedAndForecast(hourly, forecastPoints), [hourly, forecastPoints])
+  const chartRows = useMemo(
+    () => truncateGeneratedToNow(mergeGeneratedAndForecast(hourly, forecastPoints)),
+    [hourly, forecastPoints],
+  )
   const weatherPoints = useMemo(() => pickHoursOfDay(hourly, WEATHER_HOURS), [hourly])
   const current = useMemo(() => nearestToNow(hourly), [hourly])
 
@@ -173,6 +177,8 @@ export function ForecastPage() {
           </button>
         </div>
       </div>
+
+      <ViewerGuidePanel />
 
       <details className="model-info-panel">
         <summary>ℹ️ โมเดลพยากรณ์ที่ใช้ในหน้านี้ / Forecast models used here</summary>
@@ -273,8 +279,8 @@ export function ForecastPage() {
                   name="Prediction interval"
                   stackId="pi"
                   stroke="none"
-                  fill="var(--chart-forecast)"
-                  fillOpacity={0.2}
+                  fill="var(--chart-pi)"
+                  fillOpacity={0.25}
                 />
                 <Line
                   dataKey="pred"
@@ -364,6 +370,114 @@ function ZoneInfoItem({ label, value }: ZoneInfoItemProps) {
       <span className="zone-info-label">{label}</span>
       <span className="zone-info-value">{value}</span>
     </div>
+  )
+}
+
+// Plain-language onboarding guide for non-engineer viewers (the user's own
+// framing: "คนบ้านๆ ธรรมดาทั่วไป" - regular people, not engineers), separate
+// from the technical `.model-info-panel` table above (which stays as a quick
+// engineer-facing reference). Starts collapsed (<details>, same open/close
+// pattern as that table) since it's supplementary, not mandatory reading.
+//
+// MAINTENANCE INSTRUCTION FOR FUTURE CLAUDE SESSIONS: every model this page
+// can show MUST have an entry in the "โมเดลที่ใช้ทั้งหมด" list below (full
+// name, plain-language principle, why it was chosen). If a new forecast
+// model is ever added to the pipeline - a replacement, a new competing
+// candidate, a new horizon - add its entry here in the same pass, not as a
+// follow-up. A viewer reading this guide should never see the app using a
+// model this panel doesn't mention.
+function ViewerGuidePanel() {
+  return (
+    <details className="viewer-guide-panel">
+      <summary>📖 คำแนะนำการอ่านหน้านี้ (สำหรับผู้ใช้ทั่วไป) / How to read this page</summary>
+
+      <section className="viewer-guide-section">
+        <h4>หน้านี้มีไว้ทำอะไร</h4>
+        <p>
+          หน้า "Forecast" นี้แสดงการคาดการณ์ปริมาณไฟฟ้าที่ระบบโซลาร์ของโรงงานหนองฟาบจะผลิตได้ล่วงหน้า
+          เทียบกับปริมาณไฟฟ้าที่ผลิตได้จริง ใช้ดูแนวโน้มเพื่อวางแผนการใช้ไฟ และตรวจสอบว่าระบบทำงานสมเหตุสมผลหรือไม่
+        </p>
+      </section>
+
+      <section className="viewer-guide-section">
+        <h4>วิธีอ่านกราฟ - แกนและเส้นต่าง ๆ</h4>
+        <ul>
+          <li>
+            <strong>แกนนอน (X):</strong> เวลา แสดงเป็นเวลาไทย (ICT)
+          </li>
+          <li>
+            <strong>แกนตั้ง (Y):</strong> กำลังไฟฟ้า หน่วยกิโลวัตต์ (kW) - ยิ่งสูงยิ่งผลิตไฟได้มาก
+          </li>
+          <li>
+            <strong>แท่งสีม่วง "Generated power":</strong> ไฟฟ้าที่ผลิตได้จริงแล้วเท่านั้น - แสดงเฉพาะช่วงเวลาที่ผ่านไปแล้ว
+            ไม่แสดงล่วงหน้า เพื่อไม่ให้สับสนกับเส้นพยากรณ์
+          </li>
+          <li>
+            <strong>เส้นสีน้ำเงิน "Forecast":</strong> ค่าพยากรณ์กำลังการผลิตไฟฟ้า
+          </li>
+          <li>
+            <strong>แถบสีเขียวโปร่งใส "Prediction interval":</strong> ช่วงความไม่แน่นอนของค่าพยากรณ์ - ค่าจริงมีโอกาสสูงที่จะอยู่ในช่วงนี้
+            ยิ่งแถบกว้าง ยิ่งไม่แน่นอน
+          </li>
+          <li>
+            <strong>เส้นประสีเทา "Model error (RMSE)" (เฉพาะ Intra-day):</strong> ความคลาดเคลื่อนของโมเดลที่ชนะการแข่งขันในชั่วโมงนั้น
+            วัดจากข้อมูลจริง ไม่ใช่ค่าประมาณ
+          </li>
+          <li>
+            <strong>เอาเมาส์ไปชี้บนเส้นหรือแท่งกราฟ:</strong> จะมีป้ายกำกับ (tooltip) เด้งขึ้นมาบอกตัวเลขที่จุดนั้นแบบละเอียด
+          </li>
+        </ul>
+      </section>
+
+      <section className="viewer-guide-section">
+        <h4>Day-ahead กับ Intra-day ต่างกันอย่างไร</h4>
+        <ul>
+          <li>
+            <strong>Day-ahead (พยากรณ์รายวัน):</strong> พยากรณ์ล่วงหน้าได้ไกลสุด 72 ชั่วโมง (3 วัน) เหมาะกับการวางแผนล่วงหน้าหลายวัน
+            แต่แม่นยำน้อยกว่าเพราะมองไกล
+          </li>
+          <li>
+            <strong>Intra-day (พยากรณ์ภายในวัน):</strong> พยากรณ์ล่วงหน้าแค่ 1-6 ชั่วโมง แม่นยำกว่าเพราะใกล้เวลาจริงมากกว่า
+            เหมาะกับการตัดสินใจระยะสั้น
+          </li>
+        </ul>
+      </section>
+
+      <section className="viewer-guide-section">
+        <h4>โมเดลที่ใช้ทั้งหมด (ชื่อเต็ม, หลักการ, เหตุผลที่เลือกใช้)</h4>
+        <ul>
+          <li>
+            <strong>NeuralProphet</strong> (ใช้กับ Day-ahead) - โมเดลพยากรณ์อนุกรมเวลาที่แยกวิเคราะห์แนวโน้มระยะยาวและรูปแบบตามรอบวัน/ฤดูกาลออกจากกัน
+            แล้วรวมกันทำนาย เลือกใช้เพราะเหมาะกับการมองไกลหลายวันที่มีรูปแบบกลางวัน-กลางคืนชัดเจน และฝึกโมเดลได้เร็วแม้ข้อมูลยังสะสมไม่มาก
+          </li>
+          <li>
+            <strong>LightGBM</strong> (Light Gradient Boosting Machine, ใช้กับ Intra-day - 1 ใน 3 ตัวที่แข่งกัน) -
+            โมเดล Machine Learning แบบต้นไม้ตัดสินใจหลายต้นที่เรียนรู้ต่อเนื่องกันเพื่อแก้ข้อผิดพลาดของต้นก่อนหน้า (gradient boosting)
+            แม่นยำสูงและฝึกเร็ว เลือกใช้เพราะเหมาะกับข้อมูลที่มีหลายปัจจัย (สภาพอากาศ เมฆ เวลา) แม้ข้อมูลจะยังไม่เยอะมาก
+          </li>
+          <li>
+            <strong>Random Forest</strong> (ใช้กับ Intra-day - 1 ใน 3 ตัวที่แข่งกัน) - โมเดลที่รวมผลจากต้นไม้ตัดสินใจหลายต้นที่สร้างแบบสุ่ม
+            แล้วเฉลี่ยผลลัพธ์ ทนทานต่อข้อมูลรบกวน (noise) ได้ดี เลือกใช้เป็นคู่แข่งของ LightGBM
+            เพื่อให้ระบบเทียบผลแล้วเลือกตัวที่แม่นยำกว่าโดยอัตโนมัติในแต่ละชั่วโมง
+          </li>
+          <li>
+            <strong>Sum-k LSTM</strong> (ใช้กับ Intra-day - 1 ใน 3 ตัวที่แข่งกัน) - โครงข่ายประสาทเทียมแบบ LSTM
+            ที่มีส่วนเรียนรู้ร่วม (shared backbone) ประมวลผลข้อมูลย้อนหลังร่วมกัน แล้วแยกเป็นหัวคำนวณเฉพาะของแต่ละชั่วโมงล่วงหน้า (1-6 ชม.)
+            พร้อมประเมินช่วงความไม่แน่นอนในตัวเอง ออกแบบตามแนวทางงานวิจัยด้าน probabilistic forecasting
+            เลือกใช้เป็นคู่แข่งตัวที่ 3 เพื่อเพิ่มมุมมองแบบ deep learning ให้การแข่งขัน
+          </li>
+          <li>
+            <strong>CNN-LSTM</strong> (ใช้กับ Minute-ahead) - ผสมโครงข่าย Convolutional ที่จับรูปแบบการเคลื่อนที่ของเมฆ
+            เข้ากับ LSTM ที่จับรูปแบบการเปลี่ยนแปลงตามเวลา เลือกใช้กับการพยากรณ์ระยะสั้นมาก (10-60 นาที)
+            เพราะตอบสนองต่อการเปลี่ยนแปลงของเมฆที่กำลังเคลื่อนที่ได้เร็ว เหมาะกับการพยากรณ์แบบเกือบเรียลไทม์
+          </li>
+        </ul>
+        <p className="viewer-guide-note">
+          หมายเหตุ: ถ้ายังไม่มีข้อมูลสะสมพอที่จะฝึกโมเดล ML จริง ระบบจะใช้แบบจำลองฟิสิกส์ (physics baseline) สำรองไปก่อน
+          ไม่ได้ทำนายมั่วๆ แต่ก็ยังไม่ใช่ ML ที่เรียนรู้จากข้อมูลจริง (จะมีข้อความเตือนใต้กราฟเมื่อกำลังใช้โหมดสำรองนี้)
+        </p>
+      </section>
+    </details>
   )
 }
 

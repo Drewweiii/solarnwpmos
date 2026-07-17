@@ -95,6 +95,21 @@ export function mergeGeneratedAndForecast(hourly: HourlyPoint[], forecastPoints:
   return [...rows.values()].sort((a, b) => a.key.localeCompare(b.key))
 }
 
+/** Nulls out `generated` (actual/baseline power) for any row whose timestamp
+ * is later than `nowIso` - `hourly`'s underlying series is a full synthetic
+ * *today* (see mergeGeneratedAndForecast's own docstring above), so without
+ * this a chart opened at, say, 08:45 would already show bars out to 17:00
+ * that haven't happened yet, making a series meant to read as "what was
+ * actually produced" look like it was itself a forecast (found live
+ * 2026-07-17, across all/GIS/ISB/Jetty alike). Only `generated` is touched -
+ * `pred`/`lower`/`upper`/`band` are left alone, since the forecast line is
+ * *supposed* to extend into the future. `nowIso` defaults to the real
+ * current time but is a parameter so tests don't depend on wall-clock time. */
+export function truncateGeneratedToNow(rows: ChartRow[], nowIso: string = new Date().toISOString()): ChartRow[] {
+  const nowMs = new Date(nowIso).getTime()
+  return rows.map((row) => (new Date(row.timestamp).getTime() > nowMs ? { ...row, generated: null } : row))
+}
+
 /** Site-wide aggregate for the "All" (รวม) zone selection: power (ac_kw) is
  * extensive and sums across zones; irradiance/temperature are intensive
  * (site-wide averages, not sums). Only produces a hour where every zone

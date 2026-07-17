@@ -35,6 +35,59 @@
   color: #fff;
 }
 
+.viewer-guide-panel {
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  font-size: 13.5px;
+}
+
+.viewer-guide-panel summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-h);
+  padding: 4px 0;
+}
+
+.viewer-guide-section {
+  margin-top: 14px;
+}
+
+.viewer-guide-section h4 {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+  color: var(--text-h);
+}
+
+.viewer-guide-section p {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.viewer-guide-section ul {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text);
+  line-height: 1.7;
+}
+
+.viewer-guide-section li {
+  margin-bottom: 6px;
+}
+
+.viewer-guide-section li strong {
+  color: var(--text-h);
+}
+
+.viewer-guide-note {
+  font-size: 11.5px;
+  color: var(--text);
+  opacity: 0.8;
+  margin: 10px 0 0;
+}
+
 .model-info-panel {
   padding: 10px 14px;
   border-radius: 10px;

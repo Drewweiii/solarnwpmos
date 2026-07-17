@@ -827,6 +827,50 @@ frontend-only fixes; no `api/`/`forecast/`/other backend package changed.
    (32.4°C), 13:00 (33.5°C), 16:00 (29.9°C)" - a plausible Thailand midday
    temperature curve.
 
+### Fixed - Generated-power bars showing future data, Prediction interval color clash, and a new layperson guide panel (2026-07-17)
+
+Three more small-but-important fixes to `ForecastPage.tsx`, off a live screenshot:
+
+1. **"Generated power" bars showed data ahead of the actual clock.** The
+   underlying `hourly` series (from `/performance`) is a full synthetic
+   *today*, covering hours that haven't happened yet as well as ones that
+   have (see `mergeGeneratedAndForecast`'s own docstring) - so a chart
+   opened at, say, 08:45 already showed bars out to 17:00, making a series
+   meant to read as "what was actually produced" look like it was itself a
+   forecast. Added `truncateGeneratedToNow()` (`lib/chartData.ts`), which
+   nulls `generated` for any row later than the current real time, leaving
+   `pred`/`lower`/`upper`/`band` untouched since the Forecast line is
+   *supposed* to extend into the future. Wired into `ForecastPage.tsx`'s
+   `chartRows` memo - applies uniformly to all/GIS/ISB/Jetty and both
+   Day-ahead/Intra-day, since they all flow through the same merge step.
+   Verified live: bars now stop right around "now" instead of covering the
+   whole first day's generation curve.
+2. **Forecast line and Prediction interval band were both blue,** hard to
+   tell apart. Added a dedicated `--chart-pi` CSS var (green - `#059669`
+   light / `#34d399` dark, distinct from `--chart-forecast`'s blue) and
+   pointed the Prediction interval `<Area>`'s fill at it instead of reusing
+   `--chart-forecast`. Scoped to `ForecastPage.tsx` only - `--chart-forecast`
+   itself is unchanged, so Simulation/Financial/Energy Report (which also
+   reference it) are unaffected.
+3. **New layperson info guide.** Added `ViewerGuidePanel` - a collapsible
+   `<details>` panel (`.viewer-guide-panel`), same open/close pattern as the
+   existing technical `.model-info-panel` table, but written for "คนบ้านๆ
+   ธรรมดาทั่วไป" (regular non-engineer viewers) per the user's own framing:
+   what the Forecast section is for, what each axis/series means (Generated
+   power vs Forecast vs Prediction interval vs Model error, and that
+   hovering the chart shows a value tooltip), what Day-ahead vs Intra-day
+   mean, and a full glossary (name, plain-language principle, why chosen)
+   for every model currently in the pipeline - NeuralProphet, LightGBM,
+   Random Forest, Sum-k LSTM, CNN-LSTM. **Maintenance instruction left as a
+   code comment directly above the component**: any future model added to
+   the forecast pipeline (replacement or new competing candidate) must get
+   an entry in this same guide in the same pass, not as a follow-up - a
+   viewer should never see the app using a model this panel doesn't mention.
+
+Verified live via Playwright across the "All"/GIS zones and both
+Day-ahead/Intra-day views; `tsc -b`, `vitest run` (110/110), and `oxlint`
+all clean.
+
 ## Run locally
 
 ```bash

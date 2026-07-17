@@ -8,6 +8,7 @@ import {
   pickHoursOfDay,
   sumForecastAcrossZones,
   sumHourlyAcrossZones,
+  truncateGeneratedToNow,
   weatherIconFor,
 } from '../chartData'
 import type { ForecastPoint, HourlyPoint } from '../types'
@@ -70,6 +71,34 @@ describe('mergeGeneratedAndForecast', () => {
   it('carries algorithm and error through from the forecast point', () => {
     const rows = mergeGeneratedAndForecast([], [forecastPoint(9, 10, 8, 12, 'lightgbm', 3.5)])
     expect(rows[0]).toMatchObject({ algorithm: 'lightgbm', error: 3.5 })
+  })
+})
+
+describe('truncateGeneratedToNow', () => {
+  const now = '2026-07-14T12:00:00Z'
+
+  it('nulls generated for rows after now, leaving forecast fields untouched', () => {
+    const rows = mergeGeneratedAndForecast(
+      [hourly(11, 20), hourly(13, 30)], // 13:00 is "in the future" relative to `now`
+      [forecastPoint(13, 28, 20, 36)],
+    )
+    const truncated = truncateGeneratedToNow(rows, now)
+    expect(truncated.find((r) => r.key === '2026-07-14T11')).toMatchObject({ generated: 20 })
+    expect(truncated.find((r) => r.key === '2026-07-14T13')).toMatchObject({ generated: null, pred: 28, band: 16 })
+  })
+
+  it('leaves a row exactly at now untouched (not yet "in the future")', () => {
+    const rows = mergeGeneratedAndForecast([hourly(12, 25)], [])
+    const truncated = truncateGeneratedToNow(rows, now)
+    expect(truncated[0].generated).toBe(25)
+  })
+
+  it('defaults to the real current time when no cutoff is passed', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(now))
+    const rows = mergeGeneratedAndForecast([hourly(11, 20), hourly(13, 30)], [])
+    expect(truncateGeneratedToNow(rows).map((r) => r.generated)).toEqual([20, null])
+    vi.useRealTimers()
   })
 })
 
