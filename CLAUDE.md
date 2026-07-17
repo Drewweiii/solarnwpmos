@@ -19,6 +19,18 @@ session to resume work without re-explaining context. Keep it concise enough
 for a capable model (Sonnet-tier) to pick up immediately — no need for
 exhaustive prose, just enough to not have to ask again.
 
+### Also commit it to `HANDOFF.md` (as of 2026-07-17)
+
+Every time a Handoff Report is produced (any trigger above), also **append**
+it to `HANDOFF.md` at the repo root — do not overwrite or prune earlier
+entries, this file is a running append-only log, oldest entry first, newest
+appended at the bottom. Prepend each entry with a `## <ISO date/time>` header
+so entries are easy to tell apart when scrolling. Commit and push this
+change together with (or immediately after) whatever other work is being
+committed in the same turn — the whole point is that the other account can
+open this file directly on GitHub and see the latest state without needing
+the report pasted into chat first.
+
 ### On the "เปลี่ยนแอค" trigger specifically
 
 Because this phrase signals a live account switch (not just an end-of-session
