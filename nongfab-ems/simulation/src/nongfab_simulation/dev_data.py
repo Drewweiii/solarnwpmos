@@ -40,6 +40,29 @@ def synthetic_day_irradiance_temp(n_hours: int = 24, seed: int = 0) -> tuple[pd.
     return idx, ssrd, temp
 
 
+def synthetic_temp_at(idx: pd.DatetimeIndex, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
+    """Same day/night sine shape as `synthetic_day_irradiance_temp()` (see its
+    own docstring for the UTC-hour-of-day phase reasoning - the formula only
+    depends on hour-of-day, not the calendar date, so it repeats every 24h),
+    evaluated at arbitrary timestamps rather than a fixed "today 00:00-23:00"
+    block. Lets a caller build a rolling window centered on "now" (e.g. the
+    dashboard's scrolling weather strip) that spans a UTC day boundary
+    without re-deriving the formula in a second place.
+
+    Note: the per-hour Gaussian noise term won't bit-for-bit match
+    `synthetic_day_irradiance_temp()`'s own noise for the same real hour (that
+    function's `rng` draws are indexed by array position 0-23 within *its own*
+    call, not by absolute hour) - both are documented approximations, not
+    real data, so a fraction-of-a-degree mismatch between the two synthetic
+    generators isn't worth the extra complexity of aligning them exactly.
+    """
+    rng = np.random.default_rng(seed)
+    hour = idx.hour.to_numpy()
+    ssrd = np.clip(1000 * np.sin(np.pi * (hour + 1) / 12), 0, None)
+    temp = 28 + 5 * np.sin(np.pi * (hour + 1) / 12) + rng.normal(0, 0.5, size=len(idx))
+    return ssrd, temp
+
+
 _LIVE_EFFICIENCY_MIN = 0.85
 _LIVE_EFFICIENCY_MAX = 1.0
 _LIVE_EFFICIENCY_BUCKET_SECONDS = 300  # 5 minutes

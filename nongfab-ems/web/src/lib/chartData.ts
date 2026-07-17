@@ -209,13 +209,3 @@ export const WEATHER_ICON_GLYPH: Record<WeatherIcon, string> = {
   cloudy: '☁️',
   night: '🌙',
 }
-
-/** Picks the hourly points nearest each of the given target hours-of-day
- * (e.g. [6, 9, 12, 15]) for the weather strip - `hourly` is a full
- * synthetic today, always at hourly resolution, so an exact match exists
- * for every whole-number target hour. */
-export function pickHoursOfDay(hourly: HourlyPoint[], targetHours: number[]): HourlyPoint[] {
-  return targetHours
-    .map((target) => hourly.find((point) => new Date(point.timestamp).getUTCHours() === target))
-    .filter((point): point is HourlyPoint => point !== undefined)
-}

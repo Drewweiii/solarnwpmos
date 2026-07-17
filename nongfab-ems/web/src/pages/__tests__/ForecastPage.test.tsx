@@ -1,11 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ForecastPage } from '../ForecastPage'
 import { AuthProvider } from '../../lib/auth'
 import * as api from '../../lib/api'
-import type { AssetRegistry, ForecastResponse, PerformanceResponse, Zone } from '../../lib/types'
+import type { AssetRegistry, ForecastResponse, PerformanceResponse, WeatherStripResponse, Zone } from '../../lib/types'
 
 function makeZone(id: string, ac_capacity_kw: number, simulated = false): Zone {
   return {
@@ -69,6 +69,19 @@ function makeForecast(zone: string, horizon: ForecastResponse['horizon'] = 'day'
   }
 }
 
+function makeWeatherStrip(hourStartIso: string, hoursEachSide: number): WeatherStripResponse {
+  const start = new Date(hourStartIso)
+  const points = []
+  for (let offset = -hoursEachSide; offset <= hoursEachSide + 1; offset++) {
+    points.push({
+      timestamp: new Date(start.getTime() + offset * 3600_000).toISOString(),
+      temp_c: 30.0,
+      ssrd_w_m2: 500,
+    })
+  }
+  return { data_source: 'real', points }
+}
+
 const registry: AssetRegistry = { zones: [makeZone('GIS', 50), makeZone('ISB', 120), makeZone('Jetty', 200, true)] }
 
 function renderPage() {
@@ -91,6 +104,11 @@ describe('ForecastPage', () => {
       Promise.resolve(makePerformance(zone, { GIS: 50, ISB: 120, Jetty: 200 }[zone] ?? 50)),
     )
     vi.spyOn(api, 'getForecast').mockImplementation((zone, horizon) => Promise.resolve(makeForecast(zone, horizon)))
+    vi.spyOn(api, 'getWeatherStrip').mockResolvedValue(makeWeatherStrip('2026-07-14T12:00:00.000Z', 12))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('shows the site-wide (All) KPI totals by default', async () => {
@@ -111,10 +129,16 @@ describe('ForecastPage', () => {
     await waitFor(() => expect(screen.getByText('50.0')).toBeInTheDocument())
   })
 
-  it('renders a weather strip entry for each of the 4 target hours', async () => {
+  it('renders a weather strip block for each hour in the +/-4h window around now, continuously centered on the real clock', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-07-14T12:00:00.000Z'))
+
     renderPage()
     await clickGisTab()
-    await waitFor(() => expect(screen.getAllByText(/30\.0°C/).length).toBe(4))
+    // Default hoursEachSide=4 on WeatherStrip -> 2*4+2 = 10 blocks (-4..+5),
+    // all matched to the mocked 30.0°C real data.
+    await waitFor(() => expect(screen.getAllByText(/30\.0°C/).length).toBe(10))
+    expect(screen.getByText('Real data')).toBeInTheDocument()
   })
 
   it('re-fetches forecast when switching Day-ahead / Intra-day', async () => {

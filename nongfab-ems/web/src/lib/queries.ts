@@ -7,6 +7,7 @@ import {
   getIrradianceMap,
   getPerformance,
   getSunPath,
+  getWeatherStrip,
   postFinancial,
   postSimulate,
 } from './api'
@@ -41,6 +42,18 @@ export function useForecast(zone: string, horizon: ForecastHorizon) {
     queryFn: () => getForecast(zone, horizon, token!),
     enabled: Boolean(token) && zone !== ALL_ZONES_ID,
     retry: false, // 404 (no model trained yet) shouldn't be retried
+    refetchInterval: LIVE_REFETCH_INTERVAL_MS,
+  })
+}
+
+// Site-wide, not per-zone (see api.ts's own getWeatherStrip docstring) - one
+// shared query regardless of which zone tab is selected.
+export function useWeatherStrip() {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['weather-strip'],
+    queryFn: () => getWeatherStrip(token!),
+    enabled: Boolean(token),
     refetchInterval: LIVE_REFETCH_INTERVAL_MS,
   })
 }

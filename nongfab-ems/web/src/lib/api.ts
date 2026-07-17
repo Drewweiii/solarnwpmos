@@ -11,6 +11,7 @@ import type {
   SimulateRequest,
   SimulateResponse,
   SunPathResponse,
+  WeatherStripResponse,
   Zone,
 } from './types'
 
@@ -87,6 +88,12 @@ export const getForecast = (zone: string, horizon: ForecastHorizon, token: strin
 
 export const getPerformance = (zone: string, token: string): Promise<PerformanceResponse> =>
   request(`/performance/${zone}`, token)
+
+// Site-wide, not per-zone (see routes_weather.py's own docstring) -
+// `hoursEachSide` matches the backend's own generous default window so the
+// frontend can always slice a smaller display range out of one cached response.
+export const getWeatherStrip = (token: string, hoursEachSide = 12): Promise<WeatherStripResponse> =>
+  request(`/weather/strip?hours_each_side=${hoursEachSide}`, token)
 
 export const postSimulate = (zone: string, body: SimulateRequest, token: string): Promise<SimulateResponse> =>
   request(`/simulate/${zone}`, token, { method: 'POST', body: JSON.stringify(body) })

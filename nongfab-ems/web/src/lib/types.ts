@@ -79,6 +79,21 @@ export interface ForecastResponse {
   model_type: string
 }
 
+export interface WeatherStripPoint {
+  timestamp: string
+  temp_c: number
+  ssrd_w_m2: number
+}
+
+export interface WeatherStripResponse {
+  // "real" once GET /weather/strip finds real accumulated NWP data covering
+  // (most of) the requested window, "synthetic" otherwise - see
+  // routes_weather.py's own docstring. Drives the same honest-labeling
+  // convention as ForecastResponse.data_source.
+  data_source: 'real' | 'synthetic'
+  points: WeatherStripPoint[]
+}
+
 export interface HourlyPoint {
   timestamp: string
   ac_kw: number

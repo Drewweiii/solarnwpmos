@@ -14,39 +14,29 @@ import {
   YAxis,
 } from 'recharts'
 import { ZoneSelector } from '../components/ZoneSelector'
+import { WeatherStrip } from '../components/WeatherStrip'
 import {
   exactTimeKey,
   mergeGeneratedAndForecast,
   nearestToNow,
-  pickHoursOfDay,
   sumForecastAcrossZones,
   sumHourlyAcrossZones,
   truncateGeneratedToNow,
-  WEATHER_ICON_GLYPH,
-  weatherIconFor,
 } from '../lib/chartData'
-import { ALL_ZONES_ID, useAllZonesForecast, useAllZonesPerformance, useForecast, usePerformance, useZones } from '../lib/queries'
+import {
+  ALL_ZONES_ID,
+  useAllZonesForecast,
+  useAllZonesPerformance,
+  useForecast,
+  usePerformance,
+  useWeatherStrip,
+  useZones,
+} from '../lib/queries'
 import { formatDateHourIct, formatHourIct as formatHour } from '../lib/timeScrub'
 import type { ForecastHorizon, ForecastPoint, HourlyPoint } from '../lib/types'
 import './ForecastPage.css'
 
 type HorizonToggle = 'day' | 'hour'
-
-// UTC hours matched via pickHoursOfDay's getUTCHours() - chosen so they land
-// on Thai local (ICT = UTC+7) 07:00/10:00/13:00/16:00, squarely inside the
-// real daylight window simulation/dev_data.py's synthetic generator produces
-// (UTC 0-10 = ICT 07:00-17:00, peaking at UTC 5 = ICT noon). The previous
-// [6, 9, 12, 15] was itself UTC, so two of its four slots (12, 15 UTC =
-// 19:00/22:00 ICT) were Thai *nighttime* - correctly showing 0 W/m² and a
-// moon icon, but mislabeled with a bare "12:00"/"15:00" that read as
-// afternoon, causing "why is it 25°C at noon" confusion (found live
-// 2026-07-17). [23, 2, 5, 8] would map to a rounder 06:00/09:00/12:00/15:00
-// ICT, but hour 23 wraps to the *previous* UTC calendar day - hourly's own
-// 24-point array only covers today's UTC hours, so that lookup would
-// silently grab tomorrow morning instead; [0, 3, 6, 9] avoids that
-// day-boundary trap entirely while keeping the same "four checkpoints
-// spanning the Thai work day" intent.
-const WEATHER_HOURS = [0, 3, 6, 9]
 
 // Intra-day's k-step forecast auto-selects LightGBM vs Random Forest vs
 // Sum-k LSTM independently per lead hour (see forecast/hour_ahead.py's
@@ -77,6 +67,7 @@ export function ForecastPage() {
   const singlePerformance = usePerformance(zoneId)
   const allPerformance = useAllZonesPerformance()
   const allForecast = useAllZonesForecast(horizon)
+  const weatherStrip = useWeatherStrip()
 
   // Minute-ahead (CNN-LSTM) is a fixed near-real-time horizon, not part of
   // the Day-ahead/Intra-day toggle above - shown in its own always-visible
@@ -102,7 +93,6 @@ export function ForecastPage() {
     () => truncateGeneratedToNow(mergeGeneratedAndForecast(hourly, forecastPoints)),
     [hourly, forecastPoints],
   )
-  const weatherPoints = useMemo(() => pickHoursOfDay(hourly, WEATHER_HOURS), [hourly])
   const current = useMemo(() => nearestToNow(hourly), [hourly])
 
   const capacityKw = isAllZones
@@ -326,17 +316,11 @@ export function ForecastPage() {
         isPhysicsBaseline={minuteIsPhysicsBaseline}
       />
 
-      <section className="weather-strip" aria-label="Weather forecast">
-        {weatherPoints.map((point) => (
-          <div key={point.timestamp} className="weather-strip-item">
-            <span className="weather-strip-hour">{formatHour(point.timestamp)}</span>
-            <span className="weather-strip-icon" aria-hidden="true">
-              {WEATHER_ICON_GLYPH[weatherIconFor(point.ssrd_w_m2)]}
-            </span>
-            <span className="weather-strip-temp">{point.temp_c.toFixed(1)}°C</span>
-          </div>
-        ))}
-      </section>
+      <WeatherStrip
+        points={weatherStrip.data?.points ?? []}
+        dataSource={weatherStrip.data?.data_source}
+        isLoading={weatherStrip.isLoading}
+      />
     </div>
   )
 }
