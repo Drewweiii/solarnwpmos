@@ -79,13 +79,22 @@ class UserStore:
             await self.create_user(username, password, role)
 
 
-def create_access_token(username: str, role: str, settings: Settings) -> str:
+def create_access_token(username: str, role: str, settings: Settings, deploy_id: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_access_token_expire_minutes)
-    payload = {"sub": username, "role": role, "exp": expire}
+    payload = {"sub": username, "role": role, "exp": expire, "deploy_id": deploy_id}
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def decode_access_token(token: str, settings: Settings) -> AuthenticatedUser:
+def decode_access_token(token: str, settings: Settings, deploy_id: str) -> AuthenticatedUser:
+    """`deploy_id` is the API process's own boot-time identity (see main.py's
+    `app.state.deploy_id`, a fresh random value generated once per process
+    start) - a token minted by a previous process (i.e. before the most
+    recent deploy) carries the *old* value and is rejected here, forcing
+    every session to sign back in after any Railway redeploy. This is the
+    user's own explicit request (2026-07-17): any code Claude ships to
+    either GitHub or Railway should auto-log-out anyone currently signed in,
+    not leave them running against a mismatched frontend/backend pairing.
+    """
     try:
         payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
     except jwt.ExpiredSignatureError as exc:
@@ -97,6 +106,8 @@ def decode_access_token(token: str, settings: Settings) -> AuthenticatedUser:
     role = payload.get("role")
     if not username or role not in ROLE_HIERARCHY:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="malformed token")
+    if payload.get("deploy_id") != deploy_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="session invalidated by a server redeploy")
     return AuthenticatedUser(username=username, role=role)
 
 
@@ -105,7 +116,8 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
 async def get_current_user(request: Request, token: str = Depends(oauth2_scheme)) -> AuthenticatedUser:
     settings: Settings = request.app.state.settings
-    return decode_access_token(token, settings)
+    deploy_id: str = request.app.state.deploy_id
+    return decode_access_token(token, settings, deploy_id)
 
 
 def require_role(min_role: str):

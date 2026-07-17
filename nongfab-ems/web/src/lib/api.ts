@@ -24,6 +24,20 @@ export class ApiError extends Error {
   }
 }
 
+// Set by AuthProvider (lib/auth.tsx) on mount - api.ts has no React context
+// of its own, so this module-level slot is how a 401 from any authenticated
+// call gets turned into a logout. Covers both ordinary token expiry and (as
+// of 2026-07-17) a token minted before the API's most recent redeploy, see
+// auth.py's deploy_id claim on the backend side - either way the token is
+// dead, and the user asked that this always force a fresh sign-in rather
+// than leave the app quietly broken.
+type UnauthorizedHandler = () => void
+let unauthorizedHandler: UnauthorizedHandler | null = null
+
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  unauthorizedHandler = handler
+}
+
 async function request<T>(path: string, token: string | null, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers)
   if (options.body) headers.set('Content-Type', 'application/json')
@@ -38,6 +52,10 @@ async function request<T>(path: string, token: string | null, options: RequestIn
     } catch {
       // response body wasn't JSON - fall back to statusText
     }
+    // Only calls that actually sent a token reach here on a 401 - login()
+    // itself uses a separate raw fetch, not request(), so a wrong-password
+    // attempt on the login screen never triggers this.
+    if (resp.status === 401 && token) unauthorizedHandler?.()
     throw new ApiError(resp.status, detail)
   }
   return (await resp.json()) as T
@@ -87,3 +105,12 @@ export const getEnergyReport = (zone: string, token: string): Promise<EnergyRepo
 
 export const getIrradianceMap = (at: string | undefined, token: string): Promise<IrradianceMapResponse> =>
   request(`/irradiance-map${at ? `?at=${encodeURIComponent(at)}` : ''}`, token)
+
+export interface VersionResponse {
+  deploy_id: string
+}
+
+// Unauthenticated on purpose (see main.py's /version) - lib/deployWatch.ts
+// polls this regardless of whether the session has any other query running,
+// so an idle tab still notices a backend redeploy.
+export const getVersion = (): Promise<VersionResponse> => request('/version', null)

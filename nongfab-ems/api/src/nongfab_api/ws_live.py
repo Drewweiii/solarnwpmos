@@ -56,12 +56,13 @@ def live_payload() -> dict:
 @router.websocket("/ws/live")
 async def ws_live(websocket: WebSocket) -> None:
     settings: Settings = websocket.app.state.settings
+    deploy_id: str = websocket.app.state.deploy_id
     token = websocket.query_params.get("token")
     if not token:
         await websocket.close(code=1008, reason="missing token")
         return
     try:
-        decode_access_token(token, settings)
+        decode_access_token(token, settings, deploy_id)
     except HTTPException:
         await websocket.close(code=1008, reason="invalid or expired token")
         return

@@ -9,6 +9,7 @@ DSN in `Settings.timescale_dsn` - see tests/conftest.py.
 from __future__ import annotations
 
 import logging
+import secrets
 import time
 from contextlib import asynccontextmanager
 
@@ -93,6 +94,13 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     # Available even before lifespan runs (e.g. a bare TestClient(app) request
     # that never enters the `with TestClient(app) as client:` context).
     app.state.settings = settings
+    # A fresh random identity per process start (not per-request) - every JWT
+    # minted by this process embeds it (see auth.create_access_token), and
+    # every request re-checks it (auth.decode_access_token), so a Railway
+    # redeploy (which restarts this process) invalidates every token issued
+    # by the previous process, forcing an auto-logout - see /version below
+    # and web/lib/deployWatch.ts for the frontend half of this.
+    app.state.deploy_id = secrets.token_hex(8)
 
     app.add_middleware(
         CORSMiddleware,
@@ -129,13 +137,22 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get("/version")
+    async def version() -> dict[str, str]:
+        """Unauthenticated on purpose - the frontend's deploy watcher
+        (web/lib/deployWatch.ts) polls this to auto-log-out idle sessions
+        too, not just ones actively mid-request (which already get a 401
+        the moment they call any real endpoint - see auth.decode_access_token).
+        """
+        return {"deploy_id": app.state.deploy_id}
+
     @app.post("/auth/token")
     async def login(form_data: OAuth2PasswordRequestForm = Depends()) -> dict[str, str]:
         user_store: UserStore = app.state.user_store
         user = await user_store.get_by_username(form_data.username)
         if user is None or not verify_password(form_data.password, user.hashed_password):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="incorrect username or password")
-        token = create_access_token(user.username, user.role, settings)
+        token = create_access_token(user.username, user.role, settings, app.state.deploy_id)
         return {"access_token": token, "token_type": "bearer"}
 
     app.include_router(routes_assets.router)

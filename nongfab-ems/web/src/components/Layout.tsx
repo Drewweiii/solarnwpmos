@@ -1,8 +1,12 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
+import { useDeployWatch } from '../lib/deployWatch'
 
 export function Layout() {
-  const { username, role, logout } = useAuth()
+  const { username, role, logout, forceLogout } = useAuth()
+  // Auto-logout whenever a new deploy goes live (backend on Railway or
+  // frontend on Cloudflare) - see deployWatch.ts's own docstring for why.
+  useDeployWatch(() => forceLogout('เว็บไซต์มีการอัปเดตใหม่ กรุณาเข้าสู่ระบบอีกครั้ง'))
 
   return (
     <div className="app-shell">

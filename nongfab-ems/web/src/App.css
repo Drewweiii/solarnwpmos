@@ -70,6 +70,17 @@
   margin-top: 12px;
 }
 
+.login-notice {
+  color: var(--text);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin-bottom: 4px;
+  text-align: center;
+}
+
 /* --- App shell --- */
 
 .app-shell {

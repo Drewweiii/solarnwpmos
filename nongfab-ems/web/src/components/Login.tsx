@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import { useAuth } from '../lib/auth'
 
 export function Login() {
-  const { login } = useAuth()
+  const { login, autoLogoutReason } = useAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -27,6 +27,11 @@ export function Login() {
       <form className="login-form" onSubmit={handleSubmit}>
         <h1>Nong Fab Solar EMS</h1>
         <p className="login-subtitle">Sign in to continue</p>
+        {autoLogoutReason && (
+          <p role="status" className="login-notice">
+            {autoLogoutReason}
+          </p>
+        )}
         <label htmlFor="username">Username</label>
         <input
           id="username"

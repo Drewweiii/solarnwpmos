@@ -144,6 +144,26 @@ involved anywhere in this module, so the "stop and ask before deciding on
 credential/ToS matters for an external data source" rule was never
 triggered building it - JWT auth here is entirely self-contained.
 
+### Auto-logout on redeploy (2026-07-17)
+
+Every JWT embeds a `deploy_id` claim - a random value generated once per API
+process start (`app.state.deploy_id`, `main.py`) - and every request re-checks
+it (`auth.decode_access_token`). A Railway redeploy restarts this process, so
+every token minted by the *previous* process is rejected afterwards
+(`401 "session invalidated by a server redeploy"`), even though its signature
+and expiry are still otherwise valid. This is the user's own explicit
+request: any code Claude ships, on either GitHub (-> Cloudflare, frontend) or
+Railway (backend), should force every currently-logged-in session to sign
+back in, rather than leave someone running against a mismatched
+frontend/backend pairing.
+
+`GET /version` (unauthenticated) returns `{"deploy_id": "..."}` so the
+frontend can poll for a changed value even on an idle tab that isn't making
+any other authenticated call yet - see `web/lib/deployWatch.ts` for the
+frontend half (which also detects a *frontend-only*, Cloudflare-side
+redeploy, by diffing the served `index.html`, something this backend-side
+check alone can't see).
+
 ## RBAC
 
 Three roles, ordered least-to-most privileged: `viewer < operator < admin`.
@@ -263,6 +283,11 @@ management, config writes) has somewhere to plug in without a schema change.
   Unauthenticated, matching the rest of the Prometheus/Grafana ecosystem's
   convention of relying on network-level access control for scrape
   endpoints rather than app-level auth. See `nongfab_api/metrics.py`.
+- **`GET /version`** → `{"deploy_id": "..."}`, this process's own random
+  boot-time identity. Unauthenticated (same reasoning as `/healthz`/
+  `/metrics` - it's an ops/liveness-style signal, not application data).
+  Polled by the frontend's deploy watcher to auto-log-out active sessions
+  after a redeploy - see "Auto-logout on redeploy" above.
 
 ## Metrics
 
@@ -638,3 +663,26 @@ Verified (still no Docker daemon available) by replicating the fixed
 Dockerfile's exact install sequence - same paths, same order - in a
 throwaway venv from the repo root, and confirming all 5 packages installed
 successfully with **zero** PyPI lookups for the bare `nongfab-*` names.
+
+### Verified live (2026-07-17) - auto-logout on redeploy
+
+Live end-to-end, not just the test suite: booted `uvicorn` against a fresh
+`dev.db`, logged in via the real `/auth/token` route to get a token, then
+restarted the `uvicorn` process in place (the same effect on a live token as
+a Railway redeploy - a fresh process, a fresh `app.state.deploy_id`):
+
+- `GET /version` returned a different `deploy_id` after the restart
+  (`4a87bd28570a2582` -> `38c8af3a3418cdf2` in one run).
+- The token minted **before** the restart, replayed against the **new**
+  process: `401 {"detail": "session invalidated by a server redeploy"}` -
+  confirmed a still-signature-valid, still-unexpired token is genuinely
+  rejected purely on the `deploy_id` mismatch.
+- Full 114-test `api/tests` suite still green after the `auth.py`/`main.py`/
+  `ws_live.py` changes (including `conftest.py`'s `token_factory` fixture,
+  updated to mint tokens against whichever `app` fixture instance a test
+  actually uses, so its `deploy_id` always matches).
+
+The frontend half (an actual browser session auto-logging out after this
+same kind of restart, with the Thai notice shown on the Login screen) was
+also verified live via Playwright - see `web/README.md`'s matching dated
+entry for that half and its screenshot.

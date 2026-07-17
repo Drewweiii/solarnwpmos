@@ -41,8 +41,12 @@ def app(settings, engine):
 
 
 @pytest.fixture
-def token_factory(settings):
+def token_factory(app, settings):
+    # Depends on `app` (not just `settings`) so minted tokens carry the same
+    # `deploy_id` the test's own `app` instance generated at creation time -
+    # otherwise every authenticated test request would 401 on the new
+    # deploy_id check (see auth.py's decode_access_token docstring).
     def _make(role: str, username: str = "tester") -> str:
-        return create_access_token(username, role, settings)
+        return create_access_token(username, role, settings, app.state.deploy_id)
 
     return _make

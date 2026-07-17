@@ -80,39 +80,62 @@ async def test_seed_demo_users_if_empty_is_noop_when_table_nonempty(engine):
 
 
 def test_create_and_decode_access_token_roundtrip(settings):
-    token = create_access_token("alice", "operator", settings)
-    user = decode_access_token(token, settings)
+    token = create_access_token("alice", "operator", settings, "deploy-1")
+    user = decode_access_token(token, settings, "deploy-1")
     assert user == AuthenticatedUser(username="alice", role="operator")
 
 
 def test_decode_access_token_rejects_expired_token(settings):
-    expired_payload = {"sub": "alice", "role": "operator", "exp": datetime.now(timezone.utc) - timedelta(minutes=1)}
+    expired_payload = {
+        "sub": "alice",
+        "role": "operator",
+        "exp": datetime.now(timezone.utc) - timedelta(minutes=1),
+        "deploy_id": "deploy-1",
+    }
     token = jwt.encode(expired_payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
     with pytest.raises(HTTPException) as exc_info:
-        decode_access_token(token, settings)
+        decode_access_token(token, settings, "deploy-1")
     assert exc_info.value.status_code == 401
 
 
 def test_decode_access_token_rejects_garbage_token(settings):
     with pytest.raises(HTTPException) as exc_info:
-        decode_access_token("not-a-real-token", settings)
+        decode_access_token("not-a-real-token", settings, "deploy-1")
     assert exc_info.value.status_code == 401
 
 
 def test_decode_access_token_rejects_token_signed_with_different_secret(settings):
     other_settings = Settings(jwt_secret_key="different-secret")
-    token = create_access_token("alice", "admin", other_settings)
+    token = create_access_token("alice", "admin", other_settings, "deploy-1")
     with pytest.raises(HTTPException) as exc_info:
-        decode_access_token(token, settings)
+        decode_access_token(token, settings, "deploy-1")
     assert exc_info.value.status_code == 401
 
 
 def test_decode_access_token_rejects_missing_role_claim(settings):
-    payload = {"sub": "alice", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)}
+    payload = {"sub": "alice", "exp": datetime.now(timezone.utc) + timedelta(minutes=5), "deploy_id": "deploy-1"}
     token = jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
     with pytest.raises(HTTPException) as exc_info:
-        decode_access_token(token, settings)
+        decode_access_token(token, settings, "deploy-1")
     assert exc_info.value.status_code == 401
+
+
+def test_decode_access_token_rejects_token_from_a_different_deploy(settings):
+    # Simulates a token minted by the API process *before* a Railway
+    # redeploy: same signing secret, same claims, but the old process's
+    # deploy_id. The whole point of this check is that a still-signature-
+    # valid, still-unexpired token is rejected anyway once the server has
+    # moved on to a new deploy_id (2026-07-17 auto-logout-on-deploy feature).
+    token = create_access_token("alice", "operator", settings, "old-deploy")
+    with pytest.raises(HTTPException) as exc_info:
+        decode_access_token(token, settings, "new-deploy")
+    assert exc_info.value.status_code == 401
+
+
+def test_decode_access_token_accepts_token_matching_the_current_deploy(settings):
+    token = create_access_token("alice", "operator", settings, "deploy-7")
+    user = decode_access_token(token, settings, "deploy-7")
+    assert user == AuthenticatedUser(username="alice", role="operator")
 
 
 def test_require_role_rejects_unknown_role_at_setup_time():
@@ -120,9 +143,13 @@ def test_require_role_rejects_unknown_role_at_setup_time():
         require_role("superadmin")
 
 
+TEST_DEPLOY_ID = "test-deploy"
+
+
 def _make_test_app(settings: Settings) -> FastAPI:
     app = FastAPI()
     app.state.settings = settings
+    app.state.deploy_id = TEST_DEPLOY_ID
 
     for role in ("viewer", "operator", "admin"):
 
@@ -150,7 +177,7 @@ def _make_test_app(settings: Settings) -> FastAPI:
 )
 def test_require_role_enforces_role_hierarchy(settings, caller_role, endpoint, expected_status):
     app = _make_test_app(settings)
-    token = create_access_token("someone", caller_role, settings)
+    token = create_access_token("someone", caller_role, settings, TEST_DEPLOY_ID)
     client = TestClient(app)
     resp = client.get(endpoint, headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == expected_status
@@ -165,8 +192,24 @@ def test_protected_endpoint_without_token_returns_401(settings):
 
 def test_protected_endpoint_with_expired_token_returns_401(settings):
     app = _make_test_app(settings)
-    expired_payload = {"sub": "someone", "role": "admin", "exp": datetime.now(timezone.utc) - timedelta(minutes=1)}
+    expired_payload = {
+        "sub": "someone",
+        "role": "admin",
+        "exp": datetime.now(timezone.utc) - timedelta(minutes=1),
+        "deploy_id": TEST_DEPLOY_ID,
+    }
     token = jwt.encode(expired_payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    client = TestClient(app)
+    resp = client.get("/admin-endpoint", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 401
+
+
+def test_protected_endpoint_rejects_a_token_from_before_a_redeploy(settings):
+    # End-to-end version of test_decode_access_token_rejects_token_from_a_
+    # different_deploy - a real request through require_role's dependency
+    # chain, not just a direct decode_access_token() call.
+    app = _make_test_app(settings)
+    token = create_access_token("someone", "admin", settings, "old-deploy-before-restart")
     client = TestClient(app)
     resp = client.get("/admin-endpoint", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 401

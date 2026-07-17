@@ -164,6 +164,32 @@ The token is decoded client-side only for display (username/role) - the
 backend re-validates the signature on every request regardless, so nothing
 here is a security boundary by itself.
 
+**Auto-logout on redeploy (2026-07-17)**: the user's own explicit request -
+any code Claude ships, to either GitHub (-> Cloudflare, frontend) or Railway
+(backend), should force every currently-logged-in session to sign back in,
+so nobody keeps using a stale frontend against a new backend or vice versa.
+Two complementary mechanisms, both routed through `lib/auth.tsx`'s
+`forceLogout(reason)`:
+
+- **`lib/api.ts`**'s `request()` calls a module-level "unauthorized handler"
+  (registered by `AuthProvider` on mount) on any 401 from an authenticated
+  call - covers ordinary token expiry *and*, as of the API's new `deploy_id`
+  JWT claim (`api/src/nongfab_api/auth.py`), a token minted before the
+  API's most recent Railway redeploy.
+- **`lib/deployWatch.ts`**'s `useDeployWatch()` hook (mounted in
+  `Layout.tsx`, so only while already authenticated) polls `GET /version`
+  (backend `deploy_id` change) and diffs the freshly-fetched `index.html`
+  against its own session baseline (frontend/Cloudflare redeploy - Vite's
+  content-hashed asset filenames mean any rebuild changes it) once a
+  minute, catching both an idle session with no other API calls in flight
+  *and* the one case the backend-side check can't see at all: a
+  frontend-only redeploy that never touches the API.
+
+Either path shows a short Thai explanation on the next Login screen
+(`.login-notice`) instead of silently kicking the user back with no
+context - a manual "Sign out" click stays silent, only auto-triggered
+logouts show a reason.
+
 ## Data model notes
 
 - **"All" (รวม) zone**: the backend has no single aggregate endpoint, so
@@ -870,6 +896,35 @@ Three more small-but-important fixes to `ForecastPage.tsx`, off a live screensho
 Verified live via Playwright across the "All"/GIS zones and both
 Day-ahead/Intra-day views; `tsc -b`, `vitest run` (110/110), and `oxlint`
 all clean.
+
+### Added - auto-logout on redeploy (2026-07-17)
+
+See "Auth" above for the design (`lib/api.ts`'s 401 handler +
+`lib/deployWatch.ts`'s poll-and-diff hook, both routed through
+`lib/auth.tsx`'s `forceLogout`). New files: `lib/deployWatch.ts`. Changed:
+`lib/api.ts` (`setUnauthorizedHandler`/`getVersion`), `lib/auth.tsx`
+(`forceLogout`/`autoLogoutReason`), `components/Layout.tsx` (mounts the
+watcher), `components/Login.tsx` + `App.css` (`.login-notice`, shows the
+reason).
+
+Verified live end-to-end via Playwright: logged in against a real `uvicorn`
+process, restarted that process in place (the same effect on a live token
+as a Railway redeploy), waited past `useDeployWatch`'s one-minute poll
+interval, and confirmed the browser landed back on the Login screen with
+the notice "เว็บไซต์มีการอัปเดตใหม่ กรุณาเข้าสู่ระบบอีกครั้ง" shown - the
+same session that was previously on `/forecast` with a valid token. `tsc
+-b`, `vitest run` (125/125, 15 new across `lib/__tests__/api.test.ts`,
+`lib/__tests__/auth.test.tsx`, `lib/__tests__/deployWatch.test.ts`, and two
+more in `components/__tests__/Login.test.tsx`), and `oxlint` all clean.
+
+The frontend-only (Cloudflare-redeploy-via-`index.html`-diff) half of
+`useDeployWatch` could **not** be live-verified the same way - there is no
+real Cloudflare Pages build happening in this dev sandbox, same category of
+"write it carefully, can't verify against blocked/external infra" as
+`lib/satelliteTile.ts` and the PVGIS ingestion module earlier in this
+project. Its unit tests (`deployWatch.test.ts`) cover the `index.html`-diff
+logic in isolation with a mocked `fetch`, but the real Cloudflare deploy
+path itself is unverified.
 
 ## Run locally
 
