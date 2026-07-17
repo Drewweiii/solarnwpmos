@@ -9,12 +9,25 @@ written down.
 
 Produce a "Handoff Report" (in Thai, matching the user's language) whenever:
 - A work session is ending, OR
-- The user types the exact phrase "สรุปงานเพื่อส่งไม้ต่อ"
+- The user types the exact phrase "สรุปงานเพื่อส่งไม้ต่อ", OR
+- The user types "เปลี่ยนแอค" (or a clear equivalent stating they're switching
+  to the other account) — see the sub-section immediately below for the
+  extra acknowledgment line this trigger requires.
 
 The user copies this report and pastes it to the other account's Claude
 session to resume work without re-explaining context. Keep it concise enough
 for a capable model (Sonnet-tier) to pick up immediately — no need for
 exhaustive prose, just enough to not have to ask again.
+
+### On the "เปลี่ยนแอค" trigger specifically
+
+Because this phrase signals a live account switch (not just an end-of-session
+wrap-up), lead with a one-line acknowledgment that the switch was registered
+— e.g. "รับทราบ — สลับบัญชีแล้ว กำลังส่งสรุปงานให้" — immediately followed by
+the full 3-section Handoff Report below. Produce this every single time the
+phrase is typed, not just once per session — if the user switches accounts
+multiple times in one thread, send a fresh report each time reflecting
+whatever changed since the last one.
 
 ## Required structure (3 sections)
 
@@ -77,6 +90,34 @@ placeholder defaults in `financial/src/nongfab_financial/model.py` can be
 replaced with confirmed figures. Stop reminding once the user has supplied
 all four and they've been wired in as the new defaults - update this note
 then.
+
+## Standing policy: Thailand-first for time, weather, and other regional data (as of 2026-07-17)
+
+Whenever code in this project pulls, computes, defaults, or displays
+data that is regionally scoped — timezone/clock time, weather/climate
+data, location-based reference datasets, or any other "which country's
+convention applies here" choice — **Thailand must be the default, always,
+with no exception silently substituted**:
+- Time: Asia/Bangkok (ICT, UTC+7) is the default display timezone
+  everywhere in the product (dashboards, reports, logs meant for the
+  user). This is what the 2026-07-17 UTC-to-ICT fixes across Forecast,
+  Simulation, 3D View, and Irradiance Map already established — see
+  `nongfab-ems/web/README.md`'s matching dated entry for the fuller
+  breakdown of which pages needed a pure-display conversion vs. a
+  UTC-semantic value with an ICT-converted readout.
+- Weather/climate/irradiance and any other geographically-scoped
+  dataset: default to Thailand-sited or Thailand-appropriate sources
+  (e.g. the Thai Meteorological Department, or reanalysis/satellite
+  products queried at Nong Fab's own real Thailand coordinates) — not a
+  generic/global default that happens to point elsewhere.
+
+**If a task would require sourcing or defaulting to another country's
+data** (a different country's weather service, a non-Thailand reference
+dataset, a library default that assumes a different locale/timezone,
+etc.), **stop and ask the user for explicit approval before proceeding**
+— do not silently substitute it and mention it only after the fact. State
+plainly what the non-Thailand source would be and why it seemed necessary,
+and let the user decide.
 
 ## Run-code status updates — every time, not just at handoff
 
