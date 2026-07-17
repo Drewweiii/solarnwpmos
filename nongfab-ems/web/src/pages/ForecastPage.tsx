@@ -15,6 +15,7 @@ import {
 } from 'recharts'
 import { ZoneSelector } from '../components/ZoneSelector'
 import {
+  exactTimeKey,
   mergeGeneratedAndForecast,
   nearestToNow,
   pickHoursOfDay,
@@ -24,13 +25,27 @@ import {
   weatherIconFor,
 } from '../lib/chartData'
 import { ALL_ZONES_ID, useAllZonesForecast, useAllZonesPerformance, useForecast, usePerformance, useZones } from '../lib/queries'
-import { formatDateHourUtc, formatHourUtc as formatHour } from '../lib/timeScrub'
+import { formatDateHourIct, formatHourIct as formatHour } from '../lib/timeScrub'
 import type { ForecastHorizon, ForecastPoint, HourlyPoint } from '../lib/types'
 import './ForecastPage.css'
 
 type HorizonToggle = 'day' | 'hour'
 
-const WEATHER_HOURS = [6, 9, 12, 15]
+// UTC hours matched via pickHoursOfDay's getUTCHours() - chosen so they land
+// on Thai local (ICT = UTC+7) 07:00/10:00/13:00/16:00, squarely inside the
+// real daylight window simulation/dev_data.py's synthetic generator produces
+// (UTC 0-10 = ICT 07:00-17:00, peaking at UTC 5 = ICT noon). The previous
+// [6, 9, 12, 15] was itself UTC, so two of its four slots (12, 15 UTC =
+// 19:00/22:00 ICT) were Thai *nighttime* - correctly showing 0 W/m² and a
+// moon icon, but mislabeled with a bare "12:00"/"15:00" that read as
+// afternoon, causing "why is it 25°C at noon" confusion (found live
+// 2026-07-17). [23, 2, 5, 8] would map to a rounder 06:00/09:00/12:00/15:00
+// ICT, but hour 23 wraps to the *previous* UTC calendar day - hourly's own
+// 24-point array only covers today's UTC hours, so that lookup would
+// silently grab tomorrow morning instead; [0, 3, 6, 9] avoids that
+// day-boundary trap entirely while keeping the same "four checkpoints
+// spanning the Thai work day" intent.
+const WEATHER_HOURS = [0, 3, 6, 9]
 
 // Intra-day's k-step forecast auto-selects LightGBM vs Random Forest vs
 // Sum-k LSTM independently per lead hour (see forecast/hour_ahead.py's
@@ -118,7 +133,10 @@ export function ForecastPage() {
   const showsAlgorithmDots = horizonToggle === 'hour' && chartRows.some((r) => r.algorithm != null)
 
   const minutePoints: ForecastPoint[] = useMemo(() => {
-    if (isAllZones) return sumForecastAcrossZones(allMinuteForecast.map((q) => q.data?.points ?? []))
+    // exactTimeKey, not the default hourKey - minute-ahead's 10-minute-
+    // resolution points routinely share an hour, which hourKey would wrongly
+    // collapse (see chartData.ts's own docstring on this bug, found live 2026-07-17).
+    if (isAllZones) return sumForecastAcrossZones(allMinuteForecast.map((q) => q.data?.points ?? []), exactTimeKey)
     return singleMinuteForecast.data?.points ?? []
   }, [isAllZones, allMinuteForecast, singleMinuteForecast.data])
 
@@ -241,10 +259,10 @@ export function ForecastPage() {
             <ResponsiveContainer width="100%" height={320}>
               <ComposedChart data={chartRows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                <XAxis dataKey="timestamp" tickFormatter={formatDateHourUtc} minTickGap={60} />
+                <XAxis dataKey="timestamp" tickFormatter={formatDateHourIct} minTickGap={60} />
                 <YAxis unit=" kW" width={80} />
                 <Tooltip
-                  labelFormatter={(label) => (typeof label === 'string' ? formatDateHourUtc(label) : String(label))}
+                  labelFormatter={(label) => (typeof label === 'string' ? formatDateHourIct(label) : String(label))}
                   formatter={(value) => (typeof value === 'number' ? value.toFixed(1) : String(value))}
                 />
                 <Legend />
@@ -392,12 +410,15 @@ function MinuteAheadPanel({ points, isLoading, hasError, isPhysicsBaseline }: Mi
   )
 }
 
-// Shows both Thai local time and UTC side by side - the chart's own x-axis
-// is UTC-labeled (formatHourUtc), and this whole app has a history of "why
-// don't the numbers match what time it really is in Thailand" confusion
-// (see web/README.md's 2026-07-16 dated entries) - a visible live clock
-// naming both zones directly next to the chart heads that off rather than
-// making the user do the +7h math themselves.
+// Shows both Thai local time and UTC side by side - every chart/display on
+// this page uses Thai local time (ICT) as of 2026-07-17 (see
+// web/README.md's dated entry), matching this widget's own primary
+// display; UTC is kept as a small secondary reference (useful for matching
+// server logs/API timestamps), not because anything on this page still
+// shows UTC unlabeled - this whole app has a history of "why don't the
+// numbers match what time it really is in Thailand" confusion (see
+// web/README.md's 2026-07-16 dated entries) that this widget already heads
+// off by naming both zones explicitly.
 function LiveClock() {
   const [now, setNow] = useState(() => new Date())
 
@@ -423,7 +444,7 @@ function LiveClock() {
       <span className="forecast-clock-date">{thaiDate}</span>
       <div className="forecast-clock-utc-row">
         <span className="forecast-clock-utc">{utcTime} UTC</span>
-        <span className="forecast-clock-hint">(แกนเวลาในกราฟใช้ UTC)</span>
+        <span className="forecast-clock-hint">(แกนเวลาในกราฟใช้เวลาไทยแล้ว - UTC แสดงไว้เทียบเฉย ๆ)</span>
       </div>
     </aside>
   )

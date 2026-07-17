@@ -21,6 +21,26 @@ export function hourKey(iso: string): string {
   return iso.slice(0, 13) // "2026-07-14T12:00:00Z" -> "2026-07-14T12"
 }
 
+/** Groups by the exact timestamp, not the hour it falls in - the bucket key
+ * `sumForecastAcrossZones` needs for minute-ahead's "All" (รวม) zone
+ * aggregation. Minute-ahead points are 10-minute resolution (up to 6 points
+ * inside one 60-minute window), so several of them routinely share the same
+ * *hour* - `hourKey`'s hour-only granularity was silently collapsing that
+ * window's points into 1-2 buckets whose per-zone counts stopped matching
+ * `perZone.length`, dropping all but (at most) one point (found live
+ * 2026-07-17: the "All" zone's Minute-ahead panel rendered a single dot
+ * instead of a connected 6-point line, while GIS/ISB/Jetty individually
+ * rendered correctly - those don't go through this aggregator at all, see
+ * ForecastPage.tsx). All 3 zones' own minute-ahead requests round their
+ * timestamps to the same 10-minute anchor (forecast/serving.py's
+ * `_ceil_to`), so they line up exactly under normal conditions; only a
+ * request that happens to straddle the exact 10-minute boundary against the
+ * others could still miss a match here - self-correcting on the next 60s
+ * poll, not worth a more complex reconciliation for. */
+export function exactTimeKey(iso: string): string {
+  return iso
+}
+
 /** Outer-joins "generated" (today's actual/baseline power, from
  * /performance's hourly series) with "forecast" (from /forecast) on their
  * hour bucket. The two series can have different, only partially
@@ -104,12 +124,17 @@ export function sumHourlyAcrossZones(perZone: HourlyPoint[][]): HourlyPoint[] {
  * there is no single "the" algorithm to report for a summed "All" (รวม)
  * point - the dot-coloring feature is only meaningful per-zone. `error`
  * (RMSE, roughly extensive like lower/upper) is summed the same
- * approximate way lower/upper already are. */
-export function sumForecastAcrossZones(perZone: ForecastPoint[][]): ForecastPoint[] {
+ * approximate way lower/upper already are.
+ *
+ * `keyFn` defaults to `hourKey` (correct for Day-ahead/Intra-day's hourly
+ * cadence, where it also absorbs a few seconds of cross-zone request jitter)
+ * - callers aggregating a finer-resolution series (minute-ahead) must pass
+ * `exactTimeKey` instead, see that function's own docstring. */
+export function sumForecastAcrossZones(perZone: ForecastPoint[][], keyFn: (iso: string) => string = hourKey): ForecastPoint[] {
   const acc = new Map<string, { timestamp: string; pred: number; lower: number; upper: number; error: number; n: number }>()
   for (const series of perZone) {
     for (const point of series) {
-      const key = hourKey(point.timestamp)
+      const key = keyFn(point.timestamp)
       const entry = acc.get(key) ?? { timestamp: point.timestamp, pred: 0, lower: 0, upper: 0, error: 0, n: 0 }
       entry.pred += point.pred
       entry.lower += point.lower ?? point.pred

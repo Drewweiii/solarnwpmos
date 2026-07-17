@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  exactTimeKey,
   hourKey,
   mergeGeneratedAndForecast,
   nearestToNow,
@@ -33,6 +34,16 @@ describe('hourKey', () => {
 
   it('keeps different hours distinct', () => {
     expect(hourKey('2026-07-14T12:00:00Z')).not.toBe(hourKey('2026-07-14T13:00:00Z'))
+  })
+})
+
+describe('exactTimeKey', () => {
+  it('keeps different minutes within the same hour distinct, unlike hourKey', () => {
+    expect(exactTimeKey('2026-07-14T12:00:00Z')).not.toBe(exactTimeKey('2026-07-14T12:10:00Z'))
+  })
+
+  it('is the identity function', () => {
+    expect(exactTimeKey('2026-07-14T12:00:00Z')).toBe('2026-07-14T12:00:00Z')
   })
 })
 
@@ -102,6 +113,34 @@ describe('sumForecastAcrossZones', () => {
     const [row] = sumForecastAcrossZones([gis, isb])
     expect(row.error).toBe(5)
     expect(row.algorithm).toBeNull()
+  })
+
+  it('with the default hourKey, drops minute-resolution points that share an hour (the bug found live 2026-07-17)', () => {
+    // 6 points at 10-minute steps starting :50 past the hour - straddles an
+    // hour boundary exactly like forecast/serving.py's real minute-ahead
+    // anchor does. Every zone reports the identical 6 timestamps.
+    const minuteTimestamps = [
+      '2026-07-14T21:50:00Z', '2026-07-14T22:00:00Z', '2026-07-14T22:10:00Z',
+      '2026-07-14T22:20:00Z', '2026-07-14T22:30:00Z', '2026-07-14T22:40:00Z',
+    ]
+    const zoneSeries = (): ForecastPoint[] =>
+      minuteTimestamps.map((timestamp) => ({ timestamp, pred: 10, lower: null, upper: null, algorithm: null, error: null }))
+
+    const rowsWithDefaultKey = sumForecastAcrossZones([zoneSeries(), zoneSeries(), zoneSeries()])
+    expect(rowsWithDefaultKey.length).toBeLessThan(6) // demonstrates the bug, not the desired behavior
+  })
+
+  it('with exactTimeKey, keeps every minute-resolution point instead of collapsing by hour', () => {
+    const minuteTimestamps = [
+      '2026-07-14T21:50:00Z', '2026-07-14T22:00:00Z', '2026-07-14T22:10:00Z',
+      '2026-07-14T22:20:00Z', '2026-07-14T22:30:00Z', '2026-07-14T22:40:00Z',
+    ]
+    const zoneSeries = (predBase: number): ForecastPoint[] =>
+      minuteTimestamps.map((timestamp) => ({ timestamp, pred: predBase, lower: null, upper: null, algorithm: null, error: null }))
+
+    const rows = sumForecastAcrossZones([zoneSeries(10), zoneSeries(20), zoneSeries(30)], exactTimeKey)
+    expect(rows.map((r) => r.timestamp)).toEqual(minuteTimestamps)
+    expect(rows.every((r) => r.pred === 60)).toBe(true) // 10 + 20 + 30 per zone, at every one of the 6 timestamps
   })
 })
 

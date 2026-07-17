@@ -768,6 +768,65 @@ orange/Minute-ahead's red/the error line's gray), the legend caption below
 the Intra-day chart now names all three candidates, and the model-info
 panel's Intra-day row lists all three too.
 
+### Fixed - three recheck bugs: minute-ahead "All" zone aggregation, UTC-vs-Thai time display, weather-strip hours (2026-07-17)
+
+The user flagged three issues live off two screenshots. All three are
+frontend-only fixes; no `api/`/`forecast/`/other backend package changed.
+
+1. **Minute-ahead "All zones" panel showed one dot instead of a connected
+   line.** `sumForecastAcrossZones` (`lib/chartData.ts`) bucketed rows by
+   `hourKey()` - truncating every timestamp to its containing hour - which is
+   correct for the hourly-cadence Day-ahead/Intra-day series but collapses
+   the 10-minute-resolution Minute-ahead series down to a single point per
+   hour. Fixed by adding `exactTimeKey(iso) => iso` (identity key) and
+   widening `sumForecastAcrossZones` to take an optional `keyFn` parameter
+   (default `hourKey`, unchanged for the two hourly charts).
+   `ForecastPage.tsx`'s minute-ahead "All" aggregation now passes
+   `exactTimeKey` explicitly. Verified live: the "All" zones Minute-ahead
+   panel now renders a connected 6-point red line matching the per-zone
+   (GIS/ISB/Jetty) charts, instead of one dot.
+2. **Every time display across the site was UTC, not Thai local time.** The
+   user asked for Forecast, Simulation, Financial, 3D View, Energy Report,
+   and Irradiance Map to all read in Asia/Bangkok time (UTC+7). Added
+   `formatHourIct`/`formatDateHourIct` (`lib/timeScrub.ts`, `timeZone:
+   'Asia/Bangkok'` mirrors of the existing UTC formatters) and
+   `utcMinutesToIctHhMm` for the two time-scrubber pages. Two different fix
+   shapes were needed depending on whether the time value is pure display or
+   also drives a backend query:
+   - **Pure display** (chart axes/tooltips, weather-strip labels,
+     Simulation's chart): swapped the UTC formatter for the ICT one
+     directly - `ForecastPage.tsx` (chart x-axis + weather strip, via
+     `replace_all`), `SimulationPlaygroundPage.tsx` (both chart usages).
+   - **Scrubber value that also builds the backend query** (`Solar3DPage.tsx`,
+     `IrradianceMapPage.tsx`): `buildAtIso` stamps the scrubber's
+     minutes-of-day as a literal UTC `"Z"` timestamp for the API call, so the
+     underlying state had to stay UTC-semantic - converting it to ICT before
+     querying would shift the queried instant by 7 hours. Only the
+     *displayed* readout was converted (`utcMinutesToIctHhMm`), with the raw
+     UTC value kept alongside in a small gray hint (`(HH:MM UTC)`) so the
+     two controls stay auditable against each other. Labels changed from
+     "Time (UTC)" to "Time (เวลาไทย ICT)" on both pages.
+   - Energy Report and Financial pages don't format individual
+     timestamps (daily/monthly aggregates and a one-shot analysis form), so
+     neither needed a code change for this item.
+   Verified live: Forecast page's chart axis and weather strip now read ICT
+   (e.g. "17 Jul 17:00"); `/3d` and `/irradiance-map` both show "12:00 (05:00
+   UTC)" for their default scrub position.
+3. **Weather strip showed ~25°C at Thailand noon.** Not a data-fetch bug -
+   `WEATHER_HOURS` (`ForecastPage.tsx`) was still `[6, 9, 12, 15]`, sampling
+   those as UTC hours (09:00/12:00/15:00/18:00 ICT is what those actually
+   render as pre-fix, but combined with the display formatter still being
+   UTC at the time, the strip's *labels* read "06:00/09:00/12:00/15:00" while
+   Bangkok's real local time at those instants is 13:00/16:00/19:00/22:00 -
+   evening/night temperatures, hence the implausibly low ~25°C reading at
+   what the label claimed was midday). Fixed by changing `WEATHER_HOURS` to
+   `[0, 3, 6, 9]` (UTC hours that map to ICT 07:00/10:00/13:00/16:00,
+   chosen to avoid crossing a UTC day boundary within a single day's 24-point
+   hourly array) together with the ICT display fix from item 2. Verified
+   live across all,GIS/ISB/Jetty: strip now reads "07:00 (29.4°C), 10:00
+   (32.4°C), 13:00 (33.5°C), 16:00 (29.9°C)" - a plausible Thailand midday
+   temperature curve.
+
 ## Run locally
 
 ```bash

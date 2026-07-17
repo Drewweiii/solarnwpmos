@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { IrradianceMapView } from '../components/IrradianceMapView'
 import { useIrradianceMap } from '../lib/queries'
-import { buildAtIso, minutesToHhMm, todayIso } from '../lib/timeScrub'
+import { buildAtIso, minutesToHhMm, todayIso, utcMinutesToIctHhMm } from '../lib/timeScrub'
 import './IrradianceMapPage.css'
 
 const AUTO_PLAY_STEP_MINUTES = 15
@@ -9,7 +9,14 @@ const AUTO_PLAY_INTERVAL_MS = 400
 
 export function IrradianceMapPage() {
   const [date, setDate] = useState(todayIso())
-  const [timeOfDayMinutes, setTimeOfDayMinutes] = useState(12 * 60)
+  // Default to ~local noon (Asia/Bangkok, UTC+7), not 12:00 UTC (=19:00 ICT,
+  // nighttime) - same first-open-shows-a-dark-scene fix already applied to
+  // Solar3DPage's own scrubber (2026-07-16), just not carried over here
+  // until now (found live 2026-07-17). The value itself stays UTC
+  // minutes-of-day internally (buildAtIso stamps it "Z"); only the
+  // *displayed* readout is converted to Thai local time - see
+  // timeScrub.ts's utcMinutesToIctHhMm for why that's display-only.
+  const [timeOfDayMinutes, setTimeOfDayMinutes] = useState(5 * 60)
   const [isPlaying, setIsPlaying] = useState(false)
   const [showIrradiance, setShowIrradiance] = useState(true)
   const [showZones, setShowZones] = useState(true)
@@ -31,7 +38,7 @@ export function IrradianceMapPage() {
       <div className="irradiance-map-sweep-controls">
         <label htmlFor="irradiance-map-date">Date</label>
         <input id="irradiance-map-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        <label htmlFor="irradiance-map-time">Time (UTC)</label>
+        <label htmlFor="irradiance-map-time">Time (เวลาไทย ICT)</label>
         <input
           id="irradiance-map-time"
           type="range"
@@ -41,7 +48,8 @@ export function IrradianceMapPage() {
           value={timeOfDayMinutes}
           onChange={(e) => setTimeOfDayMinutes(Number(e.target.value))}
         />
-        <span className="irradiance-map-time-readout">{minutesToHhMm(timeOfDayMinutes)}</span>
+        <span className="irradiance-map-time-readout">{utcMinutesToIctHhMm(timeOfDayMinutes)}</span>
+        <span className="irradiance-map-time-utc-hint">({minutesToHhMm(timeOfDayMinutes)} UTC)</span>
         <button type="button" onClick={() => setIsPlaying((p) => !p)} aria-pressed={isPlaying}>
           {isPlaying ? 'Pause' : 'Play'}
         </button>

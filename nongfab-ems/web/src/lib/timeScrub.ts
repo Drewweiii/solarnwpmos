@@ -22,6 +22,24 @@ export function buildAtIso(date: string, minutes: number): string {
   return `${date}T${hh}:${mm}:00Z`
 }
 
+/** Converts a UTC minutes-of-day value - the time-scrubber sliders'
+ * (Solar3DPage/IrradianceMapPage) own internal state, fed straight into
+ * buildAtIso above - into the Thai local (ICT = UTC+7) HH:MM label to show
+ * next to it, without changing what timestamp actually gets queried.
+ *
+ * Deliberately display-only: redefining the slider's *value* itself as
+ * ICT-semantic (so dragging to the visual "noon" mark queries 12:00 ICT
+ * directly) would need buildAtIso to shift the calendar *date* too whenever
+ * the ICT time crosses midnight relative to the UTC one (e.g. "2026-07-17
+ * 03:00 ICT" is "2026-07-16 20:00 UTC" - the *previous* UTC day) - a
+ * genuine semantic change with real date-boundary-bug risk, not just a
+ * label swap. Keeping the value UTC and converting only for display avoids
+ * that risk entirely while still showing the correct real-world Thai time.
+ */
+export function utcMinutesToIctHhMm(utcMinutesOfDay: number): string {
+  return minutesToHhMm((utcMinutesOfDay + 7 * 60) % (24 * 60))
+}
+
 /** HH:MM in UTC, for chart axis ticks/tooltips - also used by
  * SimulationPlaygroundPage's result chart, not just ForecastPage's. */
 export function formatHourUtc(iso: string): string {
@@ -41,5 +59,25 @@ export function formatDateHourUtc(iso: string): string {
   // format depend on who's looking at it.
   const datePart = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', timeZone: 'UTC' })
   const timePart = formatHourUtc(iso)
+  return `${datePart} ${timePart}`
+}
+
+/** HH:MM in Thai local time (ICT = UTC+7, Asia/Bangkok) - the default for
+ * every chart/display in this app (2026-07-17): the user found UTC-computed
+ * but visually-unlabeled times confusing across the site (a bare "12:00"
+ * that's actually 19:00 in Thailand reads as a plausible local time with
+ * nothing to say otherwise). `formatHourUtc` above is kept only where a UTC
+ * figure is still useful as an explicitly-labeled secondary reference (e.g.
+ * LiveClock's own dual display), not as the default anymore. */
+export function formatHourIct(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Bangkok' })
+}
+
+/** "17 Jul 08:00" in Thai local time - see formatDateHourUtc's own docstring
+ * for why multi-day charts need the date, not just HH:MM. */
+export function formatDateHourIct(iso: string): string {
+  const d = new Date(iso)
+  const datePart = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', timeZone: 'Asia/Bangkok' })
+  const timePart = formatHourIct(iso)
   return `${datePart} ${timePart}`
 }

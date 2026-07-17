@@ -8,7 +8,7 @@ import { ZoneSelector } from '../components/ZoneSelector'
 import { nearestToTimestamp } from '../lib/chartData'
 import { useForecast, useGeometry, usePerformance, useSunPath, useZones } from '../lib/queries'
 import { esriWorldImageryTileUrl } from '../lib/satelliteTile'
-import { buildAtIso, minutesToHhMm, todayIso } from '../lib/timeScrub'
+import { buildAtIso, minutesToHhMm, todayIso, utcMinutesToIctHhMm } from '../lib/timeScrub'
 import './Solar3DPage.css'
 
 const REAL_ZONE_IDS = ['GIS', 'ISB', 'Jetty'] as const
@@ -21,10 +21,13 @@ export function Solar3DPage() {
   const [groundStyle, setGroundStyle] = useState<'grid' | 'satellite'>('grid')
   const [date, setDate] = useState(todayIso())
   // Default to ~local noon (Asia/Bangkok, UTC+7) instead of 12:00 UTC
-  // (=19:00 ICT, nighttime) - the slider is UTC-indexed and correctly
-  // labeled as such, but a Thailand plant's first-open view showing a dark
-  // scene with every panel red was a bad first impression (see
-  // web/README.md's "Known gaps", now resolved here 2026-07-16).
+  // (=19:00 ICT, nighttime) - a Thailand plant's first-open view showing a
+  // dark scene with every panel red was a bad first impression (see
+  // web/README.md's "Known gaps", now resolved here 2026-07-16). The value
+  // itself stays UTC minutes-of-day internally (buildAtIso stamps it "Z" -
+  // this is what actually gets queried against the backend); only the
+  // *displayed* readout was converted to Thai local time (2026-07-17) - see
+  // timeScrub.ts's utcMinutesToIctHhMm for why that's display-only.
   const [timeOfDayMinutes, setTimeOfDayMinutes] = useState(5 * 60)
   const [isPlaying, setIsPlaying] = useState(false)
   const sceneRef = useRef<Solar3DSceneHandle>(null)
@@ -83,7 +86,7 @@ export function Solar3DPage() {
           value={date}
           onChange={(e) => setDate(e.target.value)}
         />
-        <label htmlFor="solar3d-time">Time (UTC)</label>
+        <label htmlFor="solar3d-time">Time (เวลาไทย ICT)</label>
         <input
           id="solar3d-time"
           type="range"
@@ -93,7 +96,8 @@ export function Solar3DPage() {
           value={timeOfDayMinutes}
           onChange={(e) => setTimeOfDayMinutes(Number(e.target.value))}
         />
-        <span className="solar3d-time-readout">{minutesToHhMm(timeOfDayMinutes)}</span>
+        <span className="solar3d-time-readout">{utcMinutesToIctHhMm(timeOfDayMinutes)}</span>
+        <span className="solar3d-time-utc-hint">({minutesToHhMm(timeOfDayMinutes)} UTC)</span>
       </div>
 
       <div className="solar3d-readouts">

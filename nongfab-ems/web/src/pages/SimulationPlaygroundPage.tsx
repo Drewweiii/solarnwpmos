@@ -3,7 +3,7 @@ import { Area, Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContai
 import { ZoneSelector } from '../components/ZoneSelector'
 import { ApiError } from '../lib/api'
 import { useSimulate } from '../lib/queries'
-import { formatHourUtc } from '../lib/timeScrub'
+import { formatHourIct } from '../lib/timeScrub'
 import type { SimulateRequest } from '../lib/types'
 import './SimulationPlaygroundPage.css'
 
@@ -148,10 +148,10 @@ export function SimulationPlaygroundPage() {
             <ResponsiveContainer width="100%" height={320}>
               <ComposedChart data={chartRows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                <XAxis dataKey="timestamp" tickFormatter={formatHourUtc} minTickGap={24} />
+                <XAxis dataKey="timestamp" tickFormatter={formatHourIct} minTickGap={24} />
                 <YAxis unit=" kW" width={80} />
                 <Tooltip
-                  labelFormatter={(label) => (typeof label === 'string' ? formatHourUtc(label) : String(label))}
+                  labelFormatter={(label) => (typeof label === 'string' ? formatHourIct(label) : String(label))}
                   formatter={(value) => (typeof value === 'number' ? value.toFixed(1) : String(value))}
                 />
                 <Legend />
