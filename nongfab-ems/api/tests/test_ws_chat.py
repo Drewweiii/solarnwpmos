@@ -235,3 +235,23 @@ def test_get_chat_history_requires_login(app):
     with TestClient(app) as client:
         resp = client.get("/chat/history?my_client_id=a&peer_client_id=b")
     assert resp.status_code == 401
+
+
+def test_message_created_at_carries_a_utc_offset_not_a_naive_timestamp(app, token_factory):
+    """Regression test (2026-07-18) - see models.as_utc's docstring and
+    test_routes_feedback.py's matching test: the SQLite-backed test `app`
+    reads a stored tz-aware datetime back as tz-naive, which used to
+    serialize `created_at` with no UTC offset and get silently misread as
+    local time by a browser's `new Date(...)`.
+    """
+    token_a = token_factory("viewer", username="alice")
+    token_b = token_factory("viewer", username="bob")
+    with TestClient(app) as client:
+        with client.websocket_connect(f"/ws/chat?token={token_a}&client_id=a") as ws_a:
+            ws_a.receive_json()
+            with client.websocket_connect(f"/ws/chat?token={token_b}&client_id=b") as ws_b:
+                ws_b.receive_json()
+                ws_a.receive_json()
+                ws_a.send_json({"text": "hi", "recipient_client_id": "b"})
+                message = ws_a.receive_json()
+    assert "+00:00" in message["created_at"]

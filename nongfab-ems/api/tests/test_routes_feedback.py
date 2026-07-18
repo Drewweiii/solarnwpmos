@@ -43,3 +43,21 @@ def test_admin_can_list_submitted_feedback(app, token_factory):
     assert resp.status_code == 200
     texts = [item["text"] for item in resp.json()]
     assert texts == ["second", "first"]  # newest first
+
+
+def test_feedback_created_at_carries_a_utc_offset_not_a_naive_timestamp(app, token_factory):
+    """Regression test (2026-07-18): the test `app` fixture's SQLite backend
+    reads a stored tz-aware datetime back as tz-naive (confirmed directly -
+    see models.as_utc's docstring), which used to serialize `created_at`
+    with no UTC offset - a browser's `new Date(...)` then silently
+    misreads it as local time, shifting every feedback timestamp by the
+    viewer's UTC offset. Both POST's own response and GET /feedback's list
+    must carry an explicit offset (`+00:00`) so this can never regress.
+    """
+    token = token_factory("viewer", username="pttlng")
+    admin_token = token_factory("admin", username="boss")
+    with TestClient(app) as client:
+        post_resp = client.post("/feedback", json={"text": "hi"}, headers={"Authorization": f"Bearer {token}"})
+        list_resp = client.get("/feedback", headers={"Authorization": f"Bearer {admin_token}"})
+    assert post_resp.json()["created_at"].endswith(("Z", "+00:00"))
+    assert list_resp.json()[0]["created_at"].endswith(("Z", "+00:00"))

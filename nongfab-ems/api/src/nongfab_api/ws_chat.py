@@ -44,7 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from .auth import AuthenticatedUser, decode_access_token, require_role
 from .config import Settings
-from .models import ChatMessageORM
+from .models import ChatMessageORM, as_utc
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ def _row_to_message(row: ChatMessageORM) -> ChatMessage:
         username=row.username,
         role=row.role,
         text=row.text,
-        created_at=row.created_at,
+        created_at=as_utc(row.created_at),
         display_name=row.display_name or row.username,  # pre-migration rows have no display_name
         avatar=row.avatar,
         client_id=row.client_id,

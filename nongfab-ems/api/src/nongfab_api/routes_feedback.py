@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from .auth import AuthenticatedUser, require_role
-from .models import FeedbackMessageORM
+from .models import FeedbackMessageORM, as_utc
 
 router = APIRouter(tags=["feedback"])
 
@@ -44,13 +44,16 @@ class FeedbackStore:
             session.add(row)
             await session.commit()
             await session.refresh(row)
-            return FeedbackItem(id=row.id, username=row.username, role=row.role, text=row.text, created_at=row.created_at)
+            return FeedbackItem(id=row.id, username=row.username, role=row.role, text=row.text, created_at=as_utc(row.created_at))
 
     async def list_all(self) -> list[FeedbackItem]:
         async with self._session_factory() as session:
             stmt = select(FeedbackMessageORM).order_by(FeedbackMessageORM.id.desc())
             rows = (await session.execute(stmt)).scalars().all()
-        return [FeedbackItem(id=row.id, username=row.username, role=row.role, text=row.text, created_at=row.created_at) for row in rows]
+        return [
+            FeedbackItem(id=row.id, username=row.username, role=row.role, text=row.text, created_at=as_utc(row.created_at))
+            for row in rows
+        ]
 
 
 @router.post("/feedback", response_model=FeedbackItem)

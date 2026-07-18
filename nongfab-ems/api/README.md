@@ -863,3 +863,29 @@ browser (Playwright) and confirmed the reading reached the frontend (network
 response inspected directly) and rendered as visible falling rain streaks
 over the panels with zero console errors - see `web/README.md`'s matching
 entry for the frontend half and screenshot.
+
+### Fixed - feedback/chat timestamps silently wrong by a fixed offset (2026-07-18)
+
+The user reported admin feedback timestamps "don't match the real send time
+at all" - lined up like `14:49`, `14:50` (consistently off, not random
+garbage). Root cause, confirmed directly (see `models.as_utc`'s docstring):
+`created_at` is always written as `datetime.now(timezone.utc)`, but what a
+row reads back **as** depends on the DB driver - asyncpg round-trips a
+`TIMESTAMPTZ` column's tzinfo correctly, but aiosqlite silently drops it,
+so `row.created_at` comes back tz-**naive** even though the value itself is
+still UTC. A naive datetime serializes with no UTC offset in the JSON
+(`"...T15:23:32"` instead of `"...+00:00"`/`"...Z"`), and a browser's `new
+Date(...)` then reads a timezone-less ISO string as **local** time, not
+UTC - every timestamp ends up wrong by exactly the viewer's own UTC offset
+(ICT = +7h). Fixed with a new `models.as_utc()` helper (attach `timezone.
+utc` only if the value comes back naive - safe, since it was always UTC to
+begin with), applied everywhere a `created_at` is read off a row before
+going into a response: `routes_feedback.py`'s `FeedbackStore.add()`/`list_
+all()` and `ws_chat.py`'s `_row_to_message()`. (Sender name was already
+shown correctly in `AdminFeedbackPage.tsx` - no separate fix needed there.)
+
+**Tested**: two regression tests assert the serialized `created_at` always
+carries an explicit UTC marker - `test_routes_feedback.py`'s new test
+against the SQLite-backed `app` fixture (the exact backend this bug
+reproduces on) and `test_ws_chat.py`'s matching test for chat messages.
+Full backend suite 159 passed.

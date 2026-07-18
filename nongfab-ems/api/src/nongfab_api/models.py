@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import TIMESTAMP, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -6,6 +6,24 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
     pass
+
+
+def as_utc(dt: datetime) -> datetime:
+    """Guarantee a tz-aware (UTC) datetime before it reaches a JSON response.
+
+    Every `created_at` here is written as `datetime.now(timezone.utc)`, but
+    what a row reads back as depends on the DB driver: asyncpg round-trips a
+    `TIMESTAMPTZ` column's tzinfo correctly, but aiosqlite silently drops it
+    (confirmed directly - a value stored tz-aware reads back tz-naive). A
+    naive datetime serializes with no UTC offset in the JSON (e.g.
+    `"2026-07-18T15:23:32"` instead of `"...+00:00"`), and a browser's `new
+    Date(...)` then reads a timezone-less ISO string as *local* time, not
+    UTC - every timestamp ends up wrong by exactly the viewer's UTC offset
+    (reported 2026-07-18: feedback timestamps not matching real send time).
+    Since the value was always UTC to begin with, attaching `timezone.utc`
+    when it comes back naive is correct, not a guess.
+    """
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 class UserORM(Base):
