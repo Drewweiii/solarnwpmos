@@ -343,12 +343,30 @@ describe('buildCompetitionRows', () => {
     expect(rows[1]).toMatchObject({ leadLabel: '+2h', winner: 'random_forest', lightgbm: 1.1, randomForest: 0.9, sumKLstm: null })
   })
 
-  it('drops points more than an hour in the past (only the live k-step race, not accumulated history)', () => {
+  it('drops any already-passed point (only the live k-step race, not accumulated history)', () => {
     const stale = forecastPoint(9, 10, null, null, 'lightgbm', 1, { lightgbm: 1 })
     const live = forecastPoint(13, 40, null, null, 'lightgbm', 1.2, { lightgbm: 1.2 })
     const rows = buildCompetitionRows([stale, live], nowIso)
     expect(rows).toHaveLength(1)
     expect(rows[0].leadLabel).toBe('+1h')
+  })
+
+  it('drops an already-passed point even within the last hour, instead of admitting it and bumping a real +6h point out of the 6-row cap', () => {
+    // Found live 2026-07-18: an earlier version filtered `>= nowMs - 1h`, so
+    // an hour that had *just* passed (here, 11:00 - one hour before
+    // nowIso=12:00) - already aged out of live k-step coverage, so
+    // algorithm/candidate_errors are back to their "nothing here" defaults,
+    // same as any other already-passed hour - sorted ahead of the real
+    // +1h..+6h race, got mislabeled "+1h" with every bar null, and pushed
+    // the genuine +6h point out of `.slice(0, 6)`. That's exactly what the
+    // reported "empty Model Competition chart" screenshot showed.
+    const staleWithinLastHour = forecastPoint(11, 30, null, null, null, null, {})
+    const live = Array.from({ length: 6 }, (_, i) => forecastPoint(13 + i, 40, null, null, 'lightgbm', 1, { lightgbm: 1 }))
+    const rows = buildCompetitionRows([staleWithinLastHour, ...live], nowIso)
+    expect(rows).toHaveLength(6)
+    expect(rows.every((r) => r.lightgbm === 1)).toBe(true)
+    expect(rows[0].leadLabel).toBe('+1h')
+    expect(rows[5].leadLabel).toBe('+6h')
   })
 
   it('caps at 6 rows even if more future points are present', () => {

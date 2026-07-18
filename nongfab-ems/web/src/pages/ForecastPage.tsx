@@ -7,6 +7,7 @@ import {
   CartesianGrid,
   Cell,
   ComposedChart,
+  LabelList,
   Legend,
   Line,
   LineChart,
@@ -759,10 +760,23 @@ function ModelCompetitionPanel({ rows, isLoading, hasError }: ModelCompetitionPa
       )}
       {!isLoading && !hasError && rows.length === 0 && <p className="forecast-status">No data yet.</p>}
       {rows.length > 0 && (
-        <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={rows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={rows} margin={{ top: 20, right: 16, left: 0, bottom: 28 }}>
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-            <XAxis dataKey="leadLabel" />
+            {/* Absolute reference time, not relative "+1h".."+6h" labels - the
+                lead-hour offset is still shown (in the tooltip, via `row.leadLabel`)
+                but the axis itself now reads the same way as every other chart on
+                this page, per the user's own 2026-07-18 request. Angled so the
+                longer "17 Jul 14:00"-style ticks don't overlap at this panel's
+                width. */}
+            <XAxis
+              dataKey="timestamp"
+              tickFormatter={(v) => formatDateHourIct(String(v))}
+              angle={-30}
+              textAnchor="end"
+              height={50}
+              tickMargin={8}
+            />
             <YAxis unit=" kW" width={80} label={{ value: 'RMSE (kW)', angle: -90, position: 'insideLeft' }} />
             <Tooltip
               formatter={(value, name) => [typeof value === 'number' ? `${value.toFixed(2)} kW` : String(value), name]}
@@ -770,7 +784,9 @@ function ModelCompetitionPanel({ rows, isLoading, hasError }: ModelCompetitionPa
                 const row = payload?.[0]?.payload as CompetitionRow | undefined
                 const winnerLabel = row?.winner ? (ALGORITHM_LABEL[row.winner] ?? row.winner) : 'ไม่ทราบ'
                 const spreadLabel = row?.spread != null ? ` | ส่วนต่างระหว่างโมเดล: ${row.spread.toFixed(2)} kW` : ''
-                return `${label} — ผู้ชนะ: ${winnerLabel}${spreadLabel}`
+                const timeLabel = typeof label === 'string' ? formatDateHourIct(label) : String(label)
+                const leadLabel = row?.leadLabel ? ` (${row.leadLabel})` : ''
+                return `${timeLabel}${leadLabel} — ผู้ชนะ: ${winnerLabel}${spreadLabel}`
               }}
             />
             <Legend />
@@ -778,16 +794,24 @@ function ModelCompetitionPanel({ rows, isLoading, hasError }: ModelCompetitionPa
               {rows.map((row) => (
                 <Cell key={`lgbm-${row.key}`} fillOpacity={row.winner === 'lightgbm' ? 1 : 0.3} />
               ))}
+              <LabelList dataKey="lightgbm" position="top" fontSize={10} formatter={(v: unknown) => (typeof v === 'number' ? v.toFixed(1) : '')} />
             </Bar>
             <Bar dataKey="randomForest" name="Random Forest" fill="var(--chart-rf)">
               {rows.map((row) => (
                 <Cell key={`rf-${row.key}`} fillOpacity={row.winner === 'random_forest' ? 1 : 0.3} />
               ))}
+              <LabelList
+                dataKey="randomForest"
+                position="top"
+                fontSize={10}
+                formatter={(v: unknown) => (typeof v === 'number' ? v.toFixed(1) : '')}
+              />
             </Bar>
             <Bar dataKey="sumKLstm" name="Sum-k LSTM" fill="var(--chart-sumk)">
               {rows.map((row) => (
                 <Cell key={`sumk-${row.key}`} fillOpacity={row.winner === 'sum_k_lstm' ? 1 : 0.3} />
               ))}
+              <LabelList dataKey="sumKLstm" position="top" fontSize={10} formatter={(v: unknown) => (typeof v === 'number' ? v.toFixed(1) : '')} />
             </Bar>
           </BarChart>
         </ResponsiveContainer>

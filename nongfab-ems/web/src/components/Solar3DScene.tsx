@@ -20,7 +20,20 @@ export interface Solar3DSceneHandle {
   resetCamera: () => void
 }
 
-const SUN_MARKER_RADIUS_M = 40
+// Floor, not a fixed value: the real orbit radius is scaled to each zone's
+// own `bounds.focus.span` below (Jetty's 4 sub-arrays sit tens of km apart
+// on a ~1.25km trestle, so a fixed distance tuned for a ~20-30m GIS/ISB
+// block either buried the sun marker inside the panels on a huge layout or,
+// as reported live 2026-07-18, rendered it as a barely-visible speck once
+// the camera itself was framed proportionally further back than this fixed
+// number assumed.
+const SUN_MARKER_RADIUS_FLOOR_M = 40
+// Sun ball radius as a fraction of however far away it actually orbits
+// (see `sunOrbitRadius` below) - keeps it a legible, clearly-a-marker size
+// at any zone's scale, rather than the old fixed 2m that only happened to
+// read as reasonable at the one scale it was tuned against.
+const SUN_RADIUS_FRACTION = 0.09
+const SUN_GLOW_RADIUS_FRACTION = 0.16
 
 // Not a measured value - config/assets.yaml has no building height for any
 // zone (only ground-corner elevation, used for terrain, not structure
@@ -309,11 +322,19 @@ export function Solar3DScene({
   }, [panels])
   const mountType = mountTypeForZone(zone)
 
+  // Scaled to the camera's own actual framing distance (~1.5x bounds.focus.span,
+  // see the Canvas camera position below), not a fixed meters value - see
+  // SUN_MARKER_RADIUS_FLOOR_M's own docstring for why a fixed distance broke
+  // down across this app's real range of zone scales.
+  const sunOrbitRadius = Math.max(SUN_MARKER_RADIUS_FLOOR_M, bounds.focus.span * 1.8)
+  const sunRadius = sunOrbitRadius * SUN_RADIUS_FRACTION
+  const sunGlowRadius = sunOrbitRadius * SUN_GLOW_RADIUS_FRACTION
+
   const sunPathLine = useMemo(
-    () => sunPathPoints.map((p) => sunPositionVector(p.azimuth_deg, p.elevation_deg, SUN_MARKER_RADIUS_M)),
-    [sunPathPoints],
+    () => sunPathPoints.map((p) => sunPositionVector(p.azimuth_deg, p.elevation_deg, sunOrbitRadius)),
+    [sunPathPoints, sunOrbitRadius],
   )
-  const sunPosition = useMemo(() => sunPositionVector(sunAzimuthDeg, sunElevationDeg, SUN_MARKER_RADIUS_M), [sunAzimuthDeg, sunElevationDeg])
+  const sunPosition = useMemo(() => sunPositionVector(sunAzimuthDeg, sunElevationDeg, sunOrbitRadius), [sunAzimuthDeg, sunElevationDeg, sunOrbitRadius])
 
   const focusCenterScene: [number, number] = [bounds.focus.center[0], -bounds.focus.center[1]]
   // Panels sit on top of the roof/deck (rooftop/pier), or just above grade on
@@ -389,10 +410,21 @@ export function Solar3DScene({
 
       {sunPathLine.length > 1 && <Line points={sunPathLine} color="#f59e0b" lineWidth={1.5} />}
       {sunElevationDeg > 0 && (
-        <mesh position={sunPosition}>
-          <sphereGeometry args={[2, 16, 16]} />
-          <meshBasicMaterial color="#fde047" />
-        </mesh>
+        <group position={sunPosition}>
+          {/* Soft outer glow first (semi-transparent, no depth-write so it
+              never occludes the solid core behind it) - a bare small sphere
+              read as an unlabeled speck from any distance (the user's own
+              2026-07-18 report); the glow is what actually makes it legible
+              as "the sun marker" at a glance, not just physically present. */}
+          <mesh>
+            <sphereGeometry args={[sunGlowRadius, 16, 16]} />
+            <meshBasicMaterial color="#fde047" transparent opacity={0.25} depthWrite={false} />
+          </mesh>
+          <mesh>
+            <sphereGeometry args={[sunRadius, 24, 24]} />
+            <meshBasicMaterial color="#fde047" />
+          </mesh>
+        </group>
       )}
 
       <OrbitControls ref={controlsRef} target={[focusCenterScene[0], panelBaseY, focusCenterScene[1]]} />

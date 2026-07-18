@@ -1225,6 +1225,123 @@ questions back-to-back without closing the panel, typed the bare keyword
 group → sub-question, confirmed every answer plus its follow-up chips
 rendered correctly with no layout collisions.
 
+### Fixed - Model Competition chart rendering empty, x-axis now absolute time, bar value labels; 3D sun marker too small to read (2026-07-18, Track 1)
+
+User report (screenshot): the "การแข่งขันของโมเดล (Model Competition) — Intra-
+day, +1h ถึง +6h" panel rendered axis + legend but **zero visible bars**.
+Also asked: change that panel's x-axis from relative "+1h".."+6h" labels to
+absolute reference time, make the chart easier to read, recheck that it and
+the Minute-ahead panel genuinely split by zone (All/GIS/ISB/Jetty) rather
+than "showing the All view on every tab" as it looked live, recheck a report
+of generated-power appearing at future timestamps on Intra-day, recheck why
+Day-ahead sometimes doesn't reach the full 72h/3-day horizon, and fix the 3D
+view's sun marker being "too small to make sense of."
+
+**Root cause (empty Model Competition chart), found by fetching the live
+`/forecast/{zone}/hour` response directly rather than guessing from the
+screenshot**: `chartData.ts`'s `buildCompetitionRows()` filtered points with
+`timestamp >= nowMs - 60 * 60 * 1000` - a 1-hour grace window that
+contradicted its own docstring ("only points at/after `nowIso`"). An hour
+that has *just* passed ages out of the live k-step forecast's forward
+window and reverts to persisted-history defaults (`algorithm: null`,
+`candidate_errors: {}` - see `forecast/serving.py`'s
+`_persist_and_merge_history`) but still falls inside that 1h grace window,
+so it sorted ahead of the real +1h..+6h race, got mislabeled "+1h" with
+every candidate null (hence the empty first bar group), and bumped the
+genuine +6h point out of `.slice(0, 6)` entirely. **Fix**: strict `>=
+nowMs`, matching the docstring. New regression test in
+`chartData.test.ts` constructs exactly this scenario (a point one hour
+before `nowIso` with no candidate data, plus 6 real forward points) and
+asserts all 6 rows come back real and correctly labeled +1h..+6h.
+
+**X-axis + readability**: `ModelCompetitionPanel`'s `<XAxis>` now uses
+`dataKey="timestamp"` with `formatDateHourIct` (same absolute-time
+formatter every other chart on this page already uses) instead of
+`leadLabel`, angled -30° so the longer date+hour ticks don't overlap; the
+tooltip still shows the lead-hour offset (`row.leadLabel`) alongside the
+formatted time. Added `<LabelList>` value labels on top of every bar (one
+decimal place) so exact RMSE is readable without hovering. Chart height
+220px -> 260px with a taller bottom margin to fit the angled labels.
+
+**Zone-split**: not a bug - confirmed directly via `/forecast/GIS|ISB|Jetty/
+hour`, `/forecast/.../day` that `pred`/`candidate_errors` genuinely differ
+per zone, and confirmed live via Playwright that the Model Competition
+panel's bars visibly change value when switching zone tabs post-fix. The
+"looks stuck on All" impression was almost certainly the empty-chart bug
+above making every tab look identically blank - nothing to distinguish
+between tabs when all of them render nothing.
+
+**Generated-power-at-future-timestamps**: not reproducible against current
+code - `truncateGeneratedToNow()` (added 2026-07-17, reused by the 3-tier
+refactor 2026-07-18) already nulls `actualPast`/`actualToday`/`actualNow`
+for any row later than "now". Verified live across All/GIS/ISB/Jetty on
+both Day-ahead and Intra-day: no actual-power point ever appears past the
+current time. The user's screenshot showing a single purple "Generated
+power" bar/legend (rather than the 3 recency-tiered lines) predates that
+refactor, so it was almost certainly a stale screenshot or an unrefreshed
+tab, not a live reproduction.
+
+**Day-ahead not reaching the full 72h/3 days**: architecturally correct -
+`serving.py`'s synthetic fallback path always produces exactly
+`MAX_DAY_AHEAD_HOURS=72` future hours (confirmed live: 144 total points =
+72 persisted-history + 72 future, when real future NWP data is thin enough
+to trigger the fallback), and the real-data path
+(`real_data.real_future_regressors`) has no artificial cap either - it
+returns however many real future hours the live NWP poller
+(`api/ingestion_scheduler.py`'s `_poll_nwp_forever`) has actually
+accumulated, capped only by `[:MAX_DAY_AHEAD_HOURS]` from above, never
+padded. So the *code path* supports 72h; how far it actually reaches live
+depends on how much real future GFS data has accumulated, which can
+legitimately be less than 72h (a specific far-out forecast hour's GRIB2
+file simply not being published/reachable yet). Found one real, if
+tangential, staleness bug while tracing this: `ingestion/nwp_ingestion`'s
+own `Settings._default_forecast_hours()` (a *different* config class than
+`api/config.py`'s `_default_nwp_poll_forecast_hours`, used by that package's
+own separate-deploy path) was still capped at 48h with a comment claiming
+day-ahead didn't need further - stale since day-ahead was extended to 72h;
+brought in line with `api/config.py`'s already-72h-reaching list. This
+doesn't change the *live* API's own poller (it already passed its own
+72h-reaching list as a parameter, unaffected by this default), so it isn't
+the root cause of a short-horizon day-ahead chart, just a real inconsistency
+worth fixing for whoever relies on that package's own default next. No
+further change made here - deliberately not building a real+padded-
+synthetic hybrid Day-ahead without checking first; flagged to the user as
+an optional follow-up instead.
+
+**3D sun marker too small**: `Solar3DScene.tsx` used a fixed
+`SUN_MARKER_RADIUS_M = 40` (orbit distance) and a fixed `sphereGeometry`
+radius of 2m regardless of zone - fine for whichever scale it happened to
+be tuned against, illegible at others (Jetty's sub-arrays are spread across
+a ~1.25km trestle; ISB/GIS blocks are tens of meters). Fixed: orbit radius
+now scales with the zone's own `bounds.focus.span` (`SUN_MARKER_RADIUS_
+FLOOR_M = 40` kept only as a floor for small scenes), the sun ball's own
+radius and a new semi-transparent glow-halo sphere both scale off that same
+orbit radius (`SUN_RADIUS_FRACTION`/`SUN_GLOW_RADIUS_FRACTION`). Verified
+live via Playwright + pixel-color scanning (`#fde047` in the rendered PNG):
+at the *default* camera angle the sun marker is frequently just outside the
+frustum entirely regardless of size (confirmed this is pre-existing, not
+introduced here - the same angular math against the old fixed-40 value
+lands just outside the frustum too, for the same sun position); rotating
+the view (normal `OrbitControls` use, same as any user dragging to look
+around) brings it clearly into frame with the new size/glow, unmistakably
+legible where the old 2m ball was a barely-visible speck. Making the
+*default* camera always include the current sun position (an auto-
+following camera, touching the same position/target logic the "reset
+camera" icon-rail button relies on) would be a materially bigger change -
+not built here, flagged to the user as a separate possible follow-up.
+
+**Tested**: `chartData.test.ts` - new regression test for the grace-window
+fix, all 39 tests in that file passing. Full web suite 219/219, `tsc`
+clean, `oxlint` clean. `ingestion/nwp` suite 41 passed/5 skipped after the
+`_default_forecast_hours()` correction, `ruff check` clean. `api` suite 142
+passed (unaffected, no api/ changes this round). **Live-verified** via a
+local `uvicorn` + `vite dev` (not the deployed site - see root `CLAUDE.md`'s
+Railway manual-deploy note): logged in as `pttlng` (viewer), screenshotted
+Model Competition on GIS/ISB/Jetty (bars now render with distinct real
+values and angled absolute-time labels on all three), screenshotted the
+main chart confirming truncation, and screenshotted `/3d` for GIS/ISB/Jetty
+including a rotated-camera shot showing the new sun marker clearly.
+
 ## Run locally
 
 ```bash

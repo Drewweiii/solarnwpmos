@@ -3,16 +3,22 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def _default_forecast_hours() -> list[int]:
-    # Hourly out to 24h (hour-ahead LightGBM's near-term regressors), then 3-hourly
-    # out to 48h (day-ahead NeuralProphet doesn't need finer granularity that far out).
-    # Starts at 1, not 0: GFS's f000 (the analysis) has no DSWRF field - downward
-    # shortwave radiation is a forecast-accumulated/averaged quantity that only
-    # starts existing at f001 - verified live against a real NOMADS GRIB2 file's
-    # .idx listing (f000's index has no DSWRF entry at all; f001's has "DSWRF:
-    # surface:0-1 hour ave fcst"). Requesting DSWRF at f000 silently gets back
-    # whatever else matched the same var/level filter (surface skin temperature)
+    # Hourly out to 24h (hour-ahead LightGBM's near-term regressors), 3-hourly
+    # 27-48h, 6-hourly 54-72h - reaches the full 72h/3-day day-ahead horizon
+    # (forecast/serving.py's MAX_DAY_AHEAD_HOURS). This default was left at an
+    # old 48h cap after day-ahead itself was extended to 72h, found stale
+    # 2026-07-18 while investigating a live day-ahead forecast not reaching
+    # the full 3 days; now kept in sync with api/config.py's own
+    # `_default_nwp_poll_forecast_hours`, which already had the 54-72h tail -
+    # see that function's own docstring. Starts at 1, not 0: GFS's f000 (the
+    # analysis) has no DSWRF field - downward shortwave radiation is a
+    # forecast-accumulated/averaged quantity that only starts existing at
+    # f001 - verified live against a real NOMADS GRIB2 file's .idx listing
+    # (f000's index has no DSWRF entry at all; f001's has "DSWRF: surface:0-1
+    # hour ave fcst"). Requesting DSWRF at f000 silently gets back whatever
+    # else matched the same var/level filter (surface skin temperature)
     # instead, which then fails to decode as sdswrf.
-    return list(range(1, 25)) + list(range(27, 49, 3))
+    return list(range(1, 25)) + list(range(27, 49, 3)) + list(range(54, 73, 6))
 
 
 class Settings(BaseSettings):

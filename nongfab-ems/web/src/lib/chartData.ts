@@ -320,11 +320,19 @@ export interface CompetitionRow {
  * history (server-side forecast_history persistence, see serving.py) mixed
  * into the same array by the caller's existing per-poll accumulation - that
  * history is exactly what the main chart's error lines want to show over
- * time, but this panel is "right now's competition", not a timeline. */
+ * time, but this panel is "right now's competition", not a timeline.
+ *
+ * Strictly `>= nowMs`, no grace window: an earlier version subtracted 1h
+ * here, which let an already-passed hour (persisted with `algorithm=null`/
+ * `candidate_errors={}` once it ages out of the live forward window) sort
+ * ahead of the real k-step points, get mislabeled "+1h", and bump a genuine
+ * +6h point out of the `.slice(0, 6)` cap - found live 2026-07-18 as the
+ * reported "empty Model Competition chart" (every bar null for that
+ * mislabeled row, and a real column silently missing). */
 export function buildCompetitionRows(points: ForecastPoint[], nowIso: string = new Date().toISOString()): CompetitionRow[] {
   const nowMs = new Date(nowIso).getTime()
   return points
-    .filter((p) => new Date(p.timestamp).getTime() >= nowMs - 60 * 60 * 1000)
+    .filter((p) => new Date(p.timestamp).getTime() >= nowMs)
     .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
     .slice(0, 6)
     .map((p, i) => {

@@ -237,6 +237,22 @@ override (defaults to the original wall-clock behavior for every real
 caller, which passes none) and pinning both tests to a fixed `end` that
 puts both cycles in the past. `ingestion/nwp -v`: 41 passed, 5 skipped.
 
+## Fixed - `forecast_hours` default stale at 48h after Day-ahead grew to 72h (2026-07-18)
+
+`Settings._default_forecast_hours()` was still hourly-to-24h + 3-hourly-to-
+48h - a reasonable first guess before Module 4 existed (see the "Known
+gaps" bullet this replaces), never revisited once `forecast/serving.py`'s
+`MAX_DAY_AHEAD_HOURS` grew from 24h to 72h. `api/config.py`'s own
+`_default_nwp_poll_forecast_hours` (used by the live API's actual polling
+loop, `api/ingestion_scheduler.py`'s `_poll_nwp_forever`) already had the
+54-72h 6-hourly tail added when that extension happened - this package's
+own default just never got the matching update, so anyone relying on it
+directly (this package's own separate-deploy scheduler/API, not the live
+API's poller, which passes its own list explicitly and was unaffected)
+would silently cap real future NWP data at 48h. Brought in sync with
+`api/config.py`'s list. `ingestion/nwp -v`: 41 passed, 5 skipped
+(unchanged - no test asserted the exact old values), `ruff check` clean.
+
 ## Known gaps / next steps
 
 - `db/migrations/0003_nwp_forecast.sql` is written but, like Module 1's
@@ -246,7 +262,3 @@ puts both cycles in the past. `ingestion/nwp -v`: 41 passed, 5 skipped.
 - No spatial interpolation between grid points yet - `_decode_grib_sync`
   uses nearest-neighbor (`method="nearest"`) to the plant's nominal center,
   same simplification Module 1 makes for `sample_cloud_at`.
-- `forecast_hours` default (hourly to 24h, 3-hourly to 48h) is a reasonable
-  first choice for Hour-Ahead/Day-Ahead regressors, not a value tuned against
-  Module 4 (not built yet) - configurable via `NWP_FORECAST_HOURS` env var
-  when that tuning happens.
