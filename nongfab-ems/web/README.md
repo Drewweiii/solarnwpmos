@@ -1149,6 +1149,82 @@ mode, and (e) the Minute-ahead panel's backward window and actual-power
 overlay rendering alongside its own forecast line and the main chart's
 per-model error lines simultaneously with no visual collision.
 
+### Added - guided Q&A categories for น้อง Solar + fixed the "can only ask once" chat bug (2026-07-18)
+
+User report: "ถามน้อง Solar ได้แค่ 1 ครั้ง แล้วต้องปิดเปิด tab มาถามใหม่." Root
+cause: `.assistant-panel` used a fixed `bottom: 140px` offset with no
+awareness of a mobile on-screen keyboard - once the visual viewport shrinks
+for the keyboard, that fixed offset can leave the input row (and the "ส่ง"
+button) hidden behind the keyboard after the first answer, with no obvious
+way back to it short of closing and reopening. Not reproducible on desktop
+(confirmed: 3 questions in a row worked fine there), consistent with a
+keyboard-covers-input failure mode.
+
+- **Fix**: `AssistantPanel.tsx` now listens to `window.visualViewport`'s
+  `resize`/`scroll` events while open and writes the current keyboard inset
+  to a `--assistant-keyboard-inset` CSS custom property on the panel;
+  `AssistantPanel.css`'s `bottom`/`max-height` both add that variable so the
+  panel (and its input) rides up above the keyboard instead of behind it.
+
+Separately, the user asked for a whole guided Q&A layer so a total
+non-technical visitor ("คนธรรมดาโง่ๆ") can explore topics by tapping instead
+of having to already know what to type, with keyword detection (e.g. typing
+just "inverter" offers a menu of specific inverter questions instead of
+guessing which one was meant):
+
+- **`lib/assistantTopics.ts`** (new): the menu structure only - 3 top-level
+  categories (`system` "ความรู้เรื่องระบบ Solar", `energy` "ความรู้เรื่องระบบ
+  พลังงาน", `website` "การใช้เว็บไซต์นี้"), each with topic groups, each with
+  concrete sub-questions. `findClarifyGroup(text)` matches a bare keyword to
+  its group; `findCategoryById`/`findGroupById`/`findGroupBySubQuestionId`
+  are the other lookups `AssistantPanel.tsx` needs for navigation.
+- **`lib/assistantContent.ts`** (new): the actual answer text, keyed by
+  sub-question id - kept in its own file specifically because this is the
+  part expected to keep growing over many future sessions (per the user:
+  "เราจะทำกันนานเลย คอย update plan อยู่ตลอด"). Adding a topic later is: one
+  entry in `assistantTopics.ts` + one answer here, nothing else to touch.
+  Current content covers system/design topics (Solar cell, panels, Inverter,
+  Optimizer, Vdrop/Vrise, standards, marine corrosion resistance, mounting
+  design - grounded in this project's real equipment from `config/
+  assets.yaml`: Trina Vertex N TSM-NEG21C.20 715W modules, Huawei
+  SUN2000-50KTL-M3 inverters, Huawei MERC-1300W-P 2:1 optimizers), energy
+  topics (electricity billing, why solar matters, EF, Carbon Credit, Carbon
+  Footprint, Net Zero), and one sub-question per dashboard page explaining
+  what it's for in plain language.
+- **`lib/assistant.ts`**: `TOPIC_INTENTS` generated from `TOPIC_CATEGORIES`
+  (one `AssistantIntent` per sub-question) and appended to the existing
+  hand-written intents. Matching changed from first-match-in-array to
+  **longest-keyword-match-wins** (`bestMatchingIntent()`) - required because
+  a menu button's full question text (e.g. "หน้า Forecast ในเว็บนี้ใช้ดูอะไร
+  ได้บ้าง") can contain an existing short intent's bare keyword ('forecast')
+  as a substring; without longest-match, clicking that button would
+  incorrectly trigger a live forecast data fetch instead of the intended
+  "how to use this page" explanation. New `AssistantReply.options` field
+  (`AssistantOption[]`) attaches follow-up buttons to every reply: sibling
+  sub-questions from the same group after a topic answer, the 3 top-level
+  categories after any hand-written-intent answer or an unrecognized
+  question (so a "sorry, didn't understand" never dead-ends), and a
+  clarifying sub-menu when a bare keyword matches a group but no specific
+  question.
+- **`components/AssistantPanel.tsx`**: renders the last message's `options`
+  as tappable chips (reusing the existing quick-reply button style);
+  clicking a `question` option sends it through the normal pipeline exactly
+  like typing it, while `category`/`group`/`categories` options are pure
+  client-side menu navigation (no network round-trip). New 📚 header button
+  reopens the top-level category menu at any point in the conversation.
+
+**Tested**: `assistantTopics.test.ts` (new) guards the exact failure mode
+this content will hit repeatedly as it grows - every sub-question has a
+matching answer and vice versa, ids are unique, every answer stays in
+character (ผม/ครับ). `assistant.test.ts` covers longest-match-wins,
+clarify-menu-from-bare-keyword, sibling suggestions, and that fallback/error
+paths still offer a next step. Full suite 218/218, `tsc` clean. **Live-
+verified via Playwright** (light + dark, 420px mobile viewport): asked 3
+questions back-to-back without closing the panel, typed the bare keyword
+"inverter" and got the clarifying menu, drilled through 📚 → category →
+group → sub-question, confirmed every answer plus its follow-up chips
+rendered correctly with no layout collisions.
+
 ## Run locally
 
 ```bash

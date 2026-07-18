@@ -9,6 +9,8 @@
 
 import { getAssets, getForecast, getPerformance, getWeatherStrip } from './api'
 import { REAL_ZONE_IDS } from './queries'
+import { findClarifyGroup, findGroupBySubQuestionId, TOPIC_CATEGORIES } from './assistantTopics'
+import { TOPIC_ANSWERS } from './assistantContent'
 import type { PerformanceResponse } from './types'
 
 export interface AssistantContext {
@@ -65,7 +67,7 @@ function currentPowerKw(perf: PerformanceResponse): number {
 // The assistant is "น้อง Solar" (he/him) - a named male character, not a
 // generic "AI assistant" - so every canned response speaks in first-person
 // masculine Thai (ผม/ครับ, never หนู/ค่ะ/คะ).
-export const ASSISTANT_INTENTS: AssistantIntent[] = [
+const HAND_WRITTEN_INTENTS: AssistantIntent[] = [
   {
     id: 'greeting',
     keywords: ['สวัสดี', 'หวัดดี', 'hello', 'hi ', 'สอบถาม'],
@@ -191,35 +193,129 @@ export const ASSISTANT_INTENTS: AssistantIntent[] = [
   },
 ]
 
+// One intent per guided sub-question (see assistantTopics.ts) - generated
+// rather than hand-written so adding a new topic is just: one entry in
+// TOPIC_CATEGORIES + one answer in assistantContent.ts, no touching this
+// file. Each keyword is the sub-question's own full question text, which
+// combined with the longest-match-wins rule below guarantees clicking a
+// menu button always resolves back to its own answer, never an unrelated
+// hand-written intent that happens to share a short substring (e.g. "หน้า
+// Forecast ในเว็บนี้ใช้ดูอะไรได้บ้าง" must win over the bare 'forecast'
+// keyword on the live-data-fetching 'forecast' intent above).
+const TOPIC_INTENTS: AssistantIntent[] = TOPIC_CATEGORIES.flatMap((category) =>
+  category.groups.flatMap((group) =>
+    group.subQuestions.map((sq): AssistantIntent => ({
+      id: sq.id,
+      keywords: [sq.question.toLowerCase()],
+      respond: () => TOPIC_ANSWERS[sq.id] ?? ASSISTANT_FALLBACK_MESSAGE,
+    })),
+  ),
+)
+
+export const ASSISTANT_INTENTS: AssistantIntent[] = [...HAND_WRITTEN_INTENTS, ...TOPIC_INTENTS]
+
 export const ASSISTANT_FALLBACK_MESSAGE =
   'ขอโทษด้วยครับ ผมยังไม่เข้าใจคำถามนี้ 🙏 ตอนนี้ผมตอบได้เฉพาะคำถามเกี่ยวกับ: การใช้งานเว็บ, ข้อมูลกำลังไฟ/พลังงานจริงในระบบ, ' +
-  'พยากรณ์, และความรู้ทั่วไปเรื่องโซลาร์เซลล์ ลองถามใหม่อีกครั้งได้ไหมครับ?'
+  'พยากรณ์, และความรู้ทั่วไปเรื่องโซลาร์เซลล์ ลองเลือกหมวดด้านล่างนี้ดู หรือถามใหม่อีกครั้งได้ไหมครับ?'
 
 const FETCH_ERROR_MESSAGE = 'ขอโทษด้วยครับ ดึงข้อมูลไม่สำเร็จตอนนี้ ลองใหม่อีกครั้งได้ไหมครับ?'
 
 export type AssistantMood = 'happy' | 'sad'
 
+/** A button offered alongside an assistant reply so the conversation always
+ * has an obvious next step - 'question' sends its text through the normal
+ * pipeline exactly like typing it; 'category'/'group'/'categories' are pure
+ * client-side menu navigation (AssistantPanel.tsx), no network round-trip. */
+export type AssistantOption =
+  | { kind: 'categories'; label: string }
+  | { kind: 'category'; label: string; categoryId: string }
+  | { kind: 'group'; label: string; groupId: string }
+  | { kind: 'question'; label: string; question: string }
+
+export const TOP_LEVEL_OPTIONS: AssistantOption[] = TOPIC_CATEGORIES.map((c) => ({
+  kind: 'category',
+  label: `${c.emoji} ${c.title}`,
+  categoryId: c.id,
+}))
+
+/** After answering a guided topic sub-question, suggest its siblings (same
+ * group) as one-tap follow-ups, plus a way back to the top-level menu - so
+ * asking a second/third question never requires typing from scratch. For
+ * hand-written (non-topic) intents there's no group to draw siblings from,
+ * so just offer the 3 top-level categories instead. */
+function suggestionOptions(intentId: string): AssistantOption[] {
+  const group = findGroupBySubQuestionId(intentId)
+  if (!group) return TOP_LEVEL_OPTIONS
+  const siblings = group.subQuestions.filter((sq) => sq.id !== intentId)
+  return [
+    ...siblings.map((sq): AssistantOption => ({ kind: 'question', label: sq.label, question: sq.question })),
+    { kind: 'categories', label: '📚 ดูหมวดคำถามอื่น' },
+  ]
+}
+
+export interface AssistantReply {
+  text: string
+  mood: AssistantMood
+  options?: AssistantOption[]
+}
+
+/** Picks the intent whose matching keyword is *longest* (most specific),
+ * not just the first one found - a short generic keyword like 'forecast'
+ * on a live-data intent must lose to a long, specific menu-button question
+ * like "หน้า Forecast ในเว็บนี้ใช้ดูอะไรได้บ้าง" that happens to contain it. */
+function bestMatchingIntent(question: string): AssistantIntent | null {
+  const lower = question.toLowerCase()
+  let best: AssistantIntent | null = null
+  let bestKeywordLength = -1
+  for (const intent of ASSISTANT_INTENTS) {
+    for (const kw of intent.keywords) {
+      if (kw.length > bestKeywordLength && lower.includes(kw)) {
+        best = intent
+        bestKeywordLength = kw.length
+      }
+    }
+  }
+  return best
+}
+
 /** Same matching as answerQuestion(), but also reports whether น้อง Solar
  * actually understood the question - AssistantPanel.tsx uses this to set
  * the mascot's facial expression (a real match = happy, a fallback/fetch
  * failure = sad), without answerQuestion()'s own plain-string contract
- * (and every existing caller/test of it) having to change.
+ * (and every existing caller/test of it) having to change. Also returns
+ * `options` (follow-up buttons) so the conversation can keep going with a
+ * tap instead of the visitor having to type a brand new question every time.
  */
-export async function answerQuestionWithMood(question: string, ctx: AssistantContext): Promise<{ text: string; mood: AssistantMood }> {
-  const lower = question.toLowerCase()
-  const intent = ASSISTANT_INTENTS.find((i) => i.keywords.some((kw) => lower.includes(kw)))
-  if (!intent) return { text: ASSISTANT_FALLBACK_MESSAGE, mood: 'sad' }
-
-  try {
-    return { text: await intent.respond(question, ctx), mood: 'happy' }
-  } catch {
-    return { text: FETCH_ERROR_MESSAGE, mood: 'sad' }
+export async function answerQuestionWithMood(question: string, ctx: AssistantContext): Promise<AssistantReply> {
+  const intent = bestMatchingIntent(question)
+  if (intent) {
+    try {
+      const text = await intent.respond(question, ctx)
+      return { text, mood: 'happy', options: suggestionOptions(intent.id) }
+    } catch {
+      return { text: FETCH_ERROR_MESSAGE, mood: 'sad', options: TOP_LEVEL_OPTIONS }
+    }
   }
+
+  // Nothing matched a specific question - but a bare keyword (e.g. someone
+  // just typing "inverter") may still name a recognizable topic. Rather
+  // than guess which of several possible questions they meant, offer a
+  // clarifying menu of that topic's actual sub-questions.
+  const clarifyGroup = findClarifyGroup(question)
+  if (clarifyGroup) {
+    return {
+      text: `เรื่อง "${clarifyGroup.title}" อยากรู้แบบไหนครับ เลือกได้เลย:`,
+      mood: 'happy',
+      options: clarifyGroup.subQuestions.map((sq) => ({ kind: 'question', label: sq.label, question: sq.question })),
+    }
+  }
+
+  return { text: ASSISTANT_FALLBACK_MESSAGE, mood: 'sad', options: TOP_LEVEL_OPTIONS }
 }
 
-/** Finds the first matching intent (by keyword substring) and runs it,
- * falling back to ASSISTANT_FALLBACK_MESSAGE if nothing matches or the
- * matched intent's own data fetch fails. */
+/** Finds the best-matching intent (by keyword substring, longest match
+ * wins) and runs it, falling back to ASSISTANT_FALLBACK_MESSAGE if nothing
+ * matches or the matched intent's own data fetch fails. */
 export async function answerQuestion(question: string, ctx: AssistantContext): Promise<string> {
   return (await answerQuestionWithMood(question, ctx)).text
 }

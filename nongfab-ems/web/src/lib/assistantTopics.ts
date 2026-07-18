@@ -1,0 +1,238 @@
+// The menu structure behind น้อง Solar's guided Q&A browsing ("หมวดคำถาม"):
+// three top-level categories, each holding a handful of topic groups, each
+// holding a few concrete sub-questions. This file only defines the *menu*
+// (labels/keywords/navigation) - the actual answer text for each
+// sub-question lives in assistantContent.ts, kept separate so the content
+// (which the user expects to keep growing over many future sessions,
+// especially category 1.3 "การใช้เว็บนี้") can be edited on its own without
+// touching this structural file.
+//
+// A sub-question's `question` field doubles as the exact text sent through
+// the normal assistant pipeline when its button is clicked (assistant.ts
+// matches on it as a long, near-unique keyword) AND as the "user" chat
+// bubble text shown for that click - so phrase it as a real question, not
+// a menu label (use `label` for the short button text instead).
+
+export interface AssistantSubQuestion {
+  id: string
+  /** Short button text. */
+  label: string
+  /** Full question text - sent through the normal pipeline when clicked. */
+  question: string
+}
+
+export interface AssistantTopicGroup {
+  id: string
+  title: string
+  /** Bare keywords that, typed alone with no other intent match, trigger a
+   * clarifying menu of this group's sub-questions (see findClarifyGroup). */
+  keywords: string[]
+  subQuestions: AssistantSubQuestion[]
+}
+
+export interface AssistantTopicCategory {
+  id: string
+  emoji: string
+  title: string
+  description: string
+  groups: AssistantTopicGroup[]
+}
+
+export const TOPIC_CATEGORIES: AssistantTopicCategory[] = [
+  {
+    id: 'system',
+    emoji: '🔧',
+    title: 'ความรู้เรื่องระบบ Solar',
+    description: 'แผงโซลาร์ อินเวอร์เตอร์ ออปติไมเซอร์ และหลักการออกแบบระบบ',
+    groups: [
+      {
+        id: 'solar_basic',
+        title: 'Solar cell / พลังงานแสงอาทิตย์',
+        keywords: ['solar cell', 'เซลล์แสงอาทิตย์', 'พลังงานแสงอาทิตย์'],
+        subQuestions: [
+          { id: 'solar_what', label: 'Solar cell คืออะไร', question: 'Solar cell คืออะไร' },
+          { id: 'solar_how', label: 'ผลิตไฟได้ยังไง', question: 'แผงโซลาร์ผลิตไฟได้ยังไง' },
+        ],
+      },
+      {
+        id: 'panel',
+        title: 'แผงโซลาร์',
+        keywords: ['แผงโซลาร์', 'แผงคือ', 'module คือ', 'โมดูลคือ'],
+        subQuestions: [{ id: 'panel_what', label: 'แผงโซลาร์คืออะไร', question: 'แผงโซลาร์คืออะไร' }],
+      },
+      {
+        id: 'inverter',
+        title: 'Inverter',
+        keywords: ['inverter', 'อินเวอร์เตอร์'],
+        subQuestions: [
+          { id: 'inv_what', label: 'Inverter คืออะไร', question: 'Inverter คืออะไร' },
+          { id: 'inv_important', label: 'สำคัญยังไง', question: 'Inverter สำคัญยังไง' },
+          { id: 'inv_huawei', label: 'ทำไมใช้ Huawei', question: 'ทำไมโครงการนี้ใช้ inverter ยี่ห้อ Huawei' },
+        ],
+      },
+      {
+        id: 'optimizer',
+        title: 'Optimizer',
+        keywords: ['optimizer', 'ออปติไมเซอร์'],
+        subQuestions: [
+          { id: 'opt_what', label: 'Optimizer คืออะไร', question: 'Optimizer คืออะไร' },
+          { id: 'opt_why', label: 'มีไว้ทำไม', question: 'Optimizer มีไว้ทำไม' },
+        ],
+      },
+      {
+        id: 'vdrop',
+        title: 'Vdrop / Vrise',
+        keywords: ['vdrop', 'vrise', 'แรงดันตก', 'แรงดันเกิน'],
+        subQuestions: [
+          { id: 'vd_what', label: 'Vdrop/Vrise คืออะไร', question: 'Vdrop และ Vrise คืออะไร' },
+          { id: 'vd_why', label: 'ทำไมสำคัญ', question: 'ทำไม Vdrop Vrise ถึงสำคัญ' },
+        ],
+      },
+      {
+        id: 'standard',
+        title: 'กฎหมาย/มาตรฐาน',
+        keywords: ['กฎหมายโซลาร์', 'มาตรฐานโซลาร์', 'ระเบียบการติดตั้ง'],
+        subQuestions: [
+          { id: 'std_law', label: 'กฎหมาย/ระเบียบที่เกี่ยวข้อง', question: 'มีกฎหมายหรือระเบียบอะไรบ้างที่เกี่ยวข้องกับการออกแบบระบบโซลาร์' },
+        ],
+      },
+      {
+        id: 'marine',
+        title: 'มาตรฐาน Marine',
+        keywords: ['marine', 'ไอเกลือ', 'กันสนิม'],
+        subQuestions: [{ id: 'marine_what', label: 'มาตรฐาน Marine คืออะไร', question: 'มาตรฐาน marine ในการออกแบบระบบโซลาร์คืออะไร' }],
+      },
+      {
+        id: 'mounting',
+        title: 'โครงยึดแผง (Mounting)',
+        keywords: ['mounting', 'โครงยึดแผง', 'ขาตั้งแผง'],
+        subQuestions: [
+          { id: 'mount_what', label: 'ออกแบบ Mounting ต้องคำนึงถึงอะไร', question: 'การออกแบบโครงยึดแผงโซลาร์ (mounting) ต้องคำนึงถึงอะไรบ้าง' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'energy',
+    emoji: '⚡',
+    title: 'ความรู้เรื่องระบบพลังงาน',
+    description: 'ค่าไฟ ทำไม Solar สำคัญ EF Carbon Credit Carbon Footprint Net Zero',
+    groups: [
+      {
+        id: 'bill',
+        title: 'ค่าไฟฟ้า',
+        keywords: ['ค่าไฟ', 'บิลไฟ'],
+        subQuestions: [{ id: 'bill_calc', label: 'ค่าไฟฟ้าคิดยังไง', question: 'ค่าไฟฟ้าคิดยังไง' }],
+      },
+      {
+        id: 'why_solar',
+        title: 'ทำไม Solar สำคัญ',
+        keywords: ['ทำไมโซลาร์สำคัญ', 'ทำไมต้องติดโซลาร์'],
+        subQuestions: [{ id: 'why_solar', label: 'ทำไม Solar สำคัญ', question: 'ทำไม solar ถึงสำคัญ' }],
+      },
+      {
+        id: 'ef',
+        title: 'ค่า EF',
+        keywords: ['emission factor', 'ค่า ef'],
+        subQuestions: [{ id: 'ef_what', label: 'EF คืออะไร', question: 'ค่า EF คืออะไร' }],
+      },
+      {
+        id: 'carbon_credit',
+        title: 'Carbon Credit',
+        keywords: ['carbon credit', 'คาร์บอนเครดิต'],
+        subQuestions: [{ id: 'cc_what', label: 'Carbon Credit คืออะไร', question: 'Carbon Credit คืออะไร' }],
+      },
+      {
+        id: 'carbon_footprint',
+        title: 'Carbon Footprint',
+        keywords: ['carbon footprint', 'คาร์บอนฟุตพริ้นท์', 'รอยเท้าคาร์บอน'],
+        subQuestions: [{ id: 'cf_what', label: 'Carbon Footprint คืออะไร', question: 'Carbon Footprint คืออะไร' }],
+      },
+      {
+        id: 'net_zero',
+        title: 'Net Zero',
+        keywords: ['net zero', 'เน็ตซีโร่'],
+        subQuestions: [{ id: 'nz_what', label: 'Net Zero คืออะไร', question: 'Net Zero คืออะไร' }],
+      },
+    ],
+  },
+  {
+    id: 'website',
+    emoji: '🌐',
+    title: 'การใช้เว็บไซต์นี้',
+    description: 'แต่ละหน้าดูอะไรได้บ้าง (หมวดนี้จะอัปเดตเพิ่มเรื่อยๆ ตามฟีเจอร์ใหม่)',
+    groups: [
+      {
+        id: 'page_forecast',
+        title: 'หน้า Forecast',
+        keywords: [],
+        subQuestions: [{ id: 'page_forecast', label: 'หน้า Forecast ใช้ดูอะไร', question: 'หน้า Forecast ในเว็บนี้ใช้ดูอะไรได้บ้าง' }],
+      },
+      {
+        id: 'page_simulation',
+        title: 'หน้า Simulation',
+        keywords: [],
+        subQuestions: [{ id: 'page_simulation', label: 'หน้า Simulation ใช้ดูอะไร', question: 'หน้า Simulation ในเว็บนี้ใช้ทำอะไรได้บ้าง' }],
+      },
+      {
+        id: 'page_financial',
+        title: 'หน้า Financial',
+        keywords: [],
+        subQuestions: [{ id: 'page_financial', label: 'หน้า Financial ใช้ดูอะไร', question: 'หน้า Financial ในเว็บนี้ใช้ดูอะไรได้บ้าง' }],
+      },
+      {
+        id: 'page_3d',
+        title: 'หน้า 3D View',
+        keywords: [],
+        subQuestions: [{ id: 'page_3d', label: 'หน้า 3D View ใช้ดูอะไร', question: 'หน้า 3D View ในเว็บนี้ใช้ดูอะไรได้บ้าง' }],
+      },
+      {
+        id: 'page_energy_report',
+        title: 'หน้า Energy Report',
+        keywords: [],
+        subQuestions: [
+          { id: 'page_energy_report', label: 'หน้า Energy Report ใช้ดูอะไร', question: 'หน้า Energy Report ในเว็บนี้ใช้ดูอะไรได้บ้าง' },
+        ],
+      },
+      {
+        id: 'page_irradiance',
+        title: 'หน้า Irradiance Map',
+        keywords: [],
+        subQuestions: [
+          { id: 'page_irradiance', label: 'หน้า Irradiance Map ใช้ดูอะไร', question: 'หน้า Irradiance Map ในเว็บนี้ใช้ดูอะไรได้บ้าง' },
+        ],
+      },
+      {
+        id: 'page_chat',
+        title: 'แชทคุยกับผู้ชมคนอื่น',
+        keywords: [],
+        subQuestions: [{ id: 'page_chat', label: 'แชทกับผู้ชมคนอื่นใช้ยังไง', question: 'แชทคุยกับผู้ชมคนอื่นในเว็บนี้ใช้ยังไง' }],
+      },
+    ],
+  },
+]
+
+export const ALL_TOPIC_GROUPS: AssistantTopicGroup[] = TOPIC_CATEGORIES.flatMap((c) => c.groups)
+
+/** A bare keyword (e.g. someone just typing "inverter" with no specific
+ * question) matches a group here - the caller then offers that group's
+ * sub-questions as a clarifying menu instead of guessing which one they meant. */
+export function findClarifyGroup(question: string): AssistantTopicGroup | null {
+  const lower = question.toLowerCase()
+  for (const group of ALL_TOPIC_GROUPS) {
+    if (group.keywords.some((kw) => lower.includes(kw))) return group
+  }
+  return null
+}
+
+export function findGroupBySubQuestionId(subQuestionId: string): AssistantTopicGroup | null {
+  return ALL_TOPIC_GROUPS.find((g) => g.subQuestions.some((sq) => sq.id === subQuestionId)) ?? null
+}
+
+export function findCategoryById(categoryId: string): AssistantTopicCategory | null {
+  return TOPIC_CATEGORIES.find((c) => c.id === categoryId) ?? null
+}
+
+export function findGroupById(groupId: string): AssistantTopicGroup | null {
+  return ALL_TOPIC_GROUPS.find((g) => g.id === groupId) ?? null
+}

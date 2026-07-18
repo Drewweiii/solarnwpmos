@@ -1,10 +1,14 @@
 .assistant-panel {
   position: fixed;
   right: 20px;
-  bottom: 140px;
+  /* --assistant-keyboard-inset is set from JS (AssistantPanel.tsx) via the
+     VisualViewport API - keeps the input row above a mobile on-screen
+     keyboard instead of letting it get covered (see that file's docstring
+     for the "could only ask once" bug this fixes). */
+  bottom: calc(140px + var(--assistant-keyboard-inset, 0px));
   z-index: 41;
   width: min(340px, calc(100vw - 40px));
-  max-height: min(480px, calc(100vh - 140px));
+  max-height: min(480px, calc(100vh - 140px - var(--assistant-keyboard-inset, 0px)));
   display: flex;
   flex-direction: column;
   background: var(--card-bg);
@@ -39,6 +43,21 @@
   font-weight: 700;
   font-size: 14px;
   color: var(--text-h);
+}
+
+.assistant-panel-menu-button {
+  border: none;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  margin-left: auto;
+}
+
+.assistant-panel-menu-button:hover {
+  background: var(--border);
 }
 
 .assistant-panel-close {

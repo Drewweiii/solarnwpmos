@@ -136,16 +136,50 @@ describe('answerQuestionWithMood', () => {
     expect(result.text).toMatch(/กิโลวัตต์พีค/)
   })
 
-  it('reports mood "sad" when nothing matches', async () => {
+  it('reports mood "sad" when nothing matches, and offers the top-level categories as a next step', async () => {
     const result = await answerQuestionWithMood('อยากรู้เรื่องดวงจันทร์', ctx)
     expect(result.mood).toBe('sad')
     expect(result.text).toBe(ASSISTANT_FALLBACK_MESSAGE)
+    expect(result.options?.length).toBeGreaterThan(0)
+    expect(result.options?.every((o) => o.kind === 'category')).toBe(true)
   })
 
-  it('reports mood "sad" when the matched intent fetch throws', async () => {
+  it('reports mood "sad" when the matched intent fetch throws, and still offers a next step', async () => {
     vi.spyOn(api, 'getPerformance').mockRejectedValue(new Error('network down'))
     const result = await answerQuestionWithMood('ตอนนี้กำลังไฟเท่าไหร่', ctx)
     expect(result.mood).toBe('sad')
     expect(result.text).toMatch(/ดึงข้อมูลไม่สำเร็จ/)
+    expect(result.options?.length).toBeGreaterThan(0)
+  })
+
+  it('answers a guided topic sub-question and suggests its sibling questions as follow-ups', async () => {
+    const result = await answerQuestionWithMood('Inverter คืออะไร', ctx)
+    expect(result.mood).toBe('happy')
+    expect(result.text).toMatch(/นักแปลภาษาไฟฟ้า/)
+    const questionLabels = result.options?.filter((o) => o.kind === 'question').map((o) => o.label)
+    expect(questionLabels).toContain('สำคัญยังไง')
+    expect(questionLabels).toContain('ทำไมใช้ Huawei')
+  })
+
+  it('a bare keyword with no specific question offers a clarifying menu instead of guessing', async () => {
+    const result = await answerQuestionWithMood('inverter', ctx)
+    expect(result.mood).toBe('happy')
+    expect(result.text).toMatch(/Inverter/)
+    const questions = result.options?.filter((o) => o.kind === 'question').map((o) => o.label)
+    expect(questions).toEqual(['Inverter คืออะไร', 'สำคัญยังไง', 'ทำไมใช้ Huawei'])
+  })
+
+  it('prefers the longer, more specific keyword match over a shorter unrelated one', async () => {
+    // "หน้า Forecast ในเว็บนี้ใช้ดูอะไรได้บ้าง" contains the bare 'forecast'
+    // keyword (a live-data-fetching intent) as a substring, but the intended
+    // match is the "how to use this page" guided answer, not a live forecast.
+    const result = await answerQuestionWithMood('หน้า Forecast ในเว็บนี้ใช้ดูอะไรได้บ้าง', ctx)
+    expect(result.text).toMatch(/กราฟพยากรณ์การผลิตไฟฟ้า/)
+  })
+
+  it('a hand-written (non-topic) intent still offers the top-level categories as a next step', async () => {
+    const result = await answerQuestionWithMood('สวัสดีครับ', ctx)
+    expect(result.options?.length).toBeGreaterThan(0)
+    expect(result.options?.every((o) => o.kind === 'category')).toBe(true)
   })
 })
