@@ -900,3 +900,43 @@ render ถูกต้อง
    Map+3D View) ให้บัญชี Track 2 แล้วติดตามผลว่าทำเสร็จหรือยัง
 5. Financial module ยังใช้ placeholder เหมือนเดิม (ไม่ได้แตะรอบนี้) - ยังรอ
    CAPEX/PEA tariff/WACC/BOI ตัวจริงจาก user อยู่
+
+## 2026-07-18 18:46 ICT
+
+**Track 1 - เนื้อหาเชิงวิชาการ (Content/Engineering)**
+
+⚠️ **แจ้ง Track 2**: entry ก่อนหน้า (17:11 นี้เอง) เพิ่งเสนอ prompt ให้ไปทำ
+"ซ่อน Financial/Simulation จาก viewer role" ที่ Track 2 - แต่ user สั่งกลับมา
+ทันทีว่าให้ Track 1 ทำเองตรงนี้เลย (**ทำเสร็จแล้วในรอบนี้** - ไม่ต้องทำซ้ำ
+ฝั่ง Track 2) ส่วน prompt ที่ 2 (รวมแท็บ Irradiance Map + 3D View) ยังคงเป็น
+ของ Track 2 เหมือนเดิม ยังไม่มีใครทำ
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+- **ซ่อนแท็บ Simulation/Financial จาก viewer role** (`web/src/App.tsx`,
+  `web/src/components/Layout.tsx`): เพิ่ม `RequireOperator` (export จาก
+  `App.tsx`, รูปแบบเดียวกับ `RequireAdmin` ที่มีอยู่แล้วสำหรับ
+  `/admin/feedback`) ครอบ route `/simulation`/`/financial` กัน viewer เข้า
+  ตรงๆ ผ่าน URL ด้วย ไม่ใช่แค่ซ่อน nav link - backend already ปลอดภัยอยู่แล้ว
+  (`require_role("operator")` บน `POST /simulate/{zone}`, `POST /financial`)
+  เพราะฉะนั้นนี่เป็น UX fix ล้วนๆ ไม่ใช่ security boundary ใหม่
+- Test ใหม่ 6 ตัว (`Layout.test.tsx` +3, `App.test.tsx` +3) full suite
+  235/235, `tsc`/`oxlint` clean - live-verify ผ่าน Playwright จริง: login
+  `pttlng` (viewer) เห็น nav แค่ Forecast/3D View/Energy Report/Irradiance
+  Map, พิมพ์ URL ตรงไป `/financial` เด้งกลับ `/forecast` เอง; login `admin`
+  เห็นครบทุกแท็บ ใช้ `/financial` ได้ปกติ
+- Commit + push แล้ว (ไม่มี upstream commit ใหม่ตอน push รอบนี้ ไม่ต้อง merge)
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- นี่คือครั้งเดียวที่ Track 1 ข้ามมาทำงานฝั่ง UI/nav ตาม insturction ตรงจาก
+  user (ไม่ใช่การเปลี่ยน policy สองแทร็กถาวร) - งาน UI/UX อื่นๆ ยังเป็นของ
+  Track 2 ตามเดิม
+- 2D+3D merge (prompt ที่ 2 จาก entry ก่อนหน้า) ยังไม่มีใครเริ่มทำ
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. รอ user ส่ง prompt ที่เหลือ (รวม Irradiance Map + 3D View) ให้ Track 2
+2. Next steps ข้ออื่นจาก entry ก่อนหน้า (17:11) ยังค้างเหมือนเดิมทั้งหมด -
+   ดูรายการเต็มด้านบน (Railway deploy reminder, กล้อง 3D auto-follow,
+   Day-ahead hybrid real+synthetic, Financial module placeholder)
