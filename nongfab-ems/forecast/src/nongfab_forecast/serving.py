@@ -77,6 +77,17 @@ HOUR_LEAD_HOURS = (1, 2, 3, 4, 5, 6)
 # serving numbers with no real basis for extra confidence.
 MAX_DAY_AHEAD_HOURS = 72
 
+# How far back a served forecast keeps showing already-past hours, per
+# horizon - see _persist_and_merge_history()'s own docstring. Bounded so a
+# long-running deployment's response doesn't grow forever; roughly matches
+# each horizon's own forward reach (day-ahead's 72h forward gets a
+# symmetric 72h back, hour-ahead's much shorter reach gets a full day back
+# instead of matching its 6h forward window 1:1, so a viewer can still see
+# "this morning vs. what was forecast for it" later in the same day).
+# minute-ahead is deliberately absent - not part of this fix's scope, see
+# that function's docstring.
+FORECAST_HISTORY_LOOKBACK_HOURS = {"hour": 24, "day": 72}
+
 
 class UnknownZoneError(ValueError):
     pass
@@ -191,6 +202,44 @@ class ForecastResult:
     model_type: str = "ml"  # "physics_baseline" only via get_forecast_with_fallback() below
 
 
+def _persist_and_merge_history(
+    store: RealDataStore, zone: str, horizon: str, now: datetime, points: list[ForecastPoint]
+) -> list[ForecastPoint]:
+    """Records `points` (this call's freshly computed forecast) into
+    `store`, then returns the merged view: every still-relevant persisted
+    point (recent past through however far this call looked forward), not
+    just the ones computed just now.
+
+    Without this, `/forecast` only ever returned lead hours forward from
+    `now` - it had no memory of what was predicted for an hour that has
+    since passed, so the Forecast line and Prediction interval band
+    visibly vanished the moment an hour dropped out of that forward window,
+    *even on a browser tab that had never been open before* (a purely
+    client-side accumulation fix - see web/lib/forecastHistory.ts - only
+    helps a tab that stays open across multiple polls; it can't retroactively
+    show history for a fresh page load, which is what the user's own
+    2026-07-18 follow-up screenshot showed still happening). This closes
+    that gap at the source: the endpoint itself now always returns a
+    combined past+future series, so any viewer sees it immediately.
+
+    A no-op passthrough for `minute` (not in `FORECAST_HISTORY_LOOKBACK_
+    HOURS`) - out of scope for this fix, which was reported against the
+    Day-ahead/Intra-day toggle chart, not minute-ahead's own dedicated panel.
+    """
+    lookback_hours = FORECAST_HISTORY_LOOKBACK_HOURS.get(horizon)
+    if lookback_hours is None:
+        return points
+    store.record_forecast_points(zone, horizon, now, points)
+    since = now - timedelta(hours=lookback_hours)
+    rows = store.forecast_history_points(zone, horizon, since)
+    return [
+        ForecastPoint(
+            timestamp=datetime.fromisoformat(target_time), pred=pred, lower=lower, upper=upper, algorithm=algorithm, error=error
+        )
+        for target_time, pred, lower, upper, algorithm, error in rows
+    ]
+
+
 def get_latest_forecast(zone: str, horizon: str, store: RealDataStore | None = None) -> ForecastResult:
     """Raises UnknownZoneError/UnknownHorizonError for bad input, or
     ModelNotTrainedError if no model has been registered yet for this
@@ -278,6 +327,7 @@ def get_latest_forecast(zone: str, horizon: str, store: RealDataStore | None = N
             for ts, row in result.iterrows()
         ]
 
+    points = _persist_and_merge_history(store, zone, horizon, now, points)
     return ForecastResult(
         zone=zone, horizon=horizon, issued_at=now, model_version=latest_version, points=points, data_source=data_source
     )
@@ -323,6 +373,7 @@ def get_forecast_with_fallback(zone: str, horizon: str, store: RealDataStore | N
         )
         for ts, row in baseline.iterrows()
     ]
+    points = _persist_and_merge_history(store, zone, horizon, now, points)
     return ForecastResult(
         zone=zone, horizon=horizon, issued_at=now, model_version=0, points=points, data_source="real", model_type="physics_baseline"
     )

@@ -534,6 +534,60 @@ fixed winner), and survives a full MLflow/cloudpickle registry round-trip
 `test_sum_k_lstm.py` unit tests plus 3 new `real_data.py` feature tests -
 119 tests in the whole `forecast/` module now (was 107).
 
+## Forecast history persistence - Forecast/Prediction interval no longer vanish for past hours (2026-07-18)
+
+`get_latest_forecast()`/`get_forecast_with_fallback()` always computed a
+forecast "as of now" and only ever returned lead hours *forward* from that
+instant - there was no memory of what had been predicted for an hour once
+it passed. The dashboard's Forecast line and Prediction interval band
+visibly vanished the moment an hour dropped out of that forward window,
+even on a browser tab that had never been open before.
+
+A first pass at fixing this (`web/lib/forecastHistory.ts`, same date) added
+client-side accumulation across polls - real, but it only helps a tab that
+stays open: a fresh page load (or a different device, or the deployed prod
+site opened for the first time) still showed nothing for the past, because
+there was genuinely nothing to accumulate from yet. The user's own
+follow-up screenshot showed exactly that gap still open.
+
+This closes it at the source instead:
+
+- **`local_store.py`**: new `forecast_history` table
+  (`zone, horizon, target_time, issued_at, pred, lower, upper, algorithm,
+  error`, primary key `(zone, horizon, target_time)`) plus
+  `record_forecast_points()`/`forecast_history_points()`. Same SQLite-via-
+  `RealDataStore` pattern as `nwp_history`/`cloud_history`/`uv_history` -
+  no new infrastructure.
+- **`serving.py`**: new `_persist_and_merge_history()`, called from both
+  `get_latest_forecast()` and `get_forecast_with_fallback()`'s
+  physics-baseline path right before returning. Every call now (1) records
+  its own freshly-computed points (an `INSERT OR REPLACE` upsert, so a
+  later issuance for the same target hour overwrites an earlier one - a
+  forecast issued closer to its target time is more accurate) and (2)
+  returns the *merged* view: recent persisted history (`FORECAST_HISTORY_
+  LOOKBACK_HOURS` - 24h back for Intra-day, 72h back for Day-ahead,
+  roughly matching each horizon's own forward reach) plus whatever it just
+  computed forward. `minute` is deliberately excluded - out of scope, it
+  has its own dedicated small panel, not the Day-ahead/Intra-day toggle
+  chart this was reported against.
+- Since `api/`'s `routes_forecast.py` already passes `app.state.
+  real_data_store` (one instance per process lifetime) into these
+  functions, this persists automatically across requests within a
+  container's lifetime with no additional wiring - same "ephemeral-per-
+  container, no new infra" pattern as the rest of this store.
+
+**Verified live**, not just unit tests: seeded three "past" forecast points
+directly into a file-backed store (simulating what would have been
+recorded organically a few hours earlier), pointed a freshly-booted API at
+that same file, and confirmed `GET /forecast/GIS/hour`'s response included
+those seeded points (with their original `algorithm`/`pred` values)
+alongside the freshly-computed forward physics-baseline points in the same
+response - then loaded the dashboard in a brand-new, never-before-used
+browser context and confirmed the chart showed the historical points
+immediately, overlapping the actual-power bars, without needing to wait
+through any polls first. See `web/README.md`'s matching dated entry for
+the frontend side and screenshot evidence.
+
 ## Known gaps / next steps
 
 - **No automatic retraining pipeline of its own** - `registry.log_run()` +

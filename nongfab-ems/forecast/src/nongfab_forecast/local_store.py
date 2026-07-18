@@ -53,6 +53,18 @@ CREATE TABLE IF NOT EXISTS uv_history (
     source TEXT NOT NULL,
     PRIMARY KEY (observation_date, source)
 );
+CREATE TABLE IF NOT EXISTS forecast_history (
+    zone TEXT NOT NULL,
+    horizon TEXT NOT NULL,
+    target_time TEXT NOT NULL,
+    issued_at TEXT NOT NULL,
+    pred REAL NOT NULL,
+    lower REAL,
+    upper REAL,
+    algorithm TEXT,
+    error REAL,
+    PRIMARY KEY (zone, horizon, target_time)
+);
 """
 
 
@@ -191,11 +203,61 @@ class RealDataStore:
             return None
         return datetime.fromisoformat(row[0]), row[1], row[2]
 
+    def record_forecast_points(self, zone: str, horizon: str, issued_at: datetime, points: Iterable) -> int:
+        """Upserts each point keyed by (zone, horizon, target_time) - `points`
+        are serving.ForecastPoint (or anything with the same
+        timestamp/pred/lower/upper/algorithm/error attributes). A later call
+        for the same target hour overwrites the earlier one: a forecast
+        issued closer to its target time is more accurate, so the freshest
+        issuance for a given hour should be what gets served back.
+
+        This is what makes `/forecast` able to keep showing a real
+        prediction for an hour that has since passed (the Forecast line and
+        Prediction interval band used to visibly vanish the moment an hour
+        dropped out of `serving.py`'s forward-only computed window - the
+        user's own 2026-07-18 report) without relying on the frontend having
+        stayed open across every poll to remember it - see
+        `forecast_history_points()` below, which is what actually serves the
+        merged past+future window back.
+        """
+        rows = [
+            (zone, horizon, p.timestamp.isoformat(), issued_at.isoformat(), float(p.pred), p.lower, p.upper, p.algorithm, p.error)
+            for p in points
+        ]
+        if not rows:
+            return 0
+        with self._connect() as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO forecast_history "
+                "(zone, horizon, target_time, issued_at, pred, lower, upper, algorithm, error) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+            conn.commit()
+        return len(rows)
+
+    def forecast_history_points(self, zone: str, horizon: str, since: datetime) -> list[tuple]:
+        """Rows `(target_time, pred, lower, upper, algorithm, error)` for one
+        zone/horizon, `target_time >= since`, oldest first - the persisted
+        counterpart to whatever `serving.py` just computed fresh, so a caller
+        can merge "what's recorded" (which may include hours now in the
+        past) with "what was just predicted forward" into one series. Bounded
+        by `since` rather than returned in full, so a long-running deployment
+        doesn't grow the response by however many days it's been up.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT target_time, pred, lower, upper, algorithm, error FROM forecast_history "
+                "WHERE zone = ? AND horizon = ? AND target_time >= ? ORDER BY target_time",
+                (zone, horizon, since.isoformat()),
+            ).fetchall()
+        return rows
+
     def counts(self) -> dict[str, int]:
         with self._connect() as conn:
             return {
                 table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608 - table names are this module's own constants, never user input
-                for table in ("nwp_history", "cloud_history", "uv_history")
+                for table in ("nwp_history", "cloud_history", "uv_history", "forecast_history")
             }
 
     def count_nwp_rows_by_source(self, source: str) -> int:

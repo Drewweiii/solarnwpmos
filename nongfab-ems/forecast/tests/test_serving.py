@@ -1,7 +1,9 @@
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from nongfab_forecast.local_store import RealDataStore
 from nongfab_forecast.serving import (
     FALLBACK_PI_HALF_WIDTH_PCT,
     ModelNotTrainedError,
@@ -13,6 +15,16 @@ from nongfab_forecast.serving import (
     validate_horizon,
     validate_zone,
 )
+
+
+@dataclass
+class _FakePoint:
+    timestamp: datetime
+    pred: float
+    lower: float | None
+    upper: float | None
+    algorithm: str | None
+    error: float | None
 
 
 def test_validate_zone_accepts_known_zones():
@@ -121,3 +133,56 @@ def test_get_forecast_with_fallback_timestamps_are_stable_across_repeated_calls_
     first = get_forecast_with_fallback("GIS", "hour")
     second = get_forecast_with_fallback("GIS", "hour")
     assert [p.timestamp for p in first.points] == [p.timestamp for p in second.points]
+
+
+def test_get_forecast_with_fallback_includes_a_point_recorded_earlier_for_an_hour_now_in_the_past(tmp_path, monkeypatch):
+    """The whole point of persisting forecast issuances: an hour that has
+    already passed should still show up in the response if it was recorded
+    earlier - not just whatever this particular call computes going
+    forward. Regression test for the user's 2026-07-18 report that the
+    Forecast line/Prediction interval band vanished for any past hour, even
+    on a browser tab that had never been open before (i.e. nothing client-
+    side to have remembered it) - this is the server-side fix for that.
+    """
+    db_path = tmp_path / "mlflow.db"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{db_path}")
+    store = RealDataStore()
+    now = datetime.now(timezone.utc)
+    past_target = _ceil_to(now, timedelta(hours=1)) - timedelta(hours=2)
+    store.record_forecast_points(
+        "GIS", "hour", now - timedelta(hours=3),
+        [_FakePoint(timestamp=past_target, pred=42.0, lower=30.0, upper=50.0, algorithm=None, error=None)],
+    )
+
+    result = get_forecast_with_fallback("GIS", "hour", store=store)
+
+    matched = next((p for p in result.points if p.timestamp == past_target), None)
+    assert matched is not None
+    assert matched.pred == 42.0
+
+
+def test_get_forecast_with_fallback_lets_a_newer_issuance_overwrite_an_older_one(tmp_path, monkeypatch):
+    db_path = tmp_path / "mlflow.db"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{db_path}")
+    store = RealDataStore()
+    now = datetime.now(timezone.utc)
+    target = _ceil_to(now, timedelta(hours=1))
+    store.record_forecast_points(
+        "GIS", "hour", now - timedelta(hours=1),
+        [_FakePoint(timestamp=target, pred=999.0, lower=900.0, upper=1000.0, algorithm=None, error=None)],
+    )
+
+    result = get_forecast_with_fallback("GIS", "hour", store=store)
+
+    matched = next(p for p in result.points if p.timestamp == target)
+    assert matched.pred != 999.0  # this call's own freshly-computed value won, not the stale seeded one
+
+
+def test_get_forecast_with_fallback_does_not_persist_minute_horizon(tmp_path, monkeypatch):
+    """minute-ahead has its own dedicated small panel, not the Day-ahead/
+    Intra-day toggle chart this fix was reported against - out of scope."""
+    db_path = tmp_path / "mlflow.db"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{db_path}")
+    store = RealDataStore()
+    get_forecast_with_fallback("GIS", "minute", store=store)
+    assert store.counts()["forecast_history"] == 0

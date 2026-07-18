@@ -45,7 +45,7 @@ def test_default_db_path_is_in_memory_unless_env_var_set(monkeypatch):
 
 def test_store_starts_empty():
     store = RealDataStore()
-    assert store.counts() == {"nwp_history": 0, "cloud_history": 0, "uv_history": 0}
+    assert store.counts() == {"nwp_history": 0, "cloud_history": 0, "uv_history": 0, "forecast_history": 0}
 
 
 def test_insert_and_read_nwp_points_roundtrips():
@@ -219,3 +219,74 @@ def test_two_in_memory_stores_do_not_share_state():
     ])
     store2 = RealDataStore(db_path=":memory:")
     assert store2.counts()["nwp_history"] == 0
+
+
+@dataclass
+class _FakeForecastPoint:
+    timestamp: datetime
+    pred: float
+    lower: float | None
+    upper: float | None
+    algorithm: str | None
+    error: float | None
+
+
+def test_record_and_read_forecast_points_roundtrips():
+    store = RealDataStore()
+    now = datetime(2026, 7, 18, 9, tzinfo=timezone.utc)
+    points = [
+        _FakeForecastPoint(timestamp=now, pred=10.0, lower=8.0, upper=12.0, algorithm="lightgbm", error=1.5),
+        _FakeForecastPoint(
+            timestamp=now.replace(hour=10), pred=20.0, lower=16.0, upper=24.0, algorithm="lightgbm", error=1.5
+        ),
+    ]
+    inserted = store.record_forecast_points("GIS", "hour", now, points)
+    assert inserted == 2
+
+    rows = store.forecast_history_points("GIS", "hour", since=now)
+    assert len(rows) == 2
+    target_time, pred, lower, upper, algorithm, error = rows[0]
+    assert target_time == now.isoformat()
+    assert (pred, lower, upper, algorithm, error) == (10.0, 8.0, 12.0, "lightgbm", 1.5)
+
+
+def test_forecast_history_points_excludes_rows_before_since():
+    store = RealDataStore()
+    now = datetime(2026, 7, 18, 9, tzinfo=timezone.utc)
+    store.record_forecast_points(
+        "GIS", "hour", now,
+        [_FakeForecastPoint(timestamp=now.replace(hour=h), pred=float(h), lower=None, upper=None, algorithm=None, error=None) for h in (7, 8, 9, 10)],
+    )
+    rows = store.forecast_history_points("GIS", "hour", since=now)
+    assert [r[0] for r in rows] == [now.replace(hour=9).isoformat(), now.replace(hour=10).isoformat()]
+
+
+def test_record_forecast_points_upserts_on_zone_horizon_target_time():
+    # A later issuance for the same (zone, horizon, target_time) overwrites
+    # the earlier one - forecasts issued closer to the target hour are more
+    # accurate, so the freshest value for a given hour should win.
+    store = RealDataStore()
+    target = datetime(2026, 7, 18, 12, tzinfo=timezone.utc)
+    store.record_forecast_points(
+        "GIS", "hour", datetime(2026, 7, 18, 6, tzinfo=timezone.utc),
+        [_FakeForecastPoint(timestamp=target, pred=10.0, lower=8.0, upper=12.0, algorithm="lightgbm", error=2.0)],
+    )
+    store.record_forecast_points(
+        "GIS", "hour", datetime(2026, 7, 18, 11, tzinfo=timezone.utc),
+        [_FakeForecastPoint(timestamp=target, pred=15.0, lower=13.0, upper=17.0, algorithm="random_forest", error=1.0)],
+    )
+    rows = store.forecast_history_points("GIS", "hour", since=target)
+    assert len(rows) == 1
+    assert rows[0][1:] == (15.0, 13.0, 17.0, "random_forest", 1.0)
+
+
+def test_forecast_history_points_scoped_to_zone_and_horizon():
+    store = RealDataStore()
+    now = datetime(2026, 7, 18, 9, tzinfo=timezone.utc)
+    store.record_forecast_points("GIS", "hour", now, [_FakeForecastPoint(timestamp=now, pred=1.0, lower=None, upper=None, algorithm=None, error=None)])
+    store.record_forecast_points("ISB", "hour", now, [_FakeForecastPoint(timestamp=now, pred=2.0, lower=None, upper=None, algorithm=None, error=None)])
+    store.record_forecast_points("GIS", "day", now, [_FakeForecastPoint(timestamp=now, pred=3.0, lower=None, upper=None, algorithm=None, error=None)])
+
+    rows = store.forecast_history_points("GIS", "hour", since=now)
+    assert len(rows) == 1
+    assert rows[0][1] == 1.0

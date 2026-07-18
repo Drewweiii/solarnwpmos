@@ -202,7 +202,11 @@ management, config writes) has somewhere to plug in without a schema change.
   genuine per-lead-hour auto-select, a fixed `"cnn_lstm"`/`"neuralprophet"`
   for minute/day, `None` for the physics fallback) and `error` (that
   algorithm's own held-out validation RMSE, hour-ahead only) - see
-  `forecast/README.md`'s own dated entry for the full story.
+  `forecast/README.md`'s own dated entry for the full story. **(2026-07-18)**
+  for `hour`/`day` (not `minute`), `points` now also includes recent
+  already-past target hours (persisted, not just this call's own forward-
+  looking window) - see `forecast/README.md`'s "Forecast history
+  persistence" entry.
 - **`POST /simulate/{zone}`** → what-if scenario (cloud/curtailment/
   degradation) applied to a baseline day, with an optional scenario-
   uncertainty Monte Carlo interval. Same request/response shape as Module

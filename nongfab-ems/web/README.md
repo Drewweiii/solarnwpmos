@@ -969,6 +969,19 @@ and Prediction interval all together in one tooltip - the user's own
 explicit ask. `tsc -b`, `vitest run` (137/137, 5 new in
 `forecastHistory.test.ts`), and `oxlint` all clean.
 
+**Follow-up, same day**: this client-side accumulation only helps a tab
+that's stayed open across multiple polls - a genuinely fresh page load (or
+the deployed prod site opened for the first time) still showed nothing for
+the past, because there was nothing yet to accumulate from. The user's own
+follow-up screenshot showed exactly that. Closed at the source instead by
+persisting forecast issuances server-side - see `forecast/README.md`'s
+"Forecast history persistence" entry for the backend half. This
+`lib/forecastHistory.ts` client-side accumulator was left in place
+regardless (still correct, still harmless, and covers the one gap the
+backend's own lookback window doesn't: an hour that ages out of the
+server's retention window but was already shown in a tab that's stayed
+open longer than that).
+
 ## Run locally
 
 ```bash
