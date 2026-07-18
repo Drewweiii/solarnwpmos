@@ -74,6 +74,24 @@ function saveKnownPeers(peers: KnownPeerRecord): void {
 
 const emptyConversation = (): ConversationState => ({ messages: [], loaded: false, hasMoreOlder: true, loadingOlder: false, unreadCount: 0 })
 
+/** De-duplicated union of two message lists, sorted by id (the DB's own
+ * autoincrement, globally monotonic across every conversation - safe to sort
+ * on directly). Root-caused 2026-07-18 from a screen recording showing a
+ * message that visibly got sent (input cleared) but never appeared: opening
+ * a thread fires `GET /chat/history` and, in parallel, the visitor's own
+ * send gets WS-echoed back almost immediately (same open connection, no
+ * HTTP/auth/DB round trip) - if the still-in-flight history fetch resolves
+ * *after* that echo already appended the new message to state, its plain
+ * `messages: [...history]` overwrite used to wipe the just-sent message
+ * straight back out. Merging instead of overwriting keeps whichever source
+ * saw a given message first. */
+function mergeMessagesById(a: ChatMessage[], b: ChatMessage[]): ChatMessage[] {
+  const byId = new Map<number, ChatMessage>()
+  for (const m of a) byId.set(m.id, m)
+  for (const m of b) byId.set(m.id, m)
+  return Array.from(byId.values()).sort((x, y) => x.id - y.id)
+}
+
 /** Owns the single site-wide `/ws/chat` connection plus every open private
  * conversation derived from it. This used to be one shared public room
  * (`onlineCount`/`messages` flat arrays) - reworked 2026-07-18 into private
@@ -228,10 +246,17 @@ export function useChatSocket(
       getChatHistory(profileRef.current.clientId, peerClientId, token, undefined, PAGE_SIZE).then(({ messages }) => {
         const lastRead = loadLastReadId(peerClientId)
         const unreadCount = messages.filter((m) => m.id > lastRead && m.client_id !== profileRef.current.clientId).length
-        setConversations((prev) => ({
-          ...prev,
-          [peerClientId]: { messages, loaded: true, hasMoreOlder: messages.length >= PAGE_SIZE, loadingOlder: false, unreadCount },
-        }))
+        setConversations((prev) => {
+          // Merge, don't overwrite: a live WS echo of the visitor's own just-
+          // sent message can land in state *while this fetch is still in
+          // flight* (see mergeMessagesById's own comment) - blindly
+          // replacing `messages` here would silently erase it again.
+          const merged = mergeMessagesById(messages, prev[peerClientId]?.messages ?? [])
+          return {
+            ...prev,
+            [peerClientId]: { messages: merged, loaded: true, hasMoreOlder: messages.length >= PAGE_SIZE, loadingOlder: false, unreadCount },
+          }
+        })
       })
     },
     [token, rememberPeer],

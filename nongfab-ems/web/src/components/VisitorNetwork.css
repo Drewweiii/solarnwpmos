@@ -44,6 +44,107 @@
   border: 2px solid var(--bg);
 }
 
+/* "Someone messaged you" toast (2026-07-18) - anchored just above the
+   toggle button so it's visible whether the whole widget is open or
+   collapsed (the entire point: a visitor shouldn't have to keep reopening
+   the panel just to notice a new message). Sits at a higher z-index than
+   the panel itself since it can appear while the panel is open too (a
+   message from someone other than the thread currently on screen). */
+.visitor-notification-toast {
+  position: fixed;
+  left: 20px;
+  bottom: 84px;
+  z-index: 45;
+  width: min(300px, calc(100vw - 40px));
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  background: var(--card-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  animation: visitor-toast-in 0.2s ease-out;
+}
+
+@keyframes visitor-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.visitor-notification-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.visitor-notification-body:hover {
+  background: var(--accent-bg);
+}
+
+.visitor-notification-avatar {
+  width: 30px;
+  height: 30px;
+  font-size: 15px;
+}
+
+.visitor-notification-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.visitor-notification-name {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-h);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visitor-notification-preview {
+  font-size: 11.5px;
+  color: var(--text);
+  opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visitor-notification-close {
+  flex-shrink: 0;
+  width: 28px;
+  border: none;
+  border-left: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.visitor-notification-close:hover {
+  background: var(--border);
+}
+
 .visitor-panel {
   position: fixed;
   left: 20px;
@@ -476,6 +577,11 @@
 }
 
 @media (max-width: 480px) {
+  .visitor-notification-toast {
+    left: 12px;
+    bottom: 76px;
+  }
+
   .visitor-panel {
     left: 12px;
     bottom: 76px;

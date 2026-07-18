@@ -186,6 +186,46 @@ describe('useChatSocket', () => {
     expect(result.current.conversations[PEER].messages).toHaveLength(2)
   })
 
+  it('does not lose a just-sent message to a slower, already-in-flight openConversation history fetch (race reported live 2026-07-18: message visibly sent, then vanished)', async () => {
+    setToken()
+    // The history GET is still "in flight" (unresolved) when the WS echo of
+    // the visitor's own send arrives - exactly the ordering a screen
+    // recording showed live: opening a thread kicks off `getChatHistory()`,
+    // but the visitor types and hits send before that slower HTTP round
+    // trip comes back, so its response reflects the DB from *before* the
+    // send was persisted.
+    let resolveHistory: (value: { messages: ChatMessage[] }) => void
+    const historyPromise = new Promise<{ messages: ChatMessage[] }>((resolve) => {
+      resolveHistory = resolve
+    })
+    vi.spyOn(api, 'getChatHistory').mockReturnValue(historyPromise)
+
+    const { result } = renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+
+    act(() => {
+      result.current.openConversation(PEER)
+    })
+
+    // The visitor's own message gets WS-echoed back before the history GET
+    // resolves.
+    act(() => ws.emit(chatMessage({ id: 7, client_id: profile.clientId, recipient_client_id: PEER, text: 'just sent' })))
+    await waitFor(() => expect(result.current.conversations[PEER]?.messages).toHaveLength(1))
+
+    // The history GET finally resolves - stale, from before the send was
+    // committed, so it doesn't include the new message.
+    await act(async () => {
+      resolveHistory({ messages: [chatMessage({ id: 3, text: 'older message' })] })
+      await Promise.resolve()
+    })
+
+    const texts = result.current.conversations[PEER].messages.map((m) => m.text)
+    expect(texts).toContain('just sent')
+    expect(texts).toContain('older message')
+    expect(result.current.conversations[PEER].loaded).toBe(true)
+  })
+
   it('loadOlder prepends a page fetched from GET /chat/history for that peer and flags when there is nothing further back', async () => {
     setToken()
     const initialHistory = Array.from({ length: 50 }, (_, i) => chatMessage({ id: 100 + i, text: `msg ${i}` }))

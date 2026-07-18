@@ -28,16 +28,29 @@ interface ChatMessage {
 // live-data answer or browse by topic.
 const QUICK_REPLY_QUESTIONS = ['ตอนนี้ผลิตไฟเท่าไหร่', 'พยากรณ์พรุ่งนี้เป็นยังไง', 'หน้านี้ใช้งานยังไง', 'kWp คืออะไร']
 
+// Shared by the greeting *and* every later category menu (see
+// categoryMenuMessage below) - previously only the greeting carried these 4
+// quick-reply chips, so options rendering only on the trailing message (by
+// design, to fix the menu-stacking bug) meant they vanished for good the
+// moment the visitor asked anything or picked a menu button, with no way
+// back short of closing and reopening the panel (reported live 2026-07-18:
+// "มี 4 คำถามตอนเริ่มต้นจะหายนะ"). Folding them into the category menu makes
+// them reachable any time via the 📚 button instead of a one-shot greeting
+// extra.
+function starterOptions(): AssistantOption[] {
+  return [
+    ...QUICK_REPLY_QUESTIONS.map((q): AssistantOption => ({ kind: 'question', label: q, question: q })),
+    ...TOP_LEVEL_OPTIONS,
+  ]
+}
+
 function greeting(): ChatMessage {
   return {
     id: 'greeting',
     role: 'assistant',
     text: 'สวัสดีครับ ☀️ ผมชื่อ "น้อง Solar" ผู้ช่วย AI ของเว็บนี้ครับ ถามได้เลยว่าเว็บนี้ใช้งานยังไง หรือถามข้อมูลจริงในระบบ เช่น "ตอนนี้ผลิตไฟเท่าไหร่" ก็ได้ ' +
       'หรือกดเลือกหมวดคำถามด้านล่างนี้ก็ได้ครับ ถามได้เรื่อยๆ ไม่ต้องปิดหน้าต่างนี้เลย',
-    options: [
-      ...QUICK_REPLY_QUESTIONS.map((q): AssistantOption => ({ kind: 'question', label: q, question: q })),
-      ...TOP_LEVEL_OPTIONS,
-    ],
+    options: starterOptions(),
   }
 }
 
@@ -64,7 +77,7 @@ function categoryMenuMessage(): ChatMessage {
     id: CATEGORY_MENU_ID,
     role: 'assistant',
     text: 'อยากถามเรื่องอะไรดีครับ เลือกหมวดได้เลย:',
-    options: TOP_LEVEL_OPTIONS,
+    options: starterOptions(),
   }
 }
 

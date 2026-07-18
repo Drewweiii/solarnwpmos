@@ -2380,3 +2380,58 @@ them - not fabricating one).
 `point()` test factory added to `weatherStrip.test.ts` so each case only
 spells out what it actually varies). Full suite 316/316, `tsc` clean - no
 UI changes yet, so nothing new to live-verify at this checkpoint.
+
+### Fixed - private chat message-loss race, mascot's 4 starter questions vanishing for good, plus a "someone messaged you" notification (2026-07-18, Track 2)
+
+Reported live via screen recording: typing and sending a message in the
+private visitor chat visibly cleared the input (confirming the send fired)
+but the message never appeared, and reopening the same thread later still
+didn't show it. Root cause: `useChatSocket.ts`'s `openConversation` fires
+`GET /chat/history` the moment a thread is opened, and separately, the
+visitor's own send gets WS-echoed back almost immediately (same open
+connection, no HTTP/auth/DB round trip) - if that still-in-flight history
+fetch resolves *after* the echo already appended the new message to state,
+its old `messages: [...history]` overwrite silently wiped the just-sent
+message back out. Fixed by merging the fetched history with whatever's
+already in state (deduped by the DB's own globally-monotonic message id)
+instead of replacing it outright - new `mergeMessagesById()`. Verified two
+ways: a new unit test that reproduces the exact ordering (live WS message
+arrives before a deliberately-delayed `getChatHistory` mock resolves), and
+a live two-browser-context Playwright run (two real logins, one client
+firing 3 rapid sends) confirming all 3 survive both the initial send and a
+full close/reopen of the thread.
+
+Also fixed, reported in the same message: น้อง Solar's 4 starter quick-reply
+chips (ตอนนี้ผลิตไฟเท่าไหร่ / พยากรณ์พรุ่งนี้เป็นยังไง / หน้านี้ใช้งานยังไง /
+kWp คืออะไร) only ever rendered on the greeting message, and
+`AssistantPanel.tsx` only renders a message's `options` when it's the
+*trailing* message in the chat log (an intentional rule from the earlier
+menu-stacking fix) - so the moment a visitor asked anything or picked any
+menu button, those 4 chips were gone for the rest of the session with no
+way back short of closing and reopening the whole panel. Fixed by folding
+them into `categoryMenuMessage()` too (new shared `starterOptions()`), so
+they're reachable any time via the 📚 button, not just once at the very
+start.
+
+New, not just fixed: an incoming-message toast (`VisitorNetwork.tsx`'s
+`NotificationToast`) - requested alongside the bug report ("ทำระบบแจ้งเตือน
+ด้วยว่าใครแชทหรือทักมา"). Anchored above the chat toggle so it's visible
+whether the widget is open or fully collapsed (the badge count alone
+required reopening the panel just to see who messaged), shows the sender's
+avatar/name and a text preview (or a sticker-specific "ส่งสติกเกอร์ 🎉 ..."
+line, not the raw encoded string), auto-dismisses after 6s or on its own ×
+button, and clicking it opens straight into that thread. Suppressed for a
+thread already on screen (the bubble itself is enough) and for the
+visitor's own outgoing messages. Opening a peer's thread directly from the
+contact list also clears any of that peer's still-showing toast, so it
+never lingers pointing at a conversation already open.
+
+**Tested**: `useChatSocket.test.tsx` (+1 race-condition regression test),
+`AIAssistant.test.tsx` (+1 starter-questions-reachable-via-📚 test),
+`VisitorNetwork.test.tsx` (+5 notification-toast tests, +2 existing tests
+adjusted to scope their queries now that a toast can legitimately show a
+message preview elsewhere on screen at the same time). Full suite 323/323,
+`tsc` clean. Live-verified end to end with two separate logged-in browser
+contexts (Playwright, real API+WS, not mocked): rapid-fire sends, thread
+reopen persistence, the toast appearing/opening/clearing, and the mascot's
+quick-reply chips reappearing via 📚.
