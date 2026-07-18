@@ -28,7 +28,12 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from nongfab_features.irradiance_map import cloud_factor_at
 from nongfab_forecast.pv_conversion import nong_fab_zone_capacities_kwp
-from nongfab_forecast.serving import GENERATED_POWER_BACKFILL_HOURS, generated_power_history, record_generated_power
+from nongfab_forecast.serving import (
+    GENERATED_POWER_BACKFILL_HOURS,
+    GENERATED_POWER_ESTIMATED_MARKER,
+    generated_power_history,
+    record_generated_power,
+)
 from nongfab_simulation.dev_data import live_efficiency_factor, synthetic_day_irradiance_temp
 from nongfab_simulation.loss_model import performance_ratio
 from nongfab_simulation.pipeline import simulate_zone_baseline
@@ -49,6 +54,14 @@ class HourlyPoint(BaseModel):
 class GeneratedPowerPoint(BaseModel):
     timestamp: datetime
     ac_kw: float
+    # True for a cold-start-backfilled physics-baseline estimate rather than
+    # a genuinely live-polled reading (see forecast/serving.py's
+    # GENERATED_POWER_ESTIMATED_MARKER docstring for the full honesty
+    # story - a backfilled "actual" and a physics-baseline-fallback
+    # "forecast" for the same hour are the literal same number by
+    # construction, not independent signals). False once a live poll has
+    # superseded that hour's backfilled row.
+    estimated: bool
 
 
 class PerformanceResponse(BaseModel):
@@ -144,7 +157,7 @@ async def get_performance(zone: str, request: Request, _user=Depends(require_rol
     # own ~60s poll interval, so this is a cheap upsert, not a hot loop.
     record_generated_power(zone, store, float(ac_power_kw_live.iloc[now.hour]), now)
     history = [
-        GeneratedPowerPoint(timestamp=p.timestamp, ac_kw=p.pred)
+        GeneratedPowerPoint(timestamp=p.timestamp, ac_kw=p.pred, estimated=p.algorithm == GENERATED_POWER_ESTIMATED_MARKER)
         for p in generated_power_history(zone, store, now - timedelta(hours=GENERATED_POWER_BACKFILL_HOURS))
     ]
 

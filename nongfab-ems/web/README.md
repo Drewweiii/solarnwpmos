@@ -1783,6 +1783,195 @@ love/surprised), found and fixed the speech-bubble width bug above, then
 proved the no-stack behavior with real elapsed-time measurements (6 rapid
 clicks, bubble confirmed gone ~5.3s after the last one).
 
+### Fixed/Added - 9-item bug/feature round: chart aggregation bugs, chart scrolling, 3D View + Irradiance Map merge, Moon, sun-angle diagram (2026-07-18, Track 1)
+
+User report with 4 screenshots, 9 numbered items. Item 3 (merge Irradiance
+Map into 3D View) was flagged in `HANDOFF.md` as "already requested of
+Track 2" in a prior entry but is explicitly Track 1's own scope per root
+`CLAUDE.md` (3D View is listed under Track 1, and Track 1 owns "whatever
+frontend pages exist purely to present that content's data" - Irradiance
+Map is exactly that), so it's done here rather than deferred again. Items 7
+and 8 read as contradictory (7: Minute-ahead/Model Competition are missing
+Actual-power lines; 8: don't show them on the Intra-day tab at all) - asked
+the user via `AskUserQuestion`; they chose "fix the bugs, keep both panels
+always-visible as before" (not relocate/hide).
+
+**1 & 7 - Model Competition rendered nothing at all; Minute-ahead/Model
+Competition were missing all 3 Actual-power lines.** Root cause, found by
+comparing the live `/forecast/{zone}/hour` response against what the chart
+actually rendered: `sumForecastAcrossZones`/`sumHourlyAcrossZones`/
+`sumGeneratedPowerHistoryAcrossZones` in `chartData.ts` all required
+`entry.n === perZone.length` (every zone must report the exact same hour)
+before showing *any* row for that hour. Each zone's `/forecast/{zone}/hour`
+(or `/performance/{zone}`) is a separate network call computing its own
+"ceil to next hour" anchor server-side (`forecast/serving.py`'s
+`_ceil_to`) - a request landing on the other side of an hour boundary from
+the others silently blanked the *entire* summed chart, not just that
+zone's contribution. Fixed by dropping the `n === perZone.length`
+requirement: all 3 functions now return whatever they've accumulated,
+summing partial zone coverage rather than hiding the row - "a partial sum
+that's honestly labeled as coming from whichever zones reported" beats "a
+blank chart with real underlying data." This alone explains both item 1
+(the Model Competition panel summing `sumForecastAcrossZones`'s output)
+and half of item 7 (the Minute-ahead panel's actual-power overlay reading
+`sumHourlyAcrossZones`).
+
+The other half of item 7 - a genuinely out-of-order x-axis (screenshot
+showed ticks going ...20:00, 20:50, then jumping back to 19:00) - was a
+Recharts footgun: a categorical `<XAxis>` builds its tick domain as the
+union of every `<Line data=...>` series' own category values in
+first-encountered order, not re-sorted by value. The Minute-ahead panel
+rendered the forecast line and the (wider) actual-power line as two
+separate `<Line data={...}>` series, so a timestamp only present in the
+wider actual-power window landed at the *end* of the domain regardless of
+its real time. Fixed with a new `mergeMinuteAheadRows(minutePoints,
+actualRows)` (`chartData.ts`) that merges both sources into one
+time-sorted array before rendering, matching the pattern the main chart's
+own `mergeGeneratedAndForecast` already used - `MinuteAheadPanel` now reads
+every `<Line>` off one shared `<LineChart data={rows}>` instead of
+per-series `data` overrides.
+
+**2 - Requested horizontal scroll on all 3 chart sections** ("เลื่อนได้
+พอประมาณเพื่อไปดูอดีตที่ผ่านมา และอนาคตนิดหน่อยตามความสามารถโมเดลนั้นๆ" -
+scroll enough to see some history and a bit of future, per that model's own
+capability). Rather than building windowing/pagination, each chart's
+already-fetched data now renders at a real pixel width proportional to its
+point count (`scrollableChartWidthPx(pointCount, pxPerPoint)`, floored at
+`CHART_MIN_WIDTH_PX = 600`) inside a `overflow-x: auto` wrapper
+(`.forecast-chart-scroll`) - panning is native browser scroll over content
+that's honestly present, not fabricated. Model Competition's own wrapper
+uses a deliberately high `pxPerPoint = 100` since its 6-bar (+1h..+6h) cap
+*is* that model's real capability boundary, not a bug - "little to scroll
+into" there is correct behavior, matching the user's own "ตามความสามารถ
+โมเดลนั้นๆ" wording.
+
+**3 - Merged Irradiance Map into 3D View** (`ดึง irradiance map มารวมกับ
+3d view แล้วมาทำให้เด่น`) rather than just linking the two pages.
+`Solar3DPage.tsx` already had `useIrradianceMap(atIso)` wired in from an
+earlier round (only used for a small GHI readout card) - the merge reuses
+that *same* query result to also render the full `<IrradianceMapView>`
+MapLibre heatmap in a new `.solar3d-irradiance-map-section`, with its own
+3 layer toggles (irradiance overlay / zone pins / zone boundary, defaults
+matching the old standalone page) - no new network call. Deleted
+`IrradianceMapPage.tsx`/`.css`/its test file and the nav bar's separate
+"Irradiance Map" link; the old `/irradiance-map` route now
+`<Navigate to="/3d" replace />` instead of falling through to the generic
+404 catch-all, so old bookmarks still land somewhere real.
+
+**4 - Added a Moon** that rises to replace the Sun once it sets, moving
+just as smoothly as the Sun already does. Backend: see `features/README.md`'s
+and `api/README.md`'s matching dated entries for the lunar-position math
+and the new `/moon-path/{zone}` endpoint. Frontend, `Solar3DScene.tsx`:
+
+- **`MoonMarker`** mirrors `SunMarker`'s own "imperative `useFrame` clock,
+  no React re-render per frame" structure, but reads off `moonPathPoints`
+  (the full unfiltered 24h day, unlike the Sun's daylight-only
+  `sunPathPoints`) via the same `interpolateSunPosition` helper (generic
+  over any `{time, azimuth_deg, elevation_deg}[]`, reused as-is rather than
+  writing a near-duplicate). Visible only when *both* the Moon's own
+  elevation is genuinely positive *and* the Sun's is genuinely non-positive
+  (`interpolateSunPosition(sunPathPoints, ...)` returning `null` already
+  means "sun is down", since `sunPathPoints` only ever covers daylight) -
+  a deliberate "one or the other, not both" scene convention matching the
+  literal request ("replace the sun"), not a claim that the real sun and
+  moon are never in the sky together.
+- **Found and fixed a real design gap while wiring this up**: `SunMarker`'s
+  own Play-mode animation clock only ever looped within `sunPathPoints`'
+  daylight-only span (wrapping straight from sunset back to sunrise) - by
+  design, before the Moon existed, since there was nothing to show at
+  night. Left as-is, the Moon would never appear during Play at all. Fixed
+  by extracting the wrap-around arithmetic into a new pure, unit-tested
+  helper, `advanceSimClockMs(currentMs, deltaSeconds,
+  simMinutesPerRealSecond, wrapStartMs, wrapEndMs)` (`lib/solar3d.ts`), and
+  widening both `SunMarker`'s and `MoonMarker`'s wrap window from the Sun's
+  daylight-only span to the Moon's own full-24h `moonPathPoints` span - both
+  markers now share the exact same wrap bounds and per-frame `delta`, so
+  they advance in provable lockstep (covered directly by a unit test, since
+  `useFrame` itself isn't testable in jsdom).
+- A thin pale-blue-white path line (`moonPathLine`, filtered to the
+  above-horizon stretch only, matching the Sun's own line's source data)
+  traces the Moon's arc the same way the amber Sun-path line already does.
+
+**5 - Azimuth/altitude/zenith-angle diagram, Sun only** (explicitly not the
+Moon, per the user's own instruction). Two parts:
+- **Explicit labeled text readouts**: the existing `Compass` component
+  already showed a numeric azimuth ("288° W") and a small "Alt: -17°", but
+  neither was labeled with the word "Azimuth"/"Altitude" the way the
+  existing Zenith readout was - read as "missing" to the user even though
+  the number was technically there. `Solar3DPage.tsx` now shows explicit
+  "Azimuth"/"Altitude"/"Zenith" readouts side by side, same styling.
+- **In-scene 3D angle-measurement protractor** (the "สำคัญมาก" part):
+  new `SunAngleDiagram` component in `Solar3DScene.tsx`, matching the
+  standard solar-position diagram convention (e.g. Duffie & Beckman's
+  *Solar Engineering of Thermal Processes*) - a cyan ground-plane arc from
+  North to the Sun's azimuth bearing, a green vertical-plane arc from the
+  horizon up to the Sun (altitude), and a violet vertical-plane arc from
+  directly overhead down to the Sun (zenith angle, complementary to
+  altitude - they always sum to 90° and share the Sun as one endpoint),
+  plus 4 subtle reference rays (North, zenith, the Sun's ground projection,
+  the Sun itself) anchoring the arcs, and 3 `<Html>`-rendered degree labels
+  (real DOM text anchored to a 3D point, via `@react-three/drei`, not
+  canvas-drawn text). New pure helper `angleArcPoints(azFromDeg, azToDeg,
+  elFromDeg, elToDeg, radius, segments)` (`lib/solar3d.ts`) generates each
+  arc's point array, linearly sweeping az/el together - a plain sweep, not
+  a true spherical geodesic, indistinguishable at the ≤90° sweeps these
+  diagrams use. Deliberately prop-driven (not a `useFrame` clock like
+  SunMarker/MoonMarker) - it updates at the same cadence as every other
+  non-animated scene element (panels, buildings), and hides entirely below
+  the horizon, since an angle-to-the-sun diagram for a sun that isn't up
+  doesn't mean anything.
+
+**6 - "Actual power (before today)" looked identical to "Forecast" for the
+same hour.** See `forecast/README.md`'s and `api/README.md`'s matching
+dated entries for the root cause (both backfill paths call the identical
+physics-baseline estimator) and the new provenance marker. Frontend half:
+`ChartRow` gained an `actualEstimated: boolean` field, carried through
+`mergeGeneratedAndForecast()`; `sumGeneratedPowerHistoryAcrossZones` ORs it
+across zones (any estimated component marks the whole summed row
+estimated). The main chart's tooltip now appends " (estimated)" to the 3
+actual-power series names for a row where `actualEstimated` is true
+(`actualPowerTooltipName()`), so a backfilled physics approximation reads
+honestly instead of implying confirmed telemetry.
+
+**9 - Split the 3 RMSE error lines into their own chart.** They previously
+rendered as 3 additional `<Line>`s on the main Intra-day chart, competing
+visually with the power/forecast lines the user actually cares about most.
+New `ErrorChartPanel` component (gated the same way the old inline lines
+were - `horizonToggle === 'hour'` only), same horizontal-scroll treatment
+as item 2's other charts; the 3 error `<Line>`s were removed from the main
+chart entirely, not duplicated.
+
+**Tested**: `chartData.test.ts` - the 3 "drops X not reported by every
+zone" tests rewritten to "keeps X reported by only some zones, summing
+whatever is there", new `describe('mergeMinuteAheadRows', ...)` (3 tests,
+including a regression test for the exact out-of-order-x-axis scenario),
+new `estimated`-flag propagation tests. `solar3d.test.ts` - 5 new tests for
+`advanceSimClockMs` (including the lockstep-across-two-markers case) and 5
+for `angleArcPoints`. `Solar3DPage.test.tsx`/`Layout.test.tsx` gained tests
+for the merged irradiance map section, its layer toggles, and the removed
+nav entry. `ForecastPage.test.tsx` gained tests for the new error-chart
+panel's Day-ahead/Intra-day visibility gating. Full web suite 294/294,
+`tsc -p tsconfig.app.json` clean.
+
+**Live-verified via Playwright** (local `uvicorn` + `vite dev`, see root
+`CLAUDE.md`'s Railway manual-deploy note - `api/routes_performance.py` and
+`api/routes_solar3d.py` both changed this round): Model Competition went
+from 0 visible bars to 18 real bars across zones; Minute-ahead panel showed
+real actual-power dots with a genuine "Actual power (earlier today): 83.4"
+tooltip and correctly time-ordered x-axis ticks; `/3d` screenshot confirmed
+the merged Irradiance Map section (MapLibre canvas, real zone pins,
+working layer toggles, color legend) with zero console errors and the old
+`/irradiance-map` URL redirecting correctly; scrubbed to a real
+night-instant on 2026-07-18 (confirmed via direct `/sun-path`/`/moon-path`
+curl calls first) and screenshotted the Moon rendering with its glow and
+path line while the Sun readout showed `Alt: -17°`/`Night - no
+irradiance`, then confirmed continued smooth motion across two Play-mode
+frames 3s apart; scrubbed to a real daylight instant and confirmed the
+Azimuth/Altitude/Zenith text readouts (`288°`/`51°`/`39°`) and all 3
+in-scene protractor labels (queried directly from the DOM: `"Azimuth 288°"`,
+`"Altitude 51°"`, `"Zenith 39°"`) matched. Zero browser console errors
+across every screenshot.
+
 ## Run locally
 
 ```bash

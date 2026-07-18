@@ -97,6 +97,25 @@ FORECAST_HISTORY_LOOKBACK_HOURS = {"hour": 24, "day": 72}
 # it is never a real forecast horizon reachable via GET /forecast/{zone}/
 # {horizon}, only ever written/read directly by the functions below.
 GENERATED_POWER_HORIZON = "generated"
+
+# Reuses ForecastPoint's own `algorithm` column (otherwise unused for this
+# horizon - see record_generated_power()'s own docstring) as a provenance
+# marker rather than adding a new column: a backfilled "actual" reading is
+# `real_data.physics_baseline_series()`'s estimate, not a genuinely recorded
+# one - see backfill_generated_power_history()'s own docstring. A live-polled
+# reading (record_generated_power()) leaves `algorithm=None`, so "algorithm
+# is this exact string" is what distinguishes the two on read.
+#
+# Found live 2026-07-18: this backfill and backfill_forecast_history() both
+# call physics_baseline_series() with the *same* (zone, timestamps, store)
+# for the same cold-start window - on a freshly-booted process, "Actual
+# power (before today)" and "Forecast" for those hours are the literal same
+# number by construction, not a coincidence, which looked like two
+# independent signals agreeing perfectly (the user's own report - "Actual
+# power (before today): 352.1 / Forecast: 352.1"). This marker lets the
+# frontend label those rows honestly instead of implying they're an
+# independent ground-truth measurement.
+GENERATED_POWER_ESTIMATED_MARKER = "physics_estimate"
 # How far back backfill_generated_power_history() seeds on a cold start, and
 # how far back GET /performance/{zone}'s new `history` field looks - matches
 # day-ahead's own FORECAST_HISTORY_LOOKBACK_HOURS reach (72h/3 days) so a
@@ -335,9 +354,14 @@ def record_generated_power(zone: str, store: RealDataStore, ac_kw: float, now: d
     `/performance`'s own `hourly` field is entirely synthetic-per-request
     with zero persistence (see that route's own docstring) - there was
     previously no way to ask "what was zone X producing 2 days ago" at all,
-    only ever "today, right now". `lower`/`upper`/`algorithm`/`error`/
-    `candidate_errors` are left at their `ForecastPoint` defaults (`None`) -
-    this isn't a forecast, so none of those fields are meaningful here.
+    only ever "today, right now". `lower`/`upper`/`error`/`candidate_errors`
+    are left at their `ForecastPoint` defaults (`None`) - this isn't a
+    forecast, so none of those fields are meaningful here. `algorithm` stays
+    `None` too (not `GENERATED_POWER_ESTIMATED_MARKER`) - this is a genuine
+    live reading, not a backfilled estimate; see that constant's own
+    docstring. This upsert (same `(zone, horizon, target_time)` primary key
+    as any other horizon) naturally overwrites a backfilled-estimate row for
+    the same hour the moment a live poll reaches it, clearing the marker.
     """
     zone = validate_zone(zone)
     now = now if now is not None else datetime.now(timezone.utc)
@@ -348,13 +372,18 @@ def record_generated_power(zone: str, store: RealDataStore, ac_kw: float, now: d
 def generated_power_history(zone: str, store: RealDataStore, since: datetime) -> list[ForecastPoint]:
     """Persisted actual/generated power readings for `zone`, `target_time >=
     since`, oldest first - the read side of `record_generated_power()`/
-    `backfill_generated_power_history()`. Only `timestamp`/`pred` carry
-    meaning (see `record_generated_power()`'s own docstring for why the
-    rest stay `None`).
+    `backfill_generated_power_history()`. `timestamp`/`pred`/`algorithm`
+    carry meaning (`algorithm` is the `GENERATED_POWER_ESTIMATED_MARKER`
+    provenance flag - see that constant's own docstring, not a real
+    algorithm name); the rest stay `None` (see `record_generated_power()`'s
+    own docstring for why).
     """
     zone = validate_zone(zone)
     rows = store.forecast_history_points(zone, GENERATED_POWER_HORIZON, since)
-    return [ForecastPoint(timestamp=datetime.fromisoformat(target_time), pred=pred) for target_time, pred, *_rest in rows]
+    return [
+        ForecastPoint(timestamp=datetime.fromisoformat(target_time), pred=pred, algorithm=algorithm)
+        for target_time, pred, _lower, _upper, algorithm, *_rest in rows
+    ]
 
 
 def backfill_generated_power_history(zone: str, store: RealDataStore, now: datetime | None = None) -> int:
@@ -371,13 +400,23 @@ def backfill_generated_power_history(zone: str, store: RealDataStore, now: datet
     live poll for the current hour naturally overwrites its own backfilled
     row (same `INSERT OR REPLACE` upsert every other horizon already uses),
     so live data supersedes this estimate the moment it exists.
+
+    Tagged with `GENERATED_POWER_ESTIMATED_MARKER` (see that constant's own
+    docstring) - this is the same `physics_baseline_series()` call
+    `backfill_forecast_history()` makes for the same cold-start window, so
+    without this marker a viewer has no way to tell "Actual power (before
+    today)" apart from a coincidentally-identical physics-baseline
+    "Forecast" for the same hour.
     """
     zone = validate_zone(zone)
     now = now if now is not None else datetime.now(timezone.utc)
     end = _ceil_to(now, timedelta(hours=1)) - timedelta(hours=1)
     timestamps = pd.date_range(end=end, periods=GENERATED_POWER_BACKFILL_HOURS, freq="h", tz="UTC")
     baseline = real_data.physics_baseline_series(zone, timestamps, store)
-    points = [ForecastPoint(timestamp=ts.to_pydatetime(), pred=float(row.pred)) for ts, row in baseline.iterrows()]
+    points = [
+        ForecastPoint(timestamp=ts.to_pydatetime(), pred=float(row.pred), algorithm=GENERATED_POWER_ESTIMATED_MARKER)
+        for ts, row in baseline.iterrows()
+    ]
     return store.record_forecast_points(zone, GENERATED_POWER_HORIZON, now, points)
 
 

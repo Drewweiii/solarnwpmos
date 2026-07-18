@@ -66,7 +66,17 @@ def test_get_performance_returns_metrics_for_viewer(app, token_factory, monkeypa
     assert "history" in body
     assert isinstance(body["history"], list)
     assert len(body["history"]) > 0
-    assert {"timestamp", "ac_kw"} <= body["history"][0].keys()
+    assert {"timestamp", "ac_kw", "estimated"} <= body["history"][0].keys()
+    # Freshly backfilled on this same cold-start call (see the comment
+    # above), so every earlier hour is a physics-baseline estimate
+    # (2026-07-18 fix: this used to be indistinguishable from "Forecast",
+    # which is the same estimate for the same hour - see forecast/serving.py's
+    # GENERATED_POWER_ESTIMATED_MARKER) - except the *current* hour (the
+    # series' last/most-recent row, oldest-first ordering), which this same
+    # request's own `record_generated_power()` call just wrote as a live
+    # reading, superseding its own backfilled estimate.
+    assert all(row["estimated"] is True for row in body["history"][:-1])
+    assert body["history"][-1]["estimated"] is False
 
 
 def test_get_performance_includes_zone_coordinates_and_cloud_factor(app, token_factory):

@@ -54,8 +54,8 @@ function makePerformance(zone: string, peakKw: number): PerformanceResponse {
     // verify the "before today" tier actually has data to render, not just
     // today's own `hourly`.
     history: [
-      { timestamp: '2026-07-12T10:00:00Z', ac_kw: peakKw * 0.5 },
-      { timestamp: '2026-07-13T10:00:00Z', ac_kw: peakKw * 0.6 },
+      { timestamp: '2026-07-12T10:00:00Z', ac_kw: peakKw * 0.5, estimated: false },
+      { timestamp: '2026-07-13T10:00:00Z', ac_kw: peakKw * 0.6, estimated: false },
     ],
     cloud_factor: 0.75,
   }
@@ -200,6 +200,24 @@ describe('ForecastPage', () => {
 
     await user.click(screen.getByRole('tab', { name: /Intra-day/i }))
     expect(await screen.findByText(/ดูสีจุดบนกราฟ/)).toBeInTheDocument()
+  })
+
+  it('does not show the model-error-over-time chart on Day-ahead (2026-07-18: split out of the main chart, Intra-day only)', async () => {
+    renderPage()
+    await clickGisTab()
+    await waitFor(() => expect(api.getForecast).toHaveBeenCalledWith('GIS', 'day', expect.any(String)))
+    expect(screen.queryByLabelText(/model error over time chart/i)).not.toBeInTheDocument()
+  })
+
+  it('shows the model-error-over-time chart with real data once Intra-day is selected', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await clickGisTab()
+    await user.click(screen.getByRole('tab', { name: /Intra-day/i }))
+    await waitFor(() => expect(api.getForecast).toHaveBeenCalledWith('GIS', 'hour', expect.any(String)))
+
+    const panel = await screen.findByLabelText(/model error over time chart/i)
+    expect(within(panel).queryByText('No data yet.')).not.toBeInTheDocument()
   })
 
   it('always fetches and renders the Model Competition panel, not gated by the Day/Intra-day toggle', async () => {

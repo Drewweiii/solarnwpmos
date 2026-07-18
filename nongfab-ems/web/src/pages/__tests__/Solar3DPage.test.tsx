@@ -10,6 +10,7 @@ import type {
   ForecastResponse,
   GeometryResponse,
   IrradianceMapResponse,
+  MoonPathResponse,
   PerformanceResponse,
   PrecipitationConditionsResponse,
   SunPathResponse,
@@ -45,6 +46,17 @@ vi.mock('../../components/Solar3DScene', () => ({
   ),
 }))
 
+// IrradianceMapView renders a real WebGL MapLibre canvas, which jsdom can't
+// provide a context for - mock it the same way IrradianceMapPage's own
+// (now-removed, merged into this page 2026-07-18) tests already did.
+vi.mock('../../components/IrradianceMapView', () => ({
+  IrradianceMapView: ({ grid, zones }: { grid: unknown[]; zones: unknown[] }) => (
+    <div data-testid="mock-irradiance-map">
+      {grid.length} points, {zones.length} zones
+    </div>
+  ),
+}))
+
 function makeZone(id: string): Zone {
   return {
     id,
@@ -74,6 +86,7 @@ function makeGeometry(zone: string, panelCount: number): GeometryResponse {
     azimuth_deg: 180,
     row_pitch_m: 3,
     sun: { azimuth_deg: 206, elevation_deg: 38 },
+    moon: { azimuth_deg: 45, elevation_deg: -20 },
     average_solar_access_pct: 95.4,
     panels: Array.from({ length: panelCount }, (_, i) => ({
       block_id: 'b', row: 0, col: i, east_m: i, north_m: 0, width_m: 2.4, slant_height_m: 1.3, solar_access_pct: 100,
@@ -89,6 +102,17 @@ const sunPath: SunPathResponse = {
     { time: '2026-07-14T00:00:00Z', azimuth_deg: 70, elevation_deg: 1 },
     { time: '2026-07-14T05:00:00Z', azimuth_deg: 206, elevation_deg: 38 },
     { time: '2026-07-14T11:00:00Z', azimuth_deg: 300, elevation_deg: 2 },
+  ],
+}
+
+const moonPath: MoonPathResponse = {
+  zone: 'GIS',
+  date: '2026-07-14',
+  points: [
+    { time: '2026-07-14T00:00:00Z', azimuth_deg: 20, elevation_deg: -10 },
+    { time: '2026-07-14T12:00:00Z', azimuth_deg: 180, elevation_deg: 40 },
+    { time: '2026-07-14T18:00:00Z', azimuth_deg: 60, elevation_deg: 15 },
+    { time: '2026-07-14T23:45:00Z', azimuth_deg: 300, elevation_deg: -5 },
   ],
 }
 
@@ -112,8 +136,23 @@ function makeIrradianceMap(): IrradianceMapResponse {
     at: '2026-07-14T05:00:00Z',
     sun: { azimuth_deg: 206, elevation_deg: 38 },
     clearsky_ghi_w_m2: 612,
-    grid: [],
-    zones: [],
+    grid: [
+      { lat: 12.68, lon: 101.12, ghi_w_m2: 700, cloud_factor: 0.8 },
+      { lat: 12.681, lon: 101.121, ghi_w_m2: 690, cloud_factor: 0.8 },
+    ],
+    zones: [
+      {
+        id: 'GIS', name_full: 'GIS', lat: 12.68, lon: 101.12, ac_capacity_kw: 50, simulated: false,
+        ghi_w_m2: 700, cloud_factor: 0.8, estimated_ac_kw: 30, plant_factor: 0.6,
+        boundary: [
+          { lat: 12.681, lon: 101.119 },
+          { lat: 12.681, lon: 101.121 },
+          { lat: 12.679, lon: 101.121 },
+          { lat: 12.679, lon: 101.119 },
+          { lat: 12.681, lon: 101.119 },
+        ],
+      },
+    ],
   }
 }
 
@@ -166,6 +205,7 @@ describe('Solar3DPage', () => {
     vi.spyOn(api, 'getAssets').mockResolvedValue(registry)
     vi.spyOn(api, 'getGeometry').mockImplementation((zone) => Promise.resolve(makeGeometry(zone, 84)))
     vi.spyOn(api, 'getSunPath').mockResolvedValue(sunPath)
+    vi.spyOn(api, 'getMoonPath').mockResolvedValue(moonPath)
     vi.spyOn(api, 'getForecast').mockImplementation((zone) => Promise.resolve(makeForecast(zone)))
     vi.spyOn(api, 'getPerformance').mockImplementation((zone) => Promise.resolve(makePerformance(zone)))
     vi.spyOn(api, 'getCloudConditions').mockResolvedValue(cloudConditions)
@@ -261,6 +301,32 @@ describe('Solar3DPage', () => {
   it('shows the clear-sky irradiance readout prominently', async () => {
     renderPage()
     expect(await screen.findByText(/612 W\/m/)).toBeInTheDocument()
+  })
+
+  it('shows the merged irradiance map (2026-07-18: pulled in from the former standalone page) fed by the same query the GHI readout card above already uses', async () => {
+    renderPage()
+    // Both the small GHI readout card and the full map render from the
+    // exact same `useIrradianceMap` call/response - not a second,
+    // page-specific fetch reintroduced by the merge.
+    expect(await screen.findByText(/612 W\/m/)).toBeInTheDocument()
+    const map = await screen.findByTestId('mock-irradiance-map')
+    expect(map).toHaveTextContent('2 points, 1 zones')
+  })
+
+  it('toggles the irradiance map layer checkboxes', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByTestId('mock-irradiance-map')
+
+    const overlayToggle = screen.getByLabelText(/irradiance overlay/i)
+    expect(overlayToggle).toBeChecked()
+    await user.click(overlayToggle)
+    expect(overlayToggle).not.toBeChecked()
+
+    const boundaryToggle = screen.getByLabelText(/zone boundary/i)
+    expect(boundaryToggle).not.toBeChecked()
+    await user.click(boundaryToggle)
+    expect(boundaryToggle).toBeChecked()
   })
 
   it('shows zenith angle and the selected zone\'s own lat/lon', async () => {

@@ -7,6 +7,7 @@ import {
   getForecast,
   getGeometry,
   getIrradianceMap,
+  getMoonPath,
   getPerformance,
   getPrecipitationConditions,
   getSunPath,
@@ -156,6 +157,16 @@ export function useSunPath(zone: string, date?: string) {
     queryFn: () => getSunPath(zone, date, token!),
     enabled: Boolean(token) && zone !== ALL_ZONES_ID,
     staleTime: 60 * 60 * 1000, // a whole day's sun-path arc doesn't change within the same UTC day
+  })
+}
+
+export function useMoonPath(zone: string, date?: string) {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['moon-path', zone, date ?? 'today'],
+    queryFn: () => getMoonPath(zone, date, token!),
+    enabled: Boolean(token) && zone !== ALL_ZONES_ID,
+    staleTime: 60 * 60 * 1000, // a whole day's moon-path arc doesn't change within the same UTC day
   })
 }
 

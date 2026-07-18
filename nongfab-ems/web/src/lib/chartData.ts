@@ -15,6 +15,13 @@ export interface ChartRow {
   actualPast: number | null // previous days (not today, ICT calendar date)
   actualToday: number | null // today (ICT), but strictly before `actualNow`'s point
   actualNow: number | null // the single most recent already-happened reading
+  // True when whichever of the 3 actual-power tiers above is set came from a
+  // cold-start-backfilled physics estimate (GeneratedPowerPoint.estimated),
+  // not a genuinely live-polled reading - see that type's own docstring for
+  // why this matters. False (not just absent) when no actual reading exists
+  // for this row at all, same as the 3 tiers themselves default to null
+  // rather than undefined.
+  actualEstimated: boolean
   pred: number | null
   lower: number | null
   upper: number | null
@@ -82,6 +89,7 @@ function emptyChartRow(key: string, timestamp: string): ChartRow {
     actualPast: null,
     actualToday: null,
     actualNow: null,
+    actualEstimated: false,
     pred: null,
     lower: null,
     upper: null,
@@ -139,6 +147,7 @@ export function mergeGeneratedAndForecast(
     const key = hourKey(point.timestamp)
     const row = rows.get(key) ?? emptyChartRow(key, point.timestamp)
     assignActualTier(row, point.timestamp, point.ac_kw)
+    row.actualEstimated = point.estimated
     rows.set(key, row)
   }
 
@@ -168,6 +177,53 @@ export function mergeGeneratedAndForecast(
   return [...rows.values()].sort((a, b) => a.key.localeCompare(b.key))
 }
 
+export interface MinuteChartRow {
+  key: string
+  timestamp: string
+  pred: number | null
+  actualPast: number | null
+  actualToday: number | null
+  actualNow: number | null
+}
+
+/** Merges the Minute-ahead panel's forecast points (10-minute resolution)
+ * and its actual-power overlay (`ChartRow[]`, hourly resolution, a wider
+ * window than the forecast's own - see ForecastPage.tsx's
+ * `minuteWindowActualRows` docstring) into ONE time-sorted array, rather
+ * than the panel handing Recharts two independently-shaped arrays via
+ * separate per-`<Line data=...>` props on a shared categorical XAxis.
+ *
+ * That separate-arrays approach is a real Recharts footgun, not just a
+ * style preference: a categorical XAxis's tick domain is the union of every
+ * series' own category values, appended in first-encountered order, NOT
+ * re-sorted by value - so a timestamp that only appears in the *second*
+ * series (the wider actual-power window reaching an hour outside the
+ * forecast's own narrower span) lands at the *end* of the axis regardless
+ * of its real time value. Found live 2026-07-18 as the reported "the x-axis
+ * shows 20:00..20:50 then 19:00 out of order" bug. A single shared, sorted
+ * array is exactly the pattern the main chart's own `ChartRow`/
+ * `mergeGeneratedAndForecast` already uses for the same reason - this
+ * mirrors it for the Minute-ahead panel specifically. */
+export function mergeMinuteAheadRows(minutePoints: ForecastPoint[], actualRows: ChartRow[]): MinuteChartRow[] {
+  const rows = new Map<string, MinuteChartRow>()
+  for (const row of actualRows) {
+    rows.set(row.timestamp, {
+      key: row.timestamp,
+      timestamp: row.timestamp,
+      pred: null,
+      actualPast: row.actualPast,
+      actualToday: row.actualToday,
+      actualNow: row.actualNow,
+    })
+  }
+  for (const point of minutePoints) {
+    const existing = rows.get(point.timestamp)
+    if (existing) existing.pred = point.pred
+    else rows.set(point.timestamp, { key: point.timestamp, timestamp: point.timestamp, pred: point.pred, actualPast: null, actualToday: null, actualNow: null })
+  }
+  return [...rows.values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+}
+
 /** Nulls out the 3 actual-power tiers (`actualPast`/`actualToday`/
  * `actualNow`) for any row whose timestamp is later than `nowIso` -
  * `hourly`'s underlying series is a full synthetic *today* (see
@@ -189,9 +245,22 @@ export function truncateGeneratedToNow(rows: ChartRow[], nowIso: string = new Da
 
 /** Site-wide aggregate for the "All" (รวม) zone selection: power (ac_kw) is
  * extensive and sums across zones; irradiance/temperature are intensive
- * (site-wide averages, not sums). Only produces a hour where every zone
- * reported a value, so a zone with no data yet doesn't silently deflate the
- * total instead of just being absent. */
+ * (site-wide averages across however many zones reported, via `entry.n`).
+ *
+ * Sums whatever zones *did* report for an hour, rather than requiring every
+ * zone to agree on that exact hour first - an earlier version required
+ * `entry.n === perZone.length`, which meant a single zone's request landing
+ * a few hundred ms on the other side of an hour boundary from the other two
+ * (three independent network calls, each computing its own "ceil to next
+ * hour" anchor server-side - see forecast/serving.py's `_ceil_to`) silently
+ * dropped that *entire* hour from the "All" aggregate, not just that one
+ * zone's contribution - found live 2026-07-18 as the reported "Model
+ * Competition chart / Minute-ahead actual-power lines show nothing at all"
+ * (this same aggregation pattern also feeds `hourly`, which the Minute-ahead
+ * panel's actual-power overlay depends on). A partial-zone sum that
+ * undercounts by one zone for a transient moment is a more honest, more
+ * useful result than blanking the entire chart over it - this mismatch
+ * self-corrects on the very next poll under normal operation. */
 export function sumHourlyAcrossZones(perZone: HourlyPoint[][]): HourlyPoint[] {
   const acc = new Map<string, { timestamp: string; ac_kw: number; ssrd_w_m2: number; temp_c: number; n: number }>()
   for (const series of perZone) {
@@ -206,29 +275,32 @@ export function sumHourlyAcrossZones(perZone: HourlyPoint[][]): HourlyPoint[] {
     }
   }
   return [...acc.values()]
-    .filter((entry) => entry.n === perZone.length)
     .map((entry) => ({ timestamp: entry.timestamp, ac_kw: entry.ac_kw, ssrd_w_m2: entry.ssrd_w_m2 / entry.n, temp_c: entry.temp_c / entry.n }))
     .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
 }
 
 /** Same "All" (รวม) aggregation as `sumHourlyAcrossZones` above, for
  * `/performance`'s `history` field (persisted actual/generated power for
- * previous days, 2026-07-18) instead of `hourly` - power sums across zones,
- * only a timestamp every zone reported is kept. */
+ * previous days, 2026-07-18) instead of `hourly` - sums across zones,
+ * tolerating partial coverage the same way and for the same reason (see
+ * `sumHourlyAcrossZones`'s own docstring). `estimated` is true for the
+ * summed row if *any* contributing zone's own reading was a backfilled
+ * estimate (see GeneratedPowerPoint.estimated's own docstring) - a sum with
+ * even one estimated component isn't a fully-live reading either. */
 export function sumGeneratedPowerHistoryAcrossZones(perZone: GeneratedPowerPoint[][]): GeneratedPowerPoint[] {
-  const acc = new Map<string, { timestamp: string; ac_kw: number; n: number }>()
+  const acc = new Map<string, { timestamp: string; ac_kw: number; estimated: boolean; n: number }>()
   for (const series of perZone) {
     for (const point of series) {
       const key = hourKey(point.timestamp)
-      const entry = acc.get(key) ?? { timestamp: point.timestamp, ac_kw: 0, n: 0 }
+      const entry = acc.get(key) ?? { timestamp: point.timestamp, ac_kw: 0, estimated: false, n: 0 }
       entry.ac_kw += point.ac_kw
+      entry.estimated = entry.estimated || point.estimated
       entry.n += 1
       acc.set(key, entry)
     }
   }
   return [...acc.values()]
-    .filter((entry) => entry.n === perZone.length)
-    .map((entry) => ({ timestamp: entry.timestamp, ac_kw: entry.ac_kw }))
+    .map((entry) => ({ timestamp: entry.timestamp, ac_kw: entry.ac_kw, estimated: entry.estimated }))
     .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
 }
 
@@ -242,7 +314,17 @@ export function sumGeneratedPowerHistoryAcrossZones(perZone: GeneratedPowerPoint
  * `keyFn` defaults to `hourKey` (correct for Day-ahead/Intra-day's hourly
  * cadence, where it also absorbs a few seconds of cross-zone request jitter)
  * - callers aggregating a finer-resolution series (minute-ahead) must pass
- * `exactTimeKey` instead, see that function's own docstring. */
+ * `exactTimeKey` instead, see that function's own docstring.
+ *
+ * Tolerates partial zone coverage per hour (sums whatever zones reported,
+ * doesn't require every zone to agree on that exact hour first) - same fix
+ * and same reasoning as `sumHourlyAcrossZones`'s own docstring: an earlier
+ * strict `entry.n === perZone.length` requirement meant one zone's request
+ * landing on the other side of an hour boundary from the others (three
+ * independent network calls, see `sumHourlyAcrossZones`) silently dropped
+ * *every* row, not just that zone's share - found live 2026-07-18 as the
+ * reported "Model Competition chart shows nothing at all" for the default
+ * "All zones" view. */
 export function sumForecastAcrossZones(perZone: ForecastPoint[][], keyFn: (iso: string) => string = hourKey): ForecastPoint[] {
   const acc = new Map<
     string,
@@ -269,7 +351,6 @@ export function sumForecastAcrossZones(perZone: ForecastPoint[][], keyFn: (iso: 
     }
   }
   return [...acc.values()]
-    .filter((entry) => entry.n === perZone.length)
     .map((entry) => ({
       timestamp: entry.timestamp,
       pred: entry.pred,

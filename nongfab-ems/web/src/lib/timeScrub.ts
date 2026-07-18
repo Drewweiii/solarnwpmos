@@ -1,6 +1,6 @@
-// Shared date/time-scrubber helpers - used by both Solar3DPage (per-zone sun
-// sweep) and IrradianceMapPage (plant-wide irradiance time scrubber), so
-// kept here once rather than duplicated across both pages.
+// Shared date/time-scrubber helpers, used by Solar3DPage (per-zone sun sweep
+// plus, since the 2026-07-18 merge, the plant-wide irradiance map that used
+// to be its own separate page with its own duplicate scrubber).
 
 export function todayIso(): string {
   return new Date().toISOString().slice(0, 10)
@@ -34,9 +34,9 @@ export function buildAtIso(date: string, minutes: number): string {
   return `${date}T${hh}:${mm}:00Z`
 }
 
-/** Converts a UTC minutes-of-day value - the time-scrubber sliders'
- * (Solar3DPage/IrradianceMapPage) own internal state, fed straight into
- * buildAtIso above - into the Thai local (ICT = UTC+7) HH:MM label to show
+/** Converts a UTC minutes-of-day value - Solar3DPage's own time-scrubber
+ * slider state, fed straight into buildAtIso above - into the Thai local
+ * (ICT = UTC+7) HH:MM label to show
  * next to it, without changing what timestamp actually gets queried.
  *
  * Deliberately display-only: redefining the slider's *value* itself as

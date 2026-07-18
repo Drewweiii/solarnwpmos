@@ -73,6 +73,33 @@ export function zenithAngleDeg(elevationDeg: number): number {
   return 90 - elevationDeg
 }
 
+/** Advances a simulated "play" clock by `deltaSeconds` of real time (at
+ * `simMinutesPerRealSecond` sim-minutes per real second), wrapping back to
+ * `wrapStartMs` once it passes `wrapEndMs` - the shared clock driving both
+ * SunMarker's and MoonMarker's continuous in-canvas animation in
+ * Solar3DScene.tsx (2026-07-18, added so the Moon can rise once the Sun
+ * sets during Play - see that file's own docstring on why both markers now
+ * share one 24h wrap window instead of the Sun's old daylight-only loop).
+ * Kept here, not inline in either marker, so both advance off the exact
+ * same arithmetic (same `delta` each frame -> identical result) and so this
+ * is unit-testable at all (react-three-fiber's `useFrame` itself is not,
+ * per this file's own header). Returns `currentMs + delta` unwrapped if the
+ * wrap window is empty/invalid (e.g. no path data loaded yet). */
+export function advanceSimClockMs(
+  currentMs: number,
+  deltaSeconds: number,
+  simMinutesPerRealSecond: number,
+  wrapStartMs: number | null,
+  wrapEndMs: number | null,
+): number {
+  const advanced = currentMs + deltaSeconds * simMinutesPerRealSecond * 60 * 1000
+  if (wrapStartMs == null || wrapEndMs == null) return advanced
+  const spanMs = wrapEndMs - wrapStartMs
+  if (spanMs <= 0) return advanced
+  if (advanced <= wrapEndMs) return advanced
+  return wrapStartMs + ((advanced - wrapStartMs) % spanMs)
+}
+
 /** Converts a compass azimuth + elevation into a 3D Cartesian point (east=X,
  * up=Y, north=-Z - the same axis convention Solar3DScene.tsx uses for panel
  * positions, so the sun marker/sun-path arc line up with the panel grid
@@ -88,4 +115,31 @@ export function sunPositionVector(azimuthDeg: number, elevationDeg: number, radi
   const z = -horizontal * Math.cos(az)
   const y = radius * Math.sin(el)
   return [x, y, z]
+}
+
+/** Points along an azimuth/altitude/zenith-angle protractor arc on the
+ * sun's "sky dome" (see `sunPositionVector`), linearly sweeping azimuth and
+ * elevation together from (azFromDeg, elFromDeg) to (azToDeg, elToDeg) -
+ * used to draw Solar3DScene's in-scene angle-measurement diagram (2026-07-18
+ * user request, sun only - "ตรงเส้น3Dให้แสดงการวัดมุมเข้าไปด้วย...มีมุม
+ * azimuth, altitude, zenith angle"). A plain linear sweep in (az, el) space,
+ * not a true spherical geodesic - visually indistinguishable at the short
+ * sweep angles these diagrams use (each arc covers at most 90deg), and far
+ * simpler than a real slerp for a purely decorative protractor. */
+export function angleArcPoints(
+  azFromDeg: number,
+  azToDeg: number,
+  elFromDeg: number,
+  elToDeg: number,
+  radius: number,
+  segments = 32,
+): [number, number, number][] {
+  const points: [number, number, number][] = []
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments
+    const az = azFromDeg + (azToDeg - azFromDeg) * t
+    const el = elFromDeg + (elToDeg - elFromDeg) * t
+    points.push(sunPositionVector(az, el, radius))
+  }
+  return points
 }

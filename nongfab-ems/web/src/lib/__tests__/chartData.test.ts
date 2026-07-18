@@ -5,6 +5,7 @@ import {
   filterToRecentPast,
   hourKey,
   mergeGeneratedAndForecast,
+  mergeMinuteAheadRows,
   nearestToNow,
   nearestToTimestamp,
   sumForecastAcrossZones,
@@ -13,14 +14,15 @@ import {
   truncateGeneratedToNow,
   weatherIconFor,
 } from '../chartData'
+import type { ChartRow } from '../chartData'
 import type { ForecastPoint, GeneratedPowerPoint, HourlyPoint } from '../types'
 
 function hourly(hourUtc: number, ac_kw: number, ssrd_w_m2 = 500, temp_c = 30): HourlyPoint {
   return { timestamp: `2026-07-14T${String(hourUtc).padStart(2, '0')}:00:00Z`, ac_kw, ssrd_w_m2, temp_c }
 }
 
-function historyPoint(iso: string, ac_kw: number): GeneratedPowerPoint {
-  return { timestamp: iso, ac_kw }
+function historyPoint(iso: string, ac_kw: number, estimated = false): GeneratedPowerPoint {
+  return { timestamp: iso, ac_kw, estimated }
 }
 
 function forecastPoint(
@@ -123,6 +125,17 @@ describe('mergeGeneratedAndForecast', () => {
     expect(pastRow).toMatchObject({ actualPast: 15, actualToday: null, actualNow: null })
   })
 
+  it('carries the estimated flag through from a `history` point onto the row (2026-07-18 fix: a backfilled "actual" reading must be distinguishable from a live one)', () => {
+    const rows = mergeGeneratedAndForecast(
+      [],
+      [],
+      [historyPoint('2026-07-12T10:00:00Z', 15, true), historyPoint('2026-07-12T11:00:00Z', 20, false)],
+      now,
+    )
+    expect(rows.find((r) => r.key === '2026-07-12T10')?.actualEstimated).toBe(true)
+    expect(rows.find((r) => r.key === '2026-07-12T11')?.actualEstimated).toBe(false)
+  })
+
   it('picks the single most-recent already-happened point across multiple `history` entries as the "now" tier', () => {
     // No `hourly` data at all here (e.g. before today's first poll) - so
     // the most recent of two *past-day* history points still correctly
@@ -197,6 +210,60 @@ describe('truncateGeneratedToNow', () => {
   })
 })
 
+function minutePoint(iso: string, pred: number): ForecastPoint {
+  return { timestamp: iso, pred, lower: null, upper: null, algorithm: null, error: null, candidate_errors: null }
+}
+
+function actualChartRow(
+  iso: string,
+  tier: { actualPast?: number; actualToday?: number; actualNow?: number },
+): ChartRow {
+  return {
+    key: iso,
+    timestamp: iso,
+    actualPast: tier.actualPast ?? null,
+    actualToday: tier.actualToday ?? null,
+    actualNow: tier.actualNow ?? null,
+    actualEstimated: false,
+    pred: null,
+    lower: null,
+    upper: null,
+    band: null,
+    algorithm: null,
+    error: null,
+    errorLightgbm: null,
+    errorRandomForest: null,
+    errorSumKLstm: null,
+  }
+}
+
+describe('mergeMinuteAheadRows', () => {
+  it('merges forecast points and actual-power rows into one array by timestamp', () => {
+    const minutePoints = [minutePoint('2026-07-18T12:50:00Z', 10), minutePoint('2026-07-18T13:00:00Z', 12)]
+    const actualRows = [actualChartRow('2026-07-18T13:00:00Z', { actualNow: 11 })]
+    const rows = mergeMinuteAheadRows(minutePoints, actualRows)
+
+    expect(rows.map((r) => r.timestamp)).toEqual(['2026-07-18T12:50:00Z', '2026-07-18T13:00:00Z'])
+    expect(rows[0]).toMatchObject({ pred: 10, actualPast: null, actualToday: null, actualNow: null })
+    expect(rows[1]).toMatchObject({ pred: 12, actualNow: 11 })
+  })
+
+  it('keeps a timestamp sorted in order even when it only appears in the actual-power rows, not the forecast points (the reported out-of-order x-axis bug)', () => {
+    // actualRows reaches an hour (11:00) the forecast's own narrower window
+    // doesn't cover at all - this must not land at the end of the sorted
+    // output just because it was only "discovered" via the second array.
+    const minutePoints = [minutePoint('2026-07-18T12:00:00Z', 5)]
+    const actualRows = [actualChartRow('2026-07-18T11:00:00Z', { actualPast: 40 }), actualChartRow('2026-07-18T12:00:00Z', { actualNow: 45 })]
+    const rows = mergeMinuteAheadRows(minutePoints, actualRows)
+
+    expect(rows.map((r) => r.timestamp)).toEqual(['2026-07-18T11:00:00Z', '2026-07-18T12:00:00Z'])
+  })
+
+  it('returns an empty array when both inputs are empty', () => {
+    expect(mergeMinuteAheadRows([], [])).toEqual([])
+  })
+})
+
 describe('sumHourlyAcrossZones', () => {
   it('sums power but averages irradiance/temperature across zones', () => {
     const gis = [hourly(12, 40, 900, 32)]
@@ -207,11 +274,12 @@ describe('sumHourlyAcrossZones', () => {
     expect(row.temp_c).toBe(31)
   })
 
-  it('drops hours not reported by every zone', () => {
+  it('keeps hours reported by only some zones, summing whatever is there (2026-07-18: an earlier version dropped these)', () => {
     const gis = [hourly(12, 40), hourly(13, 45)]
     const isb = [hourly(12, 90)]
     const rows = sumHourlyAcrossZones([gis, isb])
-    expect(rows.map((r) => r.timestamp)).toEqual([hourly(12, 0).timestamp])
+    expect(rows.map((r) => r.timestamp)).toEqual([hourly(12, 0).timestamp, hourly(13, 0).timestamp])
+    expect(rows.find((r) => r.timestamp === hourly(13, 0).timestamp)?.ac_kw).toBe(45) // only GIS reported this hour
   })
 })
 
@@ -223,21 +291,38 @@ describe('sumGeneratedPowerHistoryAcrossZones', () => {
     expect(row).toMatchObject({ ac_kw: 40 })
   })
 
-  it('drops timestamps not reported by every zone', () => {
+  it('keeps timestamps reported by only some zones, summing whatever is there (2026-07-18: an earlier version dropped these)', () => {
     const gis = [historyPoint('2026-07-12T10:00:00Z', 15), historyPoint('2026-07-12T11:00:00Z', 20)]
     const isb = [historyPoint('2026-07-12T10:00:00Z', 25)]
     const rows = sumGeneratedPowerHistoryAcrossZones([gis, isb])
-    expect(rows.map((r) => r.timestamp)).toEqual(['2026-07-12T10:00:00Z'])
+    expect(rows.map((r) => r.timestamp)).toEqual(['2026-07-12T10:00:00Z', '2026-07-12T11:00:00Z'])
+    expect(rows.find((r) => r.timestamp === '2026-07-12T11:00:00Z')?.ac_kw).toBe(20) // only GIS reported this hour
+  })
+
+  it('marks the summed row estimated if any contributing zone was estimated', () => {
+    const gis = [historyPoint('2026-07-12T10:00:00Z', 15, true)]
+    const isb = [historyPoint('2026-07-12T10:00:00Z', 25, false)]
+    const [row] = sumGeneratedPowerHistoryAcrossZones([gis, isb])
+    expect(row.estimated).toBe(true)
+  })
+
+  it('leaves the summed row not estimated when every contributing zone is live', () => {
+    const gis = [historyPoint('2026-07-12T10:00:00Z', 15, false)]
+    const isb = [historyPoint('2026-07-12T10:00:00Z', 25, false)]
+    const [row] = sumGeneratedPowerHistoryAcrossZones([gis, isb])
+    expect(row.estimated).toBe(false)
   })
 })
 
 describe('sumForecastAcrossZones', () => {
-  it('sums pred/lower/upper only where every zone has a point', () => {
+  it('keeps hours reported by only some zones, summing whatever is there (2026-07-18: an earlier version dropped these - the reported "Model Competition chart empty" bug)', () => {
     const gis = [forecastPoint(12, 10, 8, 12)]
     const isb = [forecastPoint(12, 20, 16, 24)]
-    const jetty = [forecastPoint(13, 5, 4, 6)] // different hour - should be dropped
+    const jetty = [forecastPoint(13, 5, 4, 6)] // different hour - kept on its own, not merged with hour 12
     const rows = sumForecastAcrossZones([gis, isb, jetty])
-    expect(rows).toHaveLength(0) // jetty never reports hour 12, gis/isb never report hour 13
+    expect(rows).toHaveLength(2)
+    expect(rows.find((r) => r.timestamp === forecastPoint(12, 0, 0, 0).timestamp)?.pred).toBe(30) // gis + isb only
+    expect(rows.find((r) => r.timestamp === forecastPoint(13, 0, 0, 0).timestamp)?.pred).toBe(5) // jetty only
   })
 
   it('sums matching hours', () => {

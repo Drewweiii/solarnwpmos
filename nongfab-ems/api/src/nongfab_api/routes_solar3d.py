@@ -22,6 +22,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from nongfab_common.assets import load_assets
 from nongfab_features.clearsky import compute_clearsky_and_position, nong_fab_site_location
+from nongfab_features.moon import moon_position
 from nongfab_features.panel_geometry import generate_zone_layout
 from nongfab_features.shading import average_solar_access_pct, string_power_balance, zone_solar_access
 from nongfab_forecast.pv_conversion import nong_fab_zone_capacities_kwp
@@ -72,6 +73,11 @@ class GeometryResponse(BaseModel):
     azimuth_deg: float
     row_pitch_m: float
     sun: SolarPositionOut
+    # Decorative only (2026-07-18 user request) - see `nongfab_features.moon`'s
+    # own module docstring for the low/medium-precision caveat. Always
+    # populated (not gated on sun being below the horizon here) so the
+    # frontend can decide visibility itself, same as `/moon-path` below.
+    moon: SolarPositionOut
     average_solar_access_pct: float
     panels: list[PanelOut]
     # Only non-empty for zones with a real per-string layout AND a
@@ -91,6 +97,18 @@ class SunPathResponse(BaseModel):
     zone: str
     date: str
     points: list[SunPathPoint]
+
+
+class MoonPathPoint(BaseModel):
+    time: datetime
+    azimuth_deg: float
+    elevation_deg: float
+
+
+class MoonPathResponse(BaseModel):
+    zone: str
+    date: str
+    points: list[MoonPathPoint]
 
 
 def _validate_zone(zone: str) -> str:
@@ -120,6 +138,7 @@ async def get_geometry(zone: str, at: datetime | None = None, _user=Depends(requ
     solpos = compute_clearsky_and_position(pd.DatetimeIndex([when]), lat, lon)
     elevation_deg = float(solpos["elevation_deg"].iloc[0])
     azimuth_deg = float(solpos["azimuth_deg"].iloc[0])
+    moon_azimuth_deg, moon_elevation_deg = moon_position(when, lat, lon)
 
     access = zone_solar_access(layout, elevation_deg, azimuth_deg)
     panels = [
@@ -153,6 +172,7 @@ async def get_geometry(zone: str, at: datetime | None = None, _user=Depends(requ
         zone=zone, simulated_zone=zone_obj.simulated, at=when,
         tilt_deg=layout.tilt_deg, azimuth_deg=layout.azimuth_deg, row_pitch_m=layout.row_pitch_m,
         sun=SolarPositionOut(azimuth_deg=azimuth_deg, elevation_deg=elevation_deg),
+        moon=SolarPositionOut(azimuth_deg=moon_azimuth_deg, elevation_deg=moon_elevation_deg),
         average_solar_access_pct=average_solar_access_pct(access), panels=panels,
         string_balance=string_balance,
     )
@@ -181,3 +201,34 @@ async def get_sun_path(zone: str, date: str | None = None, _user=Depends(require
         if row.elevation_deg > 0
     ]
     return SunPathResponse(zone=zone, date=day.isoformat(), points=points)
+
+
+@router.get("/moon-path/{zone}", response_model=MoonPathResponse)
+async def get_moon_path(zone: str, date: str | None = None, _user=Depends(require_role("viewer"))) -> MoonPathResponse:
+    """The day's lunar azimuth/elevation arc (`date`, `YYYY-MM-DD`, defaults
+    to today UTC) at 15-minute resolution - unlike `/sun-path`, this is NOT
+    filtered to elevation > 0. The whole point of Feature D (2026-07-18,
+    "moon rises to replace the sun after sunset") is showing the moon
+    specifically while the sun is down, which is unrelated to whether the
+    moon itself happens to be above its own horizon at that exact moment -
+    filtering here would remove exactly the points the frontend needs.
+    Visibility (only show the moon marker once the sun has set) is a
+    frontend concern, decided against the sun's own position, not this
+    endpoint's job.
+    """
+    zone = _validate_zone(zone)
+    try:
+        day = date_type.fromisoformat(date) if date else datetime.now(timezone.utc).date()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"date must be YYYY-MM-DD, got {date!r}") from exc
+
+    lat, lon = nong_fab_site_location()
+    start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+    index = pd.date_range(start, periods=96, freq="15min", tz="UTC")  # 24h at 15-minute resolution
+
+    points = [
+        MoonPathPoint(time=ts.to_pydatetime(), azimuth_deg=az, elevation_deg=el)
+        for ts in index
+        for az, el in [moon_position(ts.to_pydatetime(), lat, lon)]
+    ]
+    return MoonPathResponse(zone=zone, date=day.isoformat(), points=points)

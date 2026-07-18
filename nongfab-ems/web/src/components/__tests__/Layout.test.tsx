@@ -79,6 +79,11 @@ describe('Layout - Simulation/Financial nav links hidden from viewer', () => {
     expect(screen.getByRole('link', { name: '3D View' })).toBeInTheDocument()
   })
 
+  it('has no separate Irradiance Map nav entry (2026-07-18: merged into 3D View)', () => {
+    renderLayout(makeToken('pttlng', 'viewer'))
+    expect(screen.queryByRole('link', { name: /irradiance map/i })).not.toBeInTheDocument()
+  })
+
   it('shows Simulation and Financial for an operator', () => {
     renderLayout(makeToken('op', 'operator'))
     expect(screen.getByRole('link', { name: 'Simulation' })).toBeInTheDocument()

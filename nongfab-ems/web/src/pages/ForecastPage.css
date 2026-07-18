@@ -4,6 +4,18 @@
   gap: 20px;
 }
 
+/* Lets each chart pan horizontally over its own already-fetched data range
+   (past history + a bit of future, per that model's own capability) rather
+   than Recharts squashing everything to fit a fixed container width -
+   2026-07-18 per the user's own request. The inner chart is rendered at a
+   real pixel width (see ForecastPage.tsx's scrollableChartWidthPx) wider
+   than this wrapper whenever there's genuinely more data than fits; a short
+   series just renders at the wrapper's own width with no scrollbar. */
+.forecast-chart-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .forecast-page-controls {
   display: flex;
   align-items: center;
@@ -276,6 +288,26 @@
   font-size: 14px;
   font-weight: 600;
   color: var(--text-h);
+}
+
+.forecast-error-panel {
+  padding: 16px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+}
+
+.forecast-error-title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.forecast-error-subtitle {
+  margin: 0 0 8px;
+  font-size: 12px;
+  opacity: 0.75;
 }
 
 .forecast-competition-panel {
