@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildCompetitionRows,
+  centeredScrollPosition,
   exactTimeKey,
   filterToRecentPast,
   hourKey,
@@ -480,5 +481,45 @@ describe('weatherIconFor', () => {
     expect(weatherIconFor(200)).toBe('cloudy')
     expect(weatherIconFor(500)).toBe('partly-cloudy')
     expect(weatherIconFor(900)).toBe('sun')
+  })
+})
+
+describe('centeredScrollPosition', () => {
+  // 25 points, one per hour from 00:00 to 24:00 on 2026-07-14 - "now" is
+  // set to the 12:00 point (index 12) in most cases below, well clear of
+  // either edge, so centering math (not clamping) is what's under test.
+  const points = Array.from({ length: 25 }, (_, i) => hourly(i, i))
+  const pxPerPoint = 20 // -> 500px content width for these 25 points
+
+  it('centers "now" in the middle of the visible viewport, not at the left edge', () => {
+    const { scrollLeft, max } = centeredScrollPosition(points, '2026-07-14T12:00:00Z', pxPerPoint, 200, 500)
+    // now is at index 12 -> 240px into the content; centering a 200px-wide
+    // viewport on that point means the viewport's left edge sits at 140px.
+    expect(scrollLeft).toBe(140)
+    expect(max).toBe(300) // 500 content - 200 viewport
+  })
+
+  it('clamps to 0 rather than going negative when "now" is near the very start', () => {
+    const { scrollLeft } = centeredScrollPosition(points, '2026-07-14T01:00:00Z', pxPerPoint, 200, 500)
+    // now is at index 1 -> 20px in; centering would want scrollLeft = -80,
+    // which isn't a valid scroll position.
+    expect(scrollLeft).toBe(0)
+  })
+
+  it('clamps to max rather than overshooting when "now" is near the very end', () => {
+    const { scrollLeft, max } = centeredScrollPosition(points, '2026-07-14T24:00:00Z', pxPerPoint, 200, 500)
+    expect(scrollLeft).toBe(max)
+  })
+
+  it('never scrolls at all when the content already fits inside the viewport', () => {
+    const { scrollLeft, max } = centeredScrollPosition(points, '2026-07-14T12:00:00Z', pxPerPoint, 800, 500)
+    expect(max).toBe(0)
+    expect(scrollLeft).toBe(0)
+  })
+
+  it('handles an empty rows array without crashing', () => {
+    const { scrollLeft, max } = centeredScrollPosition([], '2026-07-14T12:00:00Z', pxPerPoint, 200, 500)
+    expect(scrollLeft).toBe(0)
+    expect(max).toBe(300)
   })
 })

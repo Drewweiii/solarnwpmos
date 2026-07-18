@@ -2299,3 +2299,51 @@ stay solid as the two "anchor" reference lines.
 the rendered Day-ahead chart - confirmed the dotted Forecast line is
 visually distinct from the solid Actual-power line at every point they
 cross, including where the two directly overlap.
+
+### Added - explicit chart-panning slider on Forecast, "now" centered by default (2026-07-18, Track 1 work, done by Track 2 with permission)
+
+The main power chart (Day-ahead/Intra-day) was already rendered at a real
+pixel width wider than its container, panned via native `overflow-x: auto`
+scroll - but there was no visible control hinting that there was anything
+*to* scroll to, and the default scroll position was wherever the browser
+happened to land (effectively the left/oldest edge), not "now". User
+report: "ยังไม่ทำแถบเลื่อนในกราฟ...ช่วงเส้นกราฟของวันนี้ให้ตั้งไว้ตรงกลางกรอบ".
+
+Added an explicit `<input type="range">` synced bidirectionally with the
+scroll container (dragging it scrolls the chart; native touch/trackpad
+scroll updates it back), and a one-time auto-center on "now" the first
+time real data lands for a given zone/horizon selection - deliberately
+*not* on every background poll refresh, which would otherwise yank a user
+who's scrolled away back to "now" every time the data refetches. The
+centering math itself (`centeredScrollPosition` in `lib/chartData.ts`) is
+a pure function taking rows/now/pxPerPoint/widths and returning
+`{scrollLeft, max}` - kept separate from the DOM-wiring `useEffect` so
+it's directly unit-testable, since jsdom never runs real layout and
+`scrollWidth`/`clientWidth` are always 0 there (the same constraint that
+already forced Energy Report's month-label test into the same pattern,
+see that entry above).
+
+**A real, pre-existing bug found and fixed along the way**: building this
+revealed `.forecast-chart-section` (a flex item, `flex: 3 1 480px`) was
+never actually shrinking to fit its row - flex items default to
+`min-width: auto`, meaning "never shrink below your content's own
+intrinsic width," and this section's content includes a fixed ~4000px-wide
+scroll track. Without `min-width: 0`, the *section itself* ballooned out
+to ~4000px instead of the scrollable child ever getting a chance to clip
+anything - confirmed live by reading `scrollWidth`/`clientWidth` off the
+real DOM node and finding them identical (no overflow ever existed). This
+means the chart's native scroll-to-see-history feature, despite being
+built and documented earlier the same day, may never have actually worked
+in the first place at typical viewport widths - not a regression from
+today's change, a latent bug this work happened to surface.
+
+**Tested**: 5 new `centeredScrollPosition` unit tests in
+`chartData.test.ts` (centers correctly, clamps at both edges, no-op when
+content already fits, handles an empty series) - 316/316 full suite,
+`tsc` clean, production build succeeds. **Live-verified via Playwright**
+against a real dev server + API: confirmed `.forecast-chart-section`'s
+measured width now matches its row (no more blowout), the slider renders
+with a real min/max/value once there's genuine overflow, dragging it
+actually moves `scrollLeft`, and the initial position lands centered on
+"now" rather than 0 - screenshotted before and after the CSS fix to
+confirm the before-state reproduced the bug exactly as diagnosed.

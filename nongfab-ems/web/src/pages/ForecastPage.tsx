@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DotItemDotProps } from 'recharts'
 import {
   Area,
@@ -23,6 +23,7 @@ import {
   exactTimeKey,
   filterToRecentPast,
   mergeGeneratedAndForecast,
+  centeredScrollPosition,
   mergeMinuteAheadRows,
   nearestToNow,
   sumForecastAcrossZones,
@@ -110,6 +111,12 @@ function scrollableChartWidthPx(pointCount: number, pxPerPoint: number): number 
   return Math.max(CHART_MIN_WIDTH_PX, pointCount * pxPerPoint)
 }
 
+// Pixels per data point on the main power chart specifically - a named
+// constant (not a magic number re-typed at each call site) so the width
+// passed to scrollableChartWidthPx and the centering math in the scroll
+// effect below can never silently drift apart from each other.
+const MAIN_CHART_PX_PER_POINT = 28
+
 export function ForecastPage() {
   const [zoneId, setZoneId] = useState(ALL_ZONES_ID)
   const [horizonToggle, setHorizonToggle] = useState<HorizonToggle>('day')
@@ -172,6 +179,66 @@ export function ForecastPage() {
     [hourly, forecastPoints, generatedHistory],
   )
   const current = useMemo(() => nearestToNow(hourly), [hourly])
+
+  // A visible slider (not just implicit native scroll) for panning the main
+  // chart through history/future, with "now" centered by default rather
+  // than sitting at the scrolled-to-the-left starting edge - reported
+  // 2026-07-18: "ยังไม่ทำแถบเลื่อนในกราฟ...ช่วงเส้นกราฟของวันนี้ให้ตั้งไว้
+  // ตรงกลางกรอบจะดีที่สุดเวลาเลื่อน". `centeredForRef` tracks which
+  // zone/horizon selection has already been auto-centered, so this only
+  // happens once per selection (the first time real data lands) rather
+  // than re-centering - and silently discarding wherever the user scrolled
+  // to - on every background poll refresh.
+  const chartScrollRef = useRef<HTMLDivElement>(null)
+  const centeredForRef = useRef<string | null>(null)
+  const [chartScrollLeft, setChartScrollLeft] = useState(0)
+  const [chartMaxScroll, setChartMaxScroll] = useState(0)
+
+  useEffect(() => {
+    const container = chartScrollRef.current
+    if (!container || chartRows.length === 0) return
+    const selectionKey = `${zoneId}:${horizonToggle}`
+    if (centeredForRef.current === selectionKey) return
+    centeredForRef.current = selectionKey
+
+    const { scrollLeft, max } = centeredScrollPosition(
+      chartRows,
+      new Date().toISOString(),
+      MAIN_CHART_PX_PER_POINT,
+      container.clientWidth,
+      container.scrollWidth,
+    )
+    container.scrollLeft = scrollLeft
+    setChartScrollLeft(scrollLeft)
+    setChartMaxScroll(max)
+  }, [chartRows, zoneId, horizonToggle])
+
+  // Keeps the slider in sync if the user pans by native touch/trackpad/
+  // scrollbar instead of dragging the slider itself, and recomputes the
+  // scrollable range on resize (the container's width, and therefore how
+  // much of the fixed-pixel-width chart overflows it, changes with it).
+  useEffect(() => {
+    const container = chartScrollRef.current
+    if (!container) return
+    function onScroll() {
+      if (container) setChartScrollLeft(container.scrollLeft)
+    }
+    function onResize() {
+      if (container) setChartMaxScroll(Math.max(0, container.scrollWidth - container.clientWidth))
+    }
+    container.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onResize)
+    onResize()
+    return () => {
+      container.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onResize)
+    }
+  }, [chartRows])
+
+  function handleChartSliderChange(value: number) {
+    setChartScrollLeft(value)
+    if (chartScrollRef.current) chartScrollRef.current.scrollLeft = value
+  }
 
   const capacityKw = isAllZones
     ? (registry?.zones.reduce((sum, z) => sum + z.ac_capacity_kw, 0) ?? 0)
@@ -385,8 +452,8 @@ export function ForecastPage() {
           )}
           {!isLoading && chartRows.length === 0 && <p className="forecast-status">No data yet.</p>}
           {chartRows.length > 0 && (
-            <div className="forecast-chart-scroll">
-              <div style={{ width: scrollableChartWidthPx(chartRows.length, 28), height: 320 }}>
+            <div className="forecast-chart-scroll" ref={chartScrollRef}>
+              <div style={{ width: scrollableChartWidthPx(chartRows.length, MAIN_CHART_PX_PER_POINT), height: 320 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={chartRows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
@@ -459,6 +526,25 @@ export function ForecastPage() {
               </ResponsiveContainer>
             </div>
           </div>
+          )}
+          {chartRows.length > 0 && chartMaxScroll > 0 && (
+            <div className="forecast-chart-slider">
+              <span className="forecast-chart-slider-icon" aria-hidden="true">
+                ◀ อดีต
+              </span>
+              <input
+                type="range"
+                className="forecast-chart-slider-input"
+                min={0}
+                max={chartMaxScroll}
+                value={chartScrollLeft}
+                onChange={(e) => handleChartSliderChange(Number(e.target.value))}
+                aria-label="เลื่อนดูช่วงเวลาย้อนหลังหรืออนาคตในกราฟ"
+              />
+              <span className="forecast-chart-slider-icon" aria-hidden="true">
+                อนาคต ▶
+              </span>
+            </div>
           )}
           {!isLoading && !forecastError && chartRows.some((r) => r.actualPast != null || r.actualToday != null || r.actualNow != null) && (
             <p className="forecast-status forecast-status-caption">
