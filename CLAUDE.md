@@ -131,6 +131,33 @@ etc.), **stop and ask the user for explicit approval before proceeding**
 plainly what the non-Thailand source would be and why it seemed necessary,
 and let the user decide.
 
+## Division of labor between the two accounts (as of 2026-07-18)
+
+To stop the two accounts from editing the same files in the same shift, the
+user split the website's work into two roles:
+
+1. **เนื้อหา/วิศวกรรม (Content/Engineering)** — the site's core academic/
+   engineering substance: `forecast/`, `financial/`, the 3D view, and other
+   domain content (`api/`, `simulation/`, `ingestion/`, most of the Python
+   backend, plus whatever frontend pages exist purely to present that
+   content's data).
+2. **Interface/UX + AI assistant + ระบบเชื่อมต่อผู้ชม (visitor network)** —
+   the site's look and feel, a new AI-assistant popup that helps visitors use
+   the site and answers their questions, and a new system letting visitors
+   who are using the site at the same time connect/contact each other. Lives
+   mostly in `web/` (styling, layout, new UI features), plus whatever new
+   backend surface the assistant/visitor-network features need.
+
+The account driving the current session was assigned **role 2** on
+2026-07-18. A session can't tell which account it's running under on its
+own — if it's unclear which role applies, check the most recent
+`HANDOFF.md` entry (it should say) or ask the user directly rather than
+guessing. Stay inside your assigned role's scope; if a task would require
+touching the other role's territory, flag it to the user instead of just
+doing it, so the two accounts' work doesn't collide. Say which role
+produced it at the top of every Handoff Report, so the next session (either
+account) knows which one to pick up.
+
 ## Run-code status updates — every time, not just at handoff
 
 Separately from the Handoff Report above: every time you actually run code
