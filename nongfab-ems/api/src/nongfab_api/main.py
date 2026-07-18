@@ -62,7 +62,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
                 await conn.run_sync(Base.metadata.create_all)
         user_store = UserStore(eng)
         if settings.seed_demo_users:
-            await user_store.seed_demo_users_if_empty()
+            await user_store.seed_demo_users()
         app.state.settings = settings
         app.state.user_store = user_store
         app.state.chat_store = ChatStore(eng)

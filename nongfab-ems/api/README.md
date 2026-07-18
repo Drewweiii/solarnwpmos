@@ -134,8 +134,14 @@ as `Authorization: Bearer <token>` on REST calls, or `?token=<token>` on the
 WebSocket handshake (browsers can't set headers on a WS upgrade request).
 
 Passwords are bcrypt-hashed in the `users` table (`db/migrations/
-0004_users.sql`). If `API_SEED_DEMO_USERS=true` (the default) and the table
-is empty on startup, three throwaway demo accounts are seeded:
+0004_users.sql`). If `API_SEED_DEMO_USERS=true` (the default), three
+throwaway demo accounts are seeded on every startup - each one only if a
+user with that exact username doesn't already exist, so this is safe to run
+against an already-populated table and never touches a real user's row
+(fixed 2026-07-18: this used to skip seeding entirely once the table had any
+row at all, which silently prevented new/renamed DEMO_USERS entries from
+ever reaching an already-seeded deployment - see `seed_demo_users`'s
+docstring in `auth.py`):
 
 | username | password | role |
 |---|---|---|

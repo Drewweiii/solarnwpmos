@@ -12,30 +12,31 @@
 }
 
 /* Login page: sits above the sign-in form, prominent since it's the first
-   thing a visitor sees. */
+   thing a visitor sees - deliberately large so it reads clearly at a glance. */
 .org-logos-login {
-  gap: 28px;
-  padding: 8px 20px 24px;
+  gap: 44px;
+  padding: 12px 24px 32px;
+  max-width: 900px;
 }
 
 .org-logos-login .org-logos-item {
-  height: 46px;
+  height: 76px;
 }
 
-/* Site-wide footer: deliberately small and sits in normal document flow
-   at the very end of the page (never position:fixed) - it only ever pushes
-   the page taller, so it can't cover the dashboard content, the mascot, or
-   the visitor-network widget above it. Generous bottom padding keeps it
-   clear of those two fixed corner buttons even on a short page. */
+/* Site-wide footer: sits in normal document flow at the very end of the
+   page (never position:fixed) - it only ever pushes the page taller, so it
+   can't cover the dashboard content, the mascot, or the visitor-network
+   widget above it. Generous bottom padding keeps it clear of those two
+   fixed corner buttons even on a short page. */
 .org-logos-footer {
-  gap: 20px;
-  padding: 24px 20px 140px;
+  gap: 28px;
+  padding: 28px 20px 140px;
   border-top: 1px solid var(--border);
   margin-top: 32px;
 }
 
 .org-logos-footer .org-logos-item {
-  height: 28px;
+  height: 38px;
   opacity: 0.85;
 }
 
@@ -45,19 +46,19 @@
 
 @media (max-width: 480px) {
   .org-logos-login {
-    gap: 18px;
+    gap: 24px;
   }
 
   .org-logos-login .org-logos-item {
-    height: 34px;
+    height: 48px;
   }
 
   .org-logos-footer {
-    gap: 14px;
+    gap: 18px;
     padding-bottom: 120px;
   }
 
   .org-logos-footer .org-logos-item {
-    height: 22px;
+    height: 28px;
   }
 }

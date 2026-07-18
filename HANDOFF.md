@@ -692,3 +692,99 @@ render ถูกต้อง
    ลองต่อ หรือมีผลทดสอบมาแล้ว บอกได้เลย
 3. งานที่ผู้ใช้ขอไว้ล่าสุดเสร็จครบทั้ง 4 ข้อ (สี 3 ระดับ + Minute-ahead
    ย้อนหลัง + ข้อมูลจริงทับกราฟ minute) - รอ feedback หรือคำสั่งเพิ่มเติม
+
+---
+
+## 2026-07-18T10:10:09Z
+
+**Track 2 — หน้าตา/Interface + AI assistant + ระบบเชื่อมต่อผู้ชม**
+(เขียนถึงเพื่อน Track 1 — เนื้อหาเชิงวิชาการ/Engineering ด้วย เพราะ entry
+นี้แตะ `api/` เล็กน้อย ดูหัวข้อ deploy reminder ด้านล่าง)
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+1. **ขยายโลโก้/หน้า login ให้ใหญ่และเด่นขึ้น** ตามฟีดแบ็กว่า "โลโก้มันเล็กไป":
+   - `OrgLogos.css`: แถวโลโก้หน้า login สูงจาก 46px → 76px (footer 28px →
+     38px), เพิ่ม gap/padding ให้พอดีหน้าเว็บมากขึ้น
+   - `LoginWelcome.css`: popup แนะนำของน้อง Solar ใหญ่ขึ้นชัดเจน (max-width
+     480px → min(94vw, 860px), มาสคอต 140px → 200px, หัวข้อ/เนื้อหา/ปุ่มฟอนต์
+     ใหญ่ขึ้นทั้งหมด, ปรับรายการฟีเจอร์เป็น 2 คอลัมน์บนจอกว้างเพื่อจัดระเบียบ)
+   - `App.css` (`.login-form`): ช่องกรอก username/password ใหญ่ขึ้นชัดเจน
+     (font 20px, padding 16px, border 2px, label 18px ตัวหนา) ตามคำขอ
+     "คนแก่จะได้เห็นแล้วกรอกได้"
+2. **ตอบคำถาม Feedback admin-only**: ยืนยันแล้วว่า `/admin/feedback` ถูกปิด
+   เฉพาะ admin จริง 3 ชั้น - (1) nav link condition ใน `Layout.tsx`
+   (`role === 'admin'`), (2) `RequireAdmin` wrapper ใน `App.tsx` เด้งกลับ
+   `/forecast` ถ้าไม่ใช่ admin, (3) `GET /feedback` มี
+   `require_role("admin")` ฝั่ง backend คืน 403 ให้ viewer/operator เสมอ
+   (มี test `test_viewer_cannot_list_feedback` ยืนยันอยู่แล้ว) - ไม่มีช่องโหว่
+3. **สร้าง `SiteCredit.tsx`** - แถบเครดิตผู้พัฒนาเว็บ แสดงในตำแหน่งเดียวกับ
+   nav "Feedback" แต่สำหรับ viewer/operator เท่านั้น เนื้อหา**เว้นว่างไว้ก่อน
+   ตามคำสั่งผู้ใช้** (ยังไม่ส่ง credit text จริงมาให้ + Claude Code credit
+   ใกล้หมด) - component มี prop `text` default เป็น const ว่าง ถ้าไม่มีข้อความ
+   จะ `return null` ไม่แสดงอะไรเลย พอ user ส่งข้อความเครดิตจริงมาทีหลังแค่ใส่
+   string ใน `CREDIT_TEXT` ก็จะโผล่อัตโนมัติ ไม่ต้องแก้ที่อื่น
+4. **เจอและแก้ bug จริงของปัญหา "login pttlng/12345 ไม่ได้"**: ผู้ใช้ถามว่า
+   Railway deploy 2 ทาง (Track1 + Track2) ชนกันหรือเป็นที่ Cloudflare -
+   **ไม่ใช่ทั้งสองอย่าง** สาเหตุจริงคือ bug ใน `auth.py`:
+   `seed_demo_users_if_empty()` เดิมจะ seed demo accounts เฉพาะตอนตาราง
+   `users` "ว่างเปล่าทั้งหมด" เท่านั้น - แต่ฐานข้อมูล Postgres บน Railway ถูก
+   seed ไปนานแล้วตั้งแต่ตอนสร้าง Module 6 (ด้วย `viewer`/`viewer-demo-pw`
+   ชุดเดิม) ก่อนที่จะมีการเปลี่ยน `DEMO_USERS` ให้เป็น `pttlng`/`12345`
+   (task #102) ดังนั้นตารางไม่เคย "ว่าง" อีกเลย ทำให้ account `pttlng` ใหม่
+   ไม่เคยถูกสร้างจริงบน production - popup ต้อนรับหน้า login โฆษณา
+   credential ที่ไม่มีอยู่จริงในฐานข้อมูล **แก้แล้ว**: เปลี่ยนเป็น
+   `seed_demo_users()` ที่เช็คทีละ username (`get_by_username`) แทน สร้างเฉพาะ
+   account ที่ยังไม่มี ปลอดภัยกับ user จริงเสมอ (ไม่แตะ/ไม่ทับ), เรียกได้ทุก
+   startup - ทดสอบ end-to-end แล้วโดยจำลอง DB เก่าของ Railway (มีแค่
+   `admin`/`operator`/`viewer` ชุดเดิม) แล้ว boot API ขึ้นมาใหม่ ยืนยันว่า
+   `pttlng`/`12345` login ผ่านจริง (พร้อมกับ `viewer`/`viewer-demo-pw` เดิมก็
+   ยังใช้ได้ปกติ ไม่ทับของเก่า)
+5. **ทดสอบครบทุกชั้น**: backend `pytest` 140/140 ผ่าน (เพิ่ม 3 test ใหม่ให้
+   `seed_demo_users`), frontend `vitest` 186/186 ผ่าน (เพิ่ม `SiteCredit.
+   test.tsx`), `tsc --noEmit` ผ่าน, live verify ด้วย Playwright จริง (ไม่ใช่
+   แค่ unit test): หน้า login ทั้ง light/dark mode เห็นโลโก้/ฟอร์มใหญ่ขึ้น
+   ชัดเจน, login เป็น admin เห็น nav "Feedback", login เป็น pttlng/operator
+   ไม่เห็น nav นั้น (ไม่มี layout พัง), และยืนยัน `pttlng`/`12345` login
+   สำเร็จจริงผ่าน API ที่จำลองสภาพ DB เดิมของ Railway
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- ไฟล์หลักที่แก้: `web/src/components/OrgLogos.css`, `LoginWelcome.css`,
+  `App.css`, `Layout.tsx` (ใหม่: `SiteCredit.tsx`/`.css` + test),
+  `api/src/nongfab_api/auth.py` (`seed_demo_users_if_empty` →
+  `seed_demo_users`, logic เปลี่ยนจาก table-empty เป็น per-account),
+  `main.py` (เรียกชื่อ method ใหม่), `tests/test_auth.py`, `api/README.md`
+- **`SiteCredit.tsx`** ยังไม่มีเนื้อหาจริง - รอ user ส่งชื่อ/ข้อความเครดิตมา
+  แล้วใส่ใน `CREDIT_TEXT` const ในไฟล์นั้น (ปัจจุบันเป็น `''` ว่างเปล่า)
+- **สำคัญสำหรับ Track 1**: entry นี้แตะ `api/src/nongfab_api/auth.py` และ
+  `main.py` ซึ่งปกติเป็นพื้นที่ของ Track 1 - เหตุผลที่ Track 2 แก้เองคือ
+  bug นี้เกิดจาก feature ที่ Track 2 สร้างเอง (`pttlng` demo account สำหรับ
+  ระบบ visitor network/chat ที่ต้อง sign-in) และเป็น fix ที่ปลอดภัย/scope
+  แคบมาก (แค่เปลี่ยนเงื่อนไข seed ให้เช็คทีละ account) - ถ้า Track 1 อยาก
+  ตรวจทานโค้ดส่วนนี้เพิ่มเติมยินดีมาก
+- คำถามเรื่อง Railway auto-deploy จาก 2 บัญชี: ตามความเข้าใจของ session นี้
+  (ไม่ได้เข้าไปดู Railway dashboard จริง) การที่ทั้งสองบัญชี push ไปที่
+  branch เดียวกัน (`claude/solar-optimization-forecasting-jryux7`) ตามลำดับ
+  (ไม่ได้ push พร้อมกันจริงๆในเสี้ยววินาทีเดียวกัน) ปกติไม่ทำให้ Railway
+  "เลือกทำแค่อันเดียว" - Railway (ถ้า auto-deploy ทำงานจริง) จะ deploy
+  commit ล่าสุดสุดของ branch ซึ่งรวมงานทั้งสองบัญชีอยู่แล้วเพราะเป็น branch
+  history เดียวกัน กรณีที่ "งานของอีกบัญชียังไม่โผล่ในเว็บ" น่าจะเป็นเพราะ (ก)
+  ยังไม่ได้กด Deploy บน Railway (ดู standing reminder), หรือ (ข)
+  auto-deploy ที่เพิ่งปรับยังไม่ได้ทำงานจริงตามที่ Railway แสดง - แนะนำให้
+  เช็คที่ Railway dashboard → api service → Deployments tab ว่า commit ล่าสุด
+  ขึ้นจริงหรือยัง เคสนี้ยืนยันแล้วว่า**ไม่ใช่สาเหตุของปัญหา login pttlng** -
+  นั่นเป็น bug ในโค้ด seed ที่แก้ไปแล้วข้างบน
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **⚠️ Reminder: entry นี้แตะ `api/` (auth.py, main.py)** - ตาม standing
+   reminder ต้องกด "Deploy" บน Railway dashboard เองด้วยมือ (api service →
+   Deployments tab → ปุ่มสีม่วง) เพื่อให้ fix ของ `pttlng` login ไปโผล่จริงบน
+   production - ถ้า auto-deploy ที่ user เพิ่งปรับทำงานได้แล้วจริงๆ อาจไม่ต้อง
+   กด แต่ควรเช็คใน Railway dashboard ให้แน่ใจว่า deploy ล่าสุดมี commit นี้จริง
+2. รอ user ยืนยันว่า login ด้วย `pttlng`/`12345` บน production ใช้ได้แล้ว
+   หลัง deploy รอบนี้ขึ้นจริง
+3. รอ user ส่งข้อความเครดิตจริงสำหรับใส่ใน `SiteCredit.tsx`'s `CREDIT_TEXT`
+4. Financial module ยังใช้ placeholder เหมือนเดิม (ไม่ได้แตะรอบนี้) -
+   ยังรอ CAPEX/PEA tariff/WACC/BOI ตัวจริงจาก user อยู่

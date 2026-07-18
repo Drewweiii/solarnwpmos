@@ -6,12 +6,13 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   padding: 20px;
 }
 
 .login-form {
   width: 100%;
-  max-width: 340px;
+  max-width: 460px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -19,41 +20,46 @@
 }
 
 .login-form h1 {
-  font-size: 28px;
-  margin: 0 0 4px;
+  font-size: 34px;
+  margin: 0 0 6px;
   text-align: center;
 }
 
 .login-subtitle {
+  font-size: 16px;
   text-align: center;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 .login-form label {
-  font-size: 14px;
-  margin-top: 12px;
+  font-size: 18px;
+  font-weight: 600;
+  margin-top: 18px;
 }
 
 .login-form input {
   font: inherit;
-  padding: 10px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
+  font-size: 20px;
+  padding: 16px 18px;
+  border-radius: 10px;
+  border: 2px solid var(--border);
   background: var(--bg);
   color: var(--text-h);
-  margin-top: 4px;
+  margin-top: 8px;
 }
 
 .login-form input:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 3px solid var(--accent);
   outline-offset: 1px;
 }
 
 .login-form button {
   font: inherit;
-  margin-top: 20px;
-  padding: 10px 12px;
-  border-radius: 6px;
+  font-size: 19px;
+  font-weight: 600;
+  margin-top: 28px;
+  padding: 16px 12px;
+  border-radius: 10px;
   border: none;
   background: var(--accent);
   color: #fff;
@@ -67,18 +73,18 @@
 
 .login-error {
   color: var(--danger);
-  font-size: 14px;
-  margin-top: 12px;
+  font-size: 16px;
+  margin-top: 14px;
 }
 
 .login-notice {
   color: var(--text);
   background: var(--card-bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 10px 12px;
-  font-size: 13px;
-  margin-bottom: 4px;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 15px;
+  margin-bottom: 6px;
   text-align: center;
 }
 

@@ -62,9 +62,9 @@ async def test_user_store_create_user_rejects_unknown_role(engine):
         await store.create_user("bob", "bobpw", "superadmin")
 
 
-async def test_seed_demo_users_if_empty_populates_table(engine):
+async def test_seed_demo_users_populates_empty_table(engine):
     store = UserStore(engine)
-    await store.seed_demo_users_if_empty()
+    await store.seed_demo_users()
     for username, password, role in DEMO_USERS:
         user = await store.get_by_username(username)
         assert user is not None
@@ -72,11 +72,32 @@ async def test_seed_demo_users_if_empty_populates_table(engine):
         assert verify_password(password, user.hashed_password)
 
 
-async def test_seed_demo_users_if_empty_is_noop_when_table_nonempty(engine):
+async def test_seed_demo_users_does_not_touch_existing_real_users(engine):
     store = UserStore(engine)
     await store.create_user("real_user", "realpw", "admin")
-    await store.seed_demo_users_if_empty()
-    assert await store.get_by_username("admin") is None
+    await store.seed_demo_users()
+    # A non-DEMO_USERS username already in the table is left alone...
+    real_user = await store.get_by_username("real_user")
+    assert real_user is not None
+    assert verify_password("realpw", real_user.hashed_password)
+    # ...but the demo accounts still get created even though the table
+    # already had a row (this is the bug that left `pttlng`/`12345` missing
+    # from Railway's already-seeded production database - see seed_demo_users'
+    # docstring).
+    for username, password, role in DEMO_USERS:
+        user = await store.get_by_username(username)
+        assert user is not None
+        assert user.role == role
+        assert verify_password(password, user.hashed_password)
+
+
+async def test_seed_demo_users_is_idempotent(engine):
+    store = UserStore(engine)
+    await store.seed_demo_users()
+    await store.seed_demo_users()
+    admin = await store.get_by_username("admin")
+    assert admin is not None
+    assert verify_password("admin-demo-pw", admin.hashed_password)
 
 
 def test_create_and_decode_access_token_roundtrip(settings):

@@ -3,6 +3,7 @@ import { useAuth } from '../lib/auth'
 import { useDeployWatch } from '../lib/deployWatch'
 import { AIAssistant } from './AIAssistant'
 import { OrgLogos } from './OrgLogos'
+import { SiteCredit } from './SiteCredit'
 import { VisitorNetwork } from './VisitorNetwork'
 
 export function Layout() {
@@ -34,10 +35,16 @@ export function Layout() {
           <NavLink to="/irradiance-map" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
             Irradiance Map
           </NavLink>
-          {role === 'admin' && (
+          {role === 'admin' ? (
             <NavLink to="/admin/feedback" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
               Feedback
             </NavLink>
+          ) : (
+            // Non-admins never see who submitted feedback (server-side
+            // require_role("admin") on GET /feedback enforces this too) -
+            // this slot instead shows a website-author credit strip, left
+            // blank until the user supplies real credit text.
+            <SiteCredit />
           )}
         </nav>
         <div className="app-header-user">

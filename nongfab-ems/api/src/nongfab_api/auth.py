@@ -72,16 +72,26 @@ class UserStore:
             )
             await session.commit()
 
-    async def seed_demo_users_if_empty(self) -> None:
-        """Dev/demo convenience - see DEMO_USERS docstring. No-op if the table
-        already has at least one row (never overwrites a real deployment's users).
+    async def seed_demo_users(self) -> None:
+        """Dev/demo convenience - see DEMO_USERS docstring. Creates only the
+        DEMO_USERS accounts that don't already exist by username, so it's
+        safe to call on every startup (never touches or overwrites a real
+        user's row).
+
+        This used to be table-empty-only (skip entirely if the `users` table
+        already had any row), which quietly broke the day DEMO_USERS' viewer
+        entry was renamed from viewer/viewer-demo-pw to pttlng/12345 (2026-07-
+        18): Railway's persistent Postgres had already been seeded with the
+        old three accounts long before that rename, so the table was never
+        "empty" again, and the new pttlng account could never get inserted -
+        the login welcome popup kept advertising credentials that didn't
+        actually exist in production. Per-account existence checks fix that
+        for this and any future DEMO_USERS change, without needing a manual
+        one-off SQL insert on Railway.
         """
-        async with self._session_factory() as session:
-            existing = (await session.execute(select(UserORM.id).limit(1))).first()
-        if existing is not None:
-            return
         for username, password, role in DEMO_USERS:
-            await self.create_user(username, password, role)
+            if await self.get_by_username(username) is None:
+                await self.create_user(username, password, role)
 
 
 def create_access_token(username: str, role: str, settings: Settings, deploy_id: str) -> str:

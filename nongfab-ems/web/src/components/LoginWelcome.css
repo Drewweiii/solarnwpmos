@@ -22,14 +22,14 @@
 .login-welcome-card {
   position: relative;
   width: 100%;
-  max-width: 480px;
-  max-height: min(640px, calc(100vh - 40px));
+  max-width: min(94vw, 860px);
+  max-height: min(720px, calc(100vh - 40px));
   overflow-y: auto;
   background: var(--card-bg);
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: 20px;
   box-shadow: var(--shadow);
-  padding: 28px 28px 24px;
+  padding: 40px 44px 32px;
   text-align: center;
   animation: login-welcome-pop-in 0.22s ease-out;
 }
@@ -47,15 +47,15 @@
 
 .login-welcome-close {
   position: absolute;
-  top: 10px;
-  right: 12px;
+  top: 12px;
+  right: 14px;
   border: none;
   background: transparent;
-  font-size: 24px;
+  font-size: 30px;
   line-height: 1;
   color: var(--text);
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 4px 10px;
   border-radius: 6px;
 }
 
@@ -64,68 +64,70 @@
 }
 
 .login-welcome-mascot {
-  width: 140px;
-  height: 140px;
-  margin: 0 auto 8px;
+  width: 200px;
+  height: 200px;
+  margin: 0 auto 10px;
 }
 
 .login-welcome-title {
-  margin: 0 0 12px;
-  font-size: 20px;
+  margin: 0 0 16px;
+  font-size: 30px;
   color: var(--text-h);
 }
 
 .login-welcome-text {
-  margin: 0 0 12px;
-  font-size: 14px;
-  line-height: 1.6;
+  margin: 0 0 16px;
+  font-size: 17px;
+  line-height: 1.7;
   color: var(--text-h);
   text-align: left;
 }
 
 .login-welcome-features {
-  margin: 0 0 12px;
+  margin: 0 0 16px;
   padding: 0;
   list-style: none;
   text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
 }
 
 .login-welcome-features li {
-  font-size: 13.5px;
+  font-size: 15px;
   line-height: 1.5;
   color: var(--text-h);
   background: var(--accent-bg);
-  border-radius: 8px;
-  padding: 7px 10px;
+  border-radius: 10px;
+  padding: 10px 14px;
 }
 
 .login-welcome-credentials {
-  margin: 0 0 18px;
-  font-size: 13.5px;
-  line-height: 1.6;
+  margin: 0 0 22px;
+  font-size: 16px;
+  line-height: 1.7;
   color: var(--text-h);
   background: var(--bg);
   border: 1px dashed var(--accent-border);
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 12px;
+  padding: 14px 16px;
   text-align: left;
 }
 
 .login-welcome-credentials strong {
   color: var(--accent);
+  font-size: 17px;
 }
 
 .login-welcome-cta {
   font: inherit;
   width: 100%;
-  padding: 11px 12px;
-  border-radius: 8px;
+  padding: 15px 12px;
+  border-radius: 10px;
   border: none;
   background: var(--accent);
   color: #fff;
+  font-size: 17px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -134,13 +136,23 @@
   filter: brightness(1.05);
 }
 
+@media (max-width: 640px) {
+  .login-welcome-features {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 480px) {
   .login-welcome-card {
-    padding: 22px 18px 18px;
+    padding: 26px 20px 20px;
   }
 
   .login-welcome-mascot {
-    width: 108px;
-    height: 108px;
+    width: 130px;
+    height: 130px;
+  }
+
+  .login-welcome-title {
+    font-size: 24px;
   }
 }
