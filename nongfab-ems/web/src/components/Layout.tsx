@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { useDeployWatch } from '../lib/deployWatch'
+import { AIAssistant } from './AIAssistant'
 
 export function Layout() {
   const { username, role, logout, forceLogout } = useAuth()
@@ -44,6 +45,7 @@ export function Layout() {
       <main className="app-main">
         <Outlet />
       </main>
+      <AIAssistant />
     </div>
   )
 }
