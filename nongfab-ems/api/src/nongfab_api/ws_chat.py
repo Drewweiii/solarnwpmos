@@ -16,10 +16,12 @@ Per-browser identity (display_name/avatar/client_id): the viewer/operator
 demo logins are shared credentials (auth.py's DEMO_USERS), so `username`
 alone doesn't distinguish two different real people chatting at once. The
 client picks a display name/avatar for itself (chatProfile.ts) and sends
-them along with every message; for the admin role these are always
-overridden server-side (never trusted from the client) to the fixed
-ADMIN_DISPLAY_NAME/ADMIN_AVATAR_ID below, matching the user's own "admin
-doesn't pick anything, just show 'admin'" request.
+them along with every message. Admin picks a name/avatar the same way as
+everyone else, but whatever name they choose always gets ADMIN_NAME_PREFIX
+prepended server-side (never trusted from the client to add it themselves)
+before it's persisted/broadcast - so every other visitor can tell an admin
+message apart from a regular one at a glance, even though the admin's own
+account can still personalize the rest of the name.
 """
 
 from __future__ import annotations
@@ -45,8 +47,7 @@ HISTORY_LIMIT = 50
 MAX_MESSAGE_LENGTH = 1000  # guards against a pathological payload bloating the DB/broadcast
 MAX_PROFILE_FIELD_LENGTH = 40  # display_name/avatar id - generous but bounded
 
-ADMIN_DISPLAY_NAME = "admin"
-ADMIN_AVATAR_ID = "crown"
+ADMIN_NAME_PREFIX = "admin "
 
 
 @dataclass(frozen=True)
@@ -201,16 +202,16 @@ async def ws_chat(websocket: WebSocket) -> None:
             if not text:
                 continue
 
+            display_name = str(data.get("display_name") or user.username).strip()[:MAX_PROFILE_FIELD_LENGTH] or user.username
             if user.role == "admin":
-                # Never trust the client for the admin identity - the user
-                # explicitly asked that admin skip the name/avatar picker
-                # entirely and always just show as "admin".
-                display_name = ADMIN_DISPLAY_NAME
-                avatar = ADMIN_AVATAR_ID
-            else:
-                display_name = str(data.get("display_name") or user.username).strip()[:MAX_PROFILE_FIELD_LENGTH] or user.username
-                raw_avatar = data.get("avatar")
-                avatar = str(raw_avatar).strip()[:MAX_PROFILE_FIELD_LENGTH] if raw_avatar else None
+                # The admin picks their own name/avatar same as everyone
+                # else, but the "admin " prefix is never trusted from the
+                # client - always applied here so it can't be stripped or
+                # spoofed, and so every other visitor can tell an admin
+                # message apart from a regular one at a glance.
+                display_name = f"{ADMIN_NAME_PREFIX}{display_name}"[:MAX_PROFILE_FIELD_LENGTH]
+            raw_avatar = data.get("avatar")
+            avatar = str(raw_avatar).strip()[:MAX_PROFILE_FIELD_LENGTH] if raw_avatar else None
             raw_client_id = data.get("client_id")
             client_id = str(raw_client_id).strip()[:MAX_PROFILE_FIELD_LENGTH] if raw_client_id else None
 

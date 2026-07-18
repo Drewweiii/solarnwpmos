@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { useAuth } from '../lib/auth'
-import { AVATAR_OPTIONS, adminProfile, avatarById, loadChatProfile, saveChatProfile, type ChatProfile } from '../lib/chatProfile'
+import { AVATAR_OPTIONS, avatarById, getOrCreateClientId, loadChatProfile, saveChatProfile, type ChatProfile } from '../lib/chatProfile'
 import { useSubmitFeedback } from '../lib/queries'
 import { useChatSocket, type ChatSocketState } from '../lib/useChatSocket'
 import type { ChatMessage } from '../lib/types'
@@ -15,6 +14,11 @@ type Tab = 'chat' | 'feedback'
  * buttons) so it doesn't visually compete with the mascot/AI assistant
  * already living in the opposite corner.
  *
+ * Every role (including admin) goes through the same name/avatar picker
+ * (chatProfile.ts) - the admin-specific "admin " name prefix is applied
+ * server-side (ws_chat.py), not here, so this component doesn't need to
+ * know or care which role it's rendering for.
+ *
  * `useChatSocket()` is called exactly once, here, and threaded down to
  * `ChatTab` as props - calling it again inside `ChatTab` would open a
  * second, independent `/ws/chat` connection per mounted widget instead of
@@ -23,20 +27,11 @@ type Tab = 'chat' | 'feedback'
  * tab, because it was listening on a different connection).
  */
 export function VisitorNetwork() {
-  const { role } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('chat')
-  // The viewer/operator demo logins are shared credentials (auth.py's
-  // DEMO_USERS) - admin always gets a fixed identity and never sees the
-  // picker; everyone else needs a profile saved once per browser before
-  // ChatTab is usable (see chatProfile.ts's module docstring for why).
-  //
-  // `role` is read from the JWT via an effect in AuthProvider, so right
-  // after login it's briefly `null` for one render before settling to
-  // 'admin'/'viewer'/'operator' - computing the admin case here (every
-  // render) rather than baking it into a `useState` lazy initializer keeps
-  // that transient `null` from ever getting locked in as "not admin" (found
-  // live: admin was briefly shown the profile picker it should never see).
+  // Nobody can chat until a profile is saved once per browser (see
+  // chatProfile.ts's module docstring for why - shared demo logins can't
+  // tell two different real people apart by username alone).
   const [savedProfile, setSavedProfile] = useState<ChatProfile | null>(() => loadChatProfile())
   // Reopening the picker to change name/avatar while still logged in (the
   // pencil button below) must not discard the existing profile the way the
@@ -44,9 +39,13 @@ export function VisitorNetwork() {
   // not a null-out-and-restart, so ProfileSetup can prefill the current
   // values instead of showing a blank form again.
   const [isEditingProfile, setIsEditingProfile] = useState(false)
-  const profile = role === 'admin' ? adminProfile() : savedProfile
   const isActiveView = isOpen && tab === 'chat'
-  const chat = useChatSocket(profile ?? adminProfile(), isActiveView && profile != null)
+  // Before a profile exists yet, useChatSocket still needs a stable
+  // clientId (for its own-message/unread bookkeeping) even though nothing
+  // can actually be sent until ProfileSetup is completed - the placeholder
+  // name/avatar here are never sent, since the send form only renders once
+  // `savedProfile` is non-null.
+  const chat = useChatSocket(savedProfile ?? { clientId: getOrCreateClientId(), displayName: '', avatarId: '' }, isActiveView && savedProfile != null)
   const { onlineCount, unreadCount } = chat
   const titleId = useId()
 
@@ -93,8 +92,8 @@ export function VisitorNetwork() {
           </div>
 
           {tab === 'chat' ? (
-            profile && !isEditingProfile ? (
-              <ChatTab chat={chat} profile={profile} onEditProfile={role === 'admin' ? undefined : () => setIsEditingProfile(true)} />
+            savedProfile && !isEditingProfile ? (
+              <ChatTab chat={chat} profile={savedProfile} onEditProfile={() => setIsEditingProfile(true)} />
             ) : (
               <ProfileSetup
                 initial={savedProfile}
