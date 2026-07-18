@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { lazy, Suspense } from 'react'
+import type { ReactNode } from 'react'
 import { Navigate, Route, BrowserRouter, Routes } from 'react-router-dom'
 import './App.css'
 import { Layout } from './components/Layout'
@@ -19,10 +20,17 @@ import { SimulationPlaygroundPage } from './pages/SimulationPlaygroundPage'
 const Solar3DPage = lazy(() => import('./pages/Solar3DPage').then((m) => ({ default: m.Solar3DPage })))
 const EnergyReportPage = lazy(() => import('./pages/EnergyReportPage').then((m) => ({ default: m.EnergyReportPage })))
 const IrradianceMapPage = lazy(() => import('./pages/IrradianceMapPage').then((m) => ({ default: m.IrradianceMapPage })))
+const AdminFeedbackPage = lazy(() => import('./pages/AdminFeedbackPage').then((m) => ({ default: m.AdminFeedbackPage })))
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
 })
+
+function RequireAdmin({ children }: { children: ReactNode }) {
+  const { role } = useAuth()
+  if (role !== 'admin') return <Navigate to="/forecast" replace />
+  return <>{children}</>
+}
 
 function RequireAuth() {
   const { token } = useAuth()
@@ -35,6 +43,16 @@ function RequireAuth() {
         <Route path="/forecast" element={<ForecastPage />} />
         <Route path="/simulation" element={<SimulationPlaygroundPage />} />
         <Route path="/financial" element={<FinancialPage />} />
+        <Route
+          path="/admin/feedback"
+          element={
+            <RequireAdmin>
+              <Suspense fallback={<p className="forecast-status">Loading…</p>}>
+                <AdminFeedbackPage />
+              </Suspense>
+            </RequireAdmin>
+          }
+        />
         <Route
           path="/3d"
           element={

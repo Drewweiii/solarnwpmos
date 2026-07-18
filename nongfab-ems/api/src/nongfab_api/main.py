@@ -25,6 +25,7 @@ from . import (
     metrics,
     routes_assets,
     routes_energy_report,
+    routes_feedback,
     routes_financial,
     routes_forecast,
     routes_irradiance_map,
@@ -32,11 +33,14 @@ from . import (
     routes_simulate,
     routes_solar3d,
     routes_weather,
+    ws_chat,
     ws_live,
 )
 from .auth import UserStore, create_access_token, verify_password
 from .config import Settings, get_settings
 from .models import Base
+from .routes_feedback import FeedbackStore
+from .ws_chat import ChatStore, ConnectionManager
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +65,9 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
             await user_store.seed_demo_users_if_empty()
         app.state.settings = settings
         app.state.user_store = user_store
+        app.state.chat_store = ChatStore(eng)
+        app.state.chat_manager = ConnectionManager()
+        app.state.feedback_store = FeedbackStore(eng)
 
         # Real-data ingestion (ingestion_scheduler.py) - one store for this
         # process's whole lifetime, not per-request, so its in-memory default
@@ -165,7 +172,9 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     app.include_router(routes_financial.router)
     app.include_router(routes_irradiance_map.router)
     app.include_router(routes_weather.router)
+    app.include_router(routes_feedback.router)
     app.include_router(ws_live.router)
+    app.include_router(ws_chat.router)
 
     return app
 

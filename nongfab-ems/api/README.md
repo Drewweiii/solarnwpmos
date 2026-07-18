@@ -134,7 +134,12 @@ is empty on startup, three throwaway demo accounts are seeded:
 |---|---|---|
 | `admin` | `admin-demo-pw` | admin |
 | `operator` | `operator-demo-pw` | operator |
-| `viewer` | `viewer-demo-pw` | viewer |
+| `pttlng` | `12345` | viewer |
+
+The `viewer`-role account is intentionally the public login handed out to
+site visitors (not the `<role>-demo-pw` pattern the other two use) - it's
+what visitors sign in with to use the chat/feedback visitor-network features
+(ws_chat.py, routes_feedback.py), which require authentication.
 
 These are dev/demo convenience only - never used as real credentials, never
 committed anywhere but this repo's own source, and a real deployment should
