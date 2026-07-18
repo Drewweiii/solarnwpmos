@@ -788,3 +788,115 @@ render ถูกต้อง
 3. รอ user ส่งข้อความเครดิตจริงสำหรับใส่ใน `SiteCredit.tsx`'s `CREDIT_TEXT`
 4. Financial module ยังใช้ placeholder เหมือนเดิม (ไม่ได้แตะรอบนี้) -
    ยังรอ CAPEX/PEA tariff/WACC/BOI ตัวจริงจาก user อยู่
+
+## 2026-07-18 18:35 ICT
+
+**Track 1 - เนื้อหาเชิงวิชาการ (Content/Engineering)**
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+- **แก้ bug จริง - กราฟ "การแข่งขันของโมเดล (Model Competition)" ว่างเปล่า
+  (มีแกน+legend แต่ไม่มีแท่งกราฟเลย)**: root cause คือ `web/src/lib/
+  chartData.ts`'s `buildCompetitionRows()` มี grace window ผิด (`now - 1h`
+  แทนที่จะเป็น `now` ตรงๆ ตามที่ docstring ของฟังก์ชันเองบอกไว้) ทำให้ชั่วโมง
+  ที่เพิ่งผ่านไปหมาดๆ (ไม่มี candidate_errors แล้วเพราะหลุดจาก live k-step
+  window ไปแล้ว) หลุดเข้ามาปนกับ 6 จุดพยากรณ์จริง โดนติดป้าย "+1h" ผิดๆ
+  (แท่งว่างหมด) แล้วดันจุด +6h ตัวจริงหลุดออกจาก cap 6 แถวไปเลย - แก้เป็น
+  `>= nowMs` เฉยๆ ตรงตาม docstring พร้อม regression test ใหม่ที่จำลอง
+  สถานการณ์นี้ตรงๆ
+- **เปลี่ยนแกน x ของ Model Competition** จากป้าย relative "+1h..+6h" เป็น
+  เวลาอ้างอิงจริง (`formatDateHourIct`, เหมือนกราฟอื่นในหน้านี้) เอียงป้าย
+  กันทับ, เพิ่มตัวเลขค่าบนแท่งกราฟ (`LabelList`) ให้อ่านค่าได้โดยไม่ต้องชี้เมาส์
+- **ตรวจแล้ว: "แยกตามโซน All/GIS/ISB/Jetty" ทำงานถูกต้องอยู่แล้ว** - เช็คตรง
+  จาก `/forecast/{zone}/hour` เห็นค่าต่างกันจริงในแต่ละโซน และ verify ผ่าน
+  screenshot ว่าสลับแท็บแล้วแท่งกราฟเปลี่ยนค่าจริง - ที่ดูเหมือน "ค้างที่ All"
+  คือผลจาก bug ข้อแรกที่ทำให้ทุกแท็บว่างเหมือนกันหมดจนแยกไม่ออก ไม่ใช่ bug
+  เรื่อง zone แยกต่างหาก
+- **ตรวจแล้ว: generated power ไม่โผล่ในอนาคตแล้ว** (`truncateGeneratedToNow`
+  ที่มีอยู่แล้วตั้งแต่รอบก่อนทำงานถูกต้อง, verify ผ่าน screenshot ทั้ง
+  All/GIS/ISB/Jetty ทั้ง Day-ahead/Intra-day) - screenshot ที่ user ส่งมา
+  (แสดงแท่งสีม่วง "Generated power" อันเดียว) เป็นภาพเก่าก่อน deploy เส้น
+  3 สีล่าสุด ไม่ใช่ bug ที่ยัง repro ได้จริงในโค้ดปัจจุบัน
+- **ตรวจแล้ว: Day-ahead ไม่ถึง 72 ชม./3 วัน ไม่ใช่ code bug** - โค้ดรองรับ
+  72 ชม. ถูกต้องทั้ง synthetic fallback (ยืนยันตรง: ให้ 144 จุดเป๊ะ = อดีต 72
+  + อนาคต 72) และ real-data path (ไม่มี cap ปลอมนอกจาก `[:72]` จากบนลงล่าง)
+  - ระยะที่เห็นจริงขึ้นกับว่า real NWP อนาคตสะสมมาไกลแค่ไหนจาก live poller
+  เท่านั้น เจอ stale config ระหว่างตรวจ: `ingestion/nwp`'s
+  `_default_forecast_hours()` ยังจำกัด 48ชม. ทั้งที่ Day-ahead ขยายเป็น
+  72ชม.ไปนานแล้ว (คนละตัวกับ `api/config.py`'s ที่ถูกต้องอยู่แล้ว 72ชม.
+  ซึ่งเป็นตัวที่ live poller ใช้จริง) - แก้ให้ตรงกันแล้ว เผื่อใครอาศัย default
+  ตัวนี้ตรงๆ ในอนาคต
+- **แก้ bug ดวงอาทิตย์ใน 3D view เล็กเกินไป**: ระยะโคจร+ขนาดลูกบอลเดิม fix
+  ตายตัวค่าเดียว ไม่ scale ตามขนาดจริงของแต่ละโซน (โดยเฉพาะ Jetty ที่กระจาย
+  ยาว ~1.25กม.) แก้ให้ scale ตาม `bounds.focus.span` ของแต่ละโซนจริง พร้อม
+  เพิ่ม glow halo รอบดวงอาทิตย์ให้เห็นชัดขึ้นมาก - verify ผ่าน screenshot
+  จริงหลังหมุนกล้อง (เทียบสี pixel `#fde047` ในภาพ ไม่ใช่แค่เดาจากตา)
+  - **พบเพิ่มเติมนอกโจทย์**: กล้องเริ่มต้น (ก่อนหมุนเอง) ของ 3D view บ่อยครั้ง
+    ไม่ครอบตำแหน่งดวงอาทิตย์ปัจจุบันเลย (นอก view frustum) ไม่ว่าขนาดจะใหญ่
+    แค่ไหน - ยืนยันว่าเป็นปัญหาเดิมที่มีอยู่ก่อนแก้รอบนี้ (คำนวณเทียบกับค่า
+    fix เดิมแล้วก็ตกขอบเหมือนกัน) ยังไม่ได้แก้ - ต้องหมุนกล้องเอง
+    (OrbitControls ปกติ) ถึงจะเห็น เสนอเป็นตัวเลือกทำต่อในข้อ next steps
+    ด้านล่าง ไม่ได้ทำเองโดยไม่ถามเพราะแตะ logic กล้องที่ใหญ่กว่านี้ (เชื่อมกับ
+    ปุ่ม "reset camera" ด้วย)
+- Test ทั้งหมดผ่าน: web 229/229 (`tsc` clean, `oxlint` clean), `ingestion/
+  nwp` 41 passed/5 skipped (`ruff check` clean), `api` 142 passed (ไม่ถูก
+  กระทบรอบนี้ ไม่ได้แตะ `api/` โดยตรง)
+- Commit + push แล้ว (merge เข้ากับงานของ Track 2 ที่ push มาระหว่างทาง
+  เรียบร้อย ไม่มี conflict ค้าง - แก้ conflict เดียวที่เกิดใน `web/README.md`
+  โดยเก็บ entry ของทั้งสอง track ไว้ครบ)
+- ตอบคำถามนอกเรื่องโค้ด 2 ข้อ: (1) PVOutput.org/NREL PVDAQ/Ausgrid - ไม่
+  แนะนำให้เปลี่ยนไปใช้ตัวอื่นแทน PVOutput เพราะติดข้อจำกัดเดียวกันหมด (ข้อมูล
+  จริงแต่คนละโรงงาน) ทางแก้จริงคือรอสิทธิ์ Huawei FusionSolar ของ Nong Fab
+  เอง; (2) เทียบ forecasting กับกรอบอ้างอิงอาจารย์ Jitkomut Songsiri - สรุป
+  ว่า core architecture ตรงกันแล้ว แต่ยังมี 3 จุดเสริม (parallel models by
+  time-of-day, bias-correction cascade แบบสองขั้นจริง, baseline linear
+  regression) ที่ค้างรอข้อมูลจริงเหมือนกันหมด ไม่ใช่ "เสร็จสมบูรณ์ถาวร"
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- ไฟล์หลักที่แก้รอบนี้: `web/src/lib/chartData.ts` (`buildCompetitionRows`),
+  `web/src/pages/ForecastPage.tsx` (`ModelCompetitionPanel`), `web/src/
+  components/Solar3DScene.tsx` (sun marker sizing), `ingestion/nwp/src/
+  nwp_ingestion/config.py` (`_default_forecast_hours`) - พร้อม test +
+  README entries คู่กันทุกจุด (`web/README.md`, `ingestion/nwp/README.md`)
+- **วิธี debug ที่ใช้รอบนี้ (มีประโยชน์ถ้าเจอ bug แบบ "ดูเหมือนพัง แต่โค้ด
+  อ่านแล้วดูถูก" อีก)**: อย่าเดาจาก screenshot/โค้ดอย่างเดียว - รัน local dev
+  servers เอง (`uvicorn` จาก venv `/tmp/forecast-venv` + `vite dev` ที่
+  `localhost:5173`/`localhost:8000`, login `pttlng`/`12345`) แล้วยิง curl
+  เช็ค response จริงของ endpoint ตรงๆ ก่อนสรุปสาเหตุ - แม่นกว่าเดาเยอะ
+  สำหรับปัญหา 3D sun ใช้สคริปต์ Python สแกนสี pixel (`#fde047`) ในภาพ
+  screenshot จริงเพื่อยืนยันว่า render จริงหรือไม่ (แม่นกว่าเดาจากภาพเฉยๆ ที่
+  อาจเล็กเกินจะสังเกตด้วยตา)
+- venv `/tmp/forecast-venv` ตอนเจอตอนแรกขาด `nongfab-financial` กับ `pvgis-
+  ingestion` (session ก่อนหน้าคงสร้าง venv ไว้ก่อนสองแพ็กเกจนี้จะถูกสร้าง) -
+  ติดตั้งเพิ่มแล้วด้วย `pip install -e ./financial -e ./ingestion/pvgis` -
+  ถ้า session หน้าเจอ `ModuleNotFoundError` แบบเดียวกันตอนรัน local server
+  ให้เช็คตรงนี้ก่อน
+- 2 เรื่องที่ "ตรวจแล้วไม่ใช่ code bug จริง" (generated power โผล่อนาคต,
+  day-ahead ไม่ถึง 72ชม.) ไม่ได้แก้โค้ดเพิ่มเพราะพิสูจน์แล้วว่าโค้ดถูกต้องอยู่
+  แล้ว/ขึ้นกับข้อมูลจริงที่สะสมมา ไม่ใช่ defect - ถ้า user เทสบน production
+  แล้วยังเจออยู่ ให้สงสัยเรื่อง Railway ยังไม่ deploy ล่าสุดก่อน (ดู next
+  steps ข้อ 1) หรือ browser cache เก่า ไม่ใช่รีบแก้โค้ดใหม่ทันที
+- ส่ง 2 prompt สำหรับ Track 2 ให้ user ในแชทแล้วรอบนี้ (ข้อ 2 - ซ่อน
+  Financial/Simulation จาก viewer role, ข้อ 3 - รวม Irradiance Map+3D View
+  เป็นแท็บเดียว) - **ยังไม่ได้ implement เอง** เพราะเป็นงานฝั่ง UI/nav ตาม
+  นโยบาย two-track (root `CLAUDE.md`) - รอ user ส่งต่อให้บัญชี Track 2
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **⚠️ Reminder: entry นี้แตะ `ingestion/nwp/`** ซึ่งเป็น dependency ของ
+   `api/` (ดู root `CLAUDE.md`'s standing note - `ingestion/` อยู่ในลิสต์
+   dependency ที่ต้อง deploy ด้วย) - ถ้า user อยากให้ Day-ahead บน
+   production ใช้ `forecast_hours` default ที่แก้แล้ว ต้องกด "Deploy" เองที่
+   Railway dashboard (`api` service → Deployments tab → ปุ่มสีม่วง) เหมือน
+   เดิม เพราะ auto-deploy ยังใช้ไม่ได้ (ยกเว้น user ยืนยันว่าเพิ่งแก้แล้วจริง)
+2. รอ user ตอบว่าอยากให้ทำต่อเรื่อง "กล้อง 3D auto-follow ดวงอาทิตย์" ไหม -
+   พบเป็น side-finding รอบนี้ (กล้องเริ่มต้นไม่ครอบดวงอาทิตย์เสมอไป) ยังไม่ได้
+   ทำเพราะแตะ logic กล้อง/reset-camera ที่ใหญ่กว่าขอบเขตเดิม
+3. รอ user ตอบว่าอยากให้ลอง "ผสม real+synthetic estimate" สำหรับ Day-ahead
+   ที่ยังไปไม่ถึง 72ชม.เต็มไหม (เสนอไว้เป็นทางเลือก ไม่ใช่สิ่งที่ควรทำเองแบบ
+   ไม่ถาม เพราะเปลี่ยนความหมายของ "real" data_source)
+4. รอ user ส่ง 2 prompt (hide Financial/Simulation, รวม Irradiance
+   Map+3D View) ให้บัญชี Track 2 แล้วติดตามผลว่าทำเสร็จหรือยัง
+5. Financial module ยังใช้ placeholder เหมือนเดิม (ไม่ได้แตะรอบนี้) - ยังรอ
+   CAPEX/PEA tariff/WACC/BOI ตัวจริงจาก user อยู่
