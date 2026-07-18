@@ -99,6 +99,19 @@
   box-sizing: border-box;
 }
 
+/* Defense in depth against the class of bug fixed 2026-07-18 in App.css's
+   .app-header (an unwrapped row wider than the screen forced the whole page
+   wider than the viewport on mobile, hiding every position:fixed corner
+   widget until the visitor pinch-zoomed out) - if anything else ever
+   overflows horizontally again, this keeps it from widening the page
+   itself. Any element that's *meant* to scroll sideways (chart containers,
+   the weather strip) already owns its own overflow-x, so this doesn't
+   affect them. */
+html,
+body {
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
 }

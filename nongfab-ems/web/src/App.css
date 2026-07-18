@@ -98,8 +98,17 @@
 
 .app-header {
   display: flex;
+  /* Without wrap, the brand + every nav link + the user/sign-out block sat
+     forced onto one unbreakable row - on a narrow phone that row is wider
+     than the screen, so the whole page becomes horizontally wider than the
+     viewport. Mobile browsers respond to that by rendering the initial view
+     already zoomed in to fit it, which pushed every position:fixed corner
+     widget (the mascot, the chat toggle) off past the edge of the visible
+     screen until the visitor manually pinch-zoomed out (reported
+     2026-07-18: "chatbot doesn't show up until you zoom all the way out"). */
+  flex-wrap: wrap;
   align-items: center;
-  gap: 24px;
+  gap: 8px 24px;
   padding: 12px 24px;
   border-bottom: 1px solid var(--border);
 }
@@ -112,6 +121,7 @@
 
 .app-nav {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   flex-grow: 1;
 }

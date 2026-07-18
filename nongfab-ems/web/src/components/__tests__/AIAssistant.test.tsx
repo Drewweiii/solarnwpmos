@@ -122,6 +122,46 @@ describe('AIAssistant', () => {
     await waitFor(() => expect(mouth()).not.toBe(happyMouth))
   })
 
+  describe('การนำทางหมวดคำถาม (category navigation, fixed 2026-07-18)', () => {
+    it('picking a category still offers a way back to other categories, not a dead end', async () => {
+      const user = userEvent.setup()
+      renderAssistant()
+      await user.click(screen.getByRole('button', { name: /เปิดผู้ช่วย AI/i }))
+
+      await user.click(await screen.findByRole('button', { name: /ความรู้เรื่องระบบ Solar/ }))
+      expect(await screen.findByRole('button', { name: '📚 ดูหมวดคำถามอื่น' })).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: '📚 ดูหมวดคำถามอื่น' }))
+      expect(await screen.findByText('อยากถามเรื่องอะไรดีครับ เลือกหมวดได้เลย:')).toBeInTheDocument()
+    })
+
+    it('a topic group menu also offers a way back to other categories', async () => {
+      const user = userEvent.setup()
+      renderAssistant()
+      await user.click(screen.getByRole('button', { name: /เปิดผู้ช่วย AI/i }))
+
+      await user.click(await screen.findByRole('button', { name: /ความรู้เรื่องระบบ Solar/ }))
+      const groupButtons = await screen.findAllByRole('button')
+      const firstGroupButton = groupButtons.find((b) => b.textContent && !b.textContent.includes('📚'))
+      await user.click(firstGroupButton!)
+
+      expect(await screen.findByRole('button', { name: '📚 ดูหมวดคำถามอื่น' })).toBeInTheDocument()
+    })
+
+    it('repeatedly tapping the 📚 header icon does not stack duplicate menus in the chat log', async () => {
+      const user = userEvent.setup()
+      renderAssistant()
+      await user.click(screen.getByRole('button', { name: /เปิดผู้ช่วย AI/i }))
+
+      const menuButton = await screen.findByRole('button', { name: 'เปิดหมวดคำถาม' })
+      await user.click(menuButton)
+      await user.click(menuButton)
+      await user.click(menuButton)
+
+      expect(screen.getAllByText('อยากถามเรื่องอะไรดีครับ เลือกหมวดได้เลย:')).toHaveLength(1)
+    })
+  })
+
   describe('เล่นกับน้อง Solar (play interactions)', () => {
     it('the play panel is closed by default and opens on the 🎮 toggle, offering plenty of options', async () => {
       const user = userEvent.setup()

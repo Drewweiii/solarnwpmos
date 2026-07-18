@@ -40,9 +40,20 @@ function greeting(): ChatMessage {
   }
 }
 
+// A stable (not Date.now()-based) id for the category-menu message
+// specifically, so repeated 📚 taps can check "is this already the last
+// message" instead of blindly appending another copy - see pushCategoryMenu.
+const CATEGORY_MENU_ID = 'cat-menu'
+
+// Offered on every menu level (not just after a final answer) so a visitor
+// is never stuck once they've picked a category or a topic group - reported
+// 2026-07-18: picking "ความรู้ระบบ Solar" left no way back to browse other
+// topics short of finding the small 📚 header icon.
+const BACK_TO_CATEGORIES_OPTION: AssistantOption = { kind: 'categories', label: '📚 ดูหมวดคำถามอื่น' }
+
 function categoryMenuMessage(): ChatMessage {
   return {
-    id: `${Date.now()}-cat`,
+    id: CATEGORY_MENU_ID,
     role: 'assistant',
     text: 'อยากถามเรื่องอะไรดีครับ เลือกหมวดได้เลย:',
     options: TOP_LEVEL_OPTIONS,
@@ -56,7 +67,10 @@ function groupMenuMessage(categoryId: string, role: string | null | undefined): 
     id: `${Date.now()}-grp`,
     role: 'assistant',
     text: `หมวด "${category.title}" มีหัวข้ออะไรบ้าง เลือกได้เลยครับ:`,
-    options: groupsForRole(category, role).map((g): AssistantOption => ({ kind: 'group', label: g.title, groupId: g.id })),
+    options: [
+      ...groupsForRole(category, role).map((g): AssistantOption => ({ kind: 'group', label: g.title, groupId: g.id })),
+      BACK_TO_CATEGORIES_OPTION,
+    ],
   }
 }
 
@@ -67,7 +81,10 @@ function subQuestionMenuMessage(groupId: string): ChatMessage | null {
     id: `${Date.now()}-sub`,
     role: 'assistant',
     text: `"${group.title}" อยากรู้เรื่องไหนครับ:`,
-    options: group.subQuestions.map((sq): AssistantOption => ({ kind: 'question', label: sq.label, question: sq.question })),
+    options: [
+      ...group.subQuestions.map((sq): AssistantOption => ({ kind: 'question', label: sq.label, question: sq.question })),
+      BACK_TO_CATEGORIES_OPTION,
+    ],
   }
 }
 
@@ -142,6 +159,17 @@ export function AssistantPanel({ isOpen, onClose, onAnswered, onInteract }: Assi
     }
   }
 
+  // Repeatedly tapping 📚 (the header icon, or the "ดูหมวดคำถามอื่น" follow-
+  // up button) used to append a brand-new category-menu bubble to the chat
+  // log on every single tap - a burst of taps piled up that many near-
+  // identical menus with no way to remove the old ones (reported 2026-07-18:
+  // "กดย้ำๆ ... มันซ้อนกันไปเรื่อยๆ เอาออกไม่ได้"). If the menu is already the
+  // most recent message, tapping it again is a no-op instead of stacking
+  // another copy - it's already right there on screen.
+  function pushCategoryMenu() {
+    setMessages((prev) => (prev[prev.length - 1]?.id === CATEGORY_MENU_ID ? prev : [...prev, categoryMenuMessage()]))
+  }
+
   function handleOption(option: AssistantOption) {
     if (isThinking) return
     if (option.kind === 'question') {
@@ -149,7 +177,7 @@ export function AssistantPanel({ isOpen, onClose, onAnswered, onInteract }: Assi
       return
     }
     if (option.kind === 'categories') {
-      setMessages((prev) => [...prev, categoryMenuMessage()])
+      pushCategoryMenu()
       return
     }
     if (option.kind === 'category') {
@@ -174,7 +202,7 @@ export function AssistantPanel({ isOpen, onClose, onAnswered, onInteract }: Assi
         <button
           type="button"
           className="assistant-panel-menu-button"
-          onClick={() => setMessages((prev) => [...prev, categoryMenuMessage()])}
+          onClick={pushCategoryMenu}
           aria-label="เปิดหมวดคำถาม"
           title="หมวดคำถาม"
         >
