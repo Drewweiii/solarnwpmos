@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuthProvider } from '../auth'
 import { useChatSocket } from '../useChatSocket'
 import type { ChatProfile } from '../chatProfile'
+import type { ChatMessage } from '../types'
 import { MockWebSocket } from './mockWebSocket'
 import * as api from '../api'
 
@@ -12,7 +13,11 @@ function setToken() {
   localStorage.setItem('nongfab_ems_token', 'header.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9.sig')
 }
 
-function historyMessage(overrides: Partial<Record<string, unknown>> = {}) {
+// Explicit ChatMessage return type (not inferred) - otherwise `type:
+// 'message'` widens to `string`, and callers passing this into anything
+// typed ChatMessage[] (e.g. mocking getChatHistory's response) fail to
+// typecheck even though the value itself is perfectly valid at runtime.
+function historyMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
   return {
     type: 'message',
     id: 1,
