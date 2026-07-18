@@ -32,6 +32,19 @@ function RequireAdmin({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
+// Simulation and Financial are operator-and-up (mirrors the backend's own
+// require_role("operator") on POST /simulate/{zone} and POST /financial -
+// see routes_simulate.py/routes_financial.py, already the real access
+// control; this just keeps a viewer from landing on a page whose only
+// actions already 403 for them - per the user's own 2026-07-18 request to
+// hide these two from viewer entirely, not just gate the button). Exported
+// so it's directly testable without going through the full app shell.
+export function RequireOperator({ children }: { children: ReactNode }) {
+  const { role } = useAuth()
+  if (role === 'viewer') return <Navigate to="/forecast" replace />
+  return <>{children}</>
+}
+
 function RequireAuth() {
   const { token } = useAuth()
   if (!token) return <Login />
@@ -41,8 +54,22 @@ function RequireAuth() {
       <Route element={<Layout />}>
         <Route index element={<Navigate to="/forecast" replace />} />
         <Route path="/forecast" element={<ForecastPage />} />
-        <Route path="/simulation" element={<SimulationPlaygroundPage />} />
-        <Route path="/financial" element={<FinancialPage />} />
+        <Route
+          path="/simulation"
+          element={
+            <RequireOperator>
+              <SimulationPlaygroundPage />
+            </RequireOperator>
+          }
+        />
+        <Route
+          path="/financial"
+          element={
+            <RequireOperator>
+              <FinancialPage />
+            </RequireOperator>
+          }
+        />
         <Route
           path="/admin/feedback"
           element={

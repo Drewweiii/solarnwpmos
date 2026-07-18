@@ -62,3 +62,32 @@ describe('Layout - post-login chat profile gate', () => {
     expect(screen.queryByRole('heading', { name: 'ก่อนเข้าเว็บ...' })).not.toBeInTheDocument()
   })
 })
+
+describe('Layout - Simulation/Financial nav links hidden from viewer', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    // Skip the chat-profile gate above so the nav itself is reachable.
+    localStorage.setItem('nongfab_chat_profile', JSON.stringify({ displayName: 'คนเดิม', avatarId: 'cat' }))
+  })
+
+  it('hides Simulation and Financial for a viewer', () => {
+    renderLayout(makeToken('pttlng', 'viewer'))
+    expect(screen.queryByRole('link', { name: 'Simulation' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Financial' })).not.toBeInTheDocument()
+    // Everything else stays visible for a viewer.
+    expect(screen.getByRole('link', { name: 'Forecast' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '3D View' })).toBeInTheDocument()
+  })
+
+  it('shows Simulation and Financial for an operator', () => {
+    renderLayout(makeToken('op', 'operator'))
+    expect(screen.getByRole('link', { name: 'Simulation' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Financial' })).toBeInTheDocument()
+  })
+
+  it('shows Simulation and Financial for an admin', () => {
+    renderLayout(makeToken('admin', 'admin'))
+    expect(screen.getByRole('link', { name: 'Simulation' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Financial' })).toBeInTheDocument()
+  })
+})

@@ -1409,6 +1409,40 @@ values and angled absolute-time labels on all three), screenshotted the
 main chart confirming truncation, and screenshotted `/3d` for GIS/ISB/Jetty
 including a rotated-camera shot showing the new sun marker clearly.
 
+### Added - hide Simulation/Financial from viewer role (2026-07-18, Track 1)
+
+Per the user's explicit instruction this round: originally scoped as a
+Track 2 (UI/nav) task per the root `CLAUDE.md` two-track split and drafted
+as a handoff prompt, but the user then said directly to just do it here and
+tell Track 2 afterward so their own picture stays in sync (see this file's
+own Handoff Report in `HANDOFF.md` for that note) - a one-time cross-track
+exception per the user's own call, not a change to the standing policy.
+
+- **`App.tsx`**: new exported `RequireOperator` component, same shape as
+  the existing (unexported) `RequireAdmin` used for `/admin/feedback` -
+  redirects to `/forecast` unless `role !== 'viewer'`. Wraps the
+  `/simulation` and `/financial` routes, so a viewer can't reach either
+  page by direct URL/bookmark, not just by clicking a hidden nav link.
+  Mirrors access control the backend already enforces server-side
+  (`require_role("operator")` on `POST /simulate/{zone}` and
+  `POST /financial` - see `routes_simulate.py`/`routes_financial.py`) -
+  this is a UX improvement (a viewer no longer lands on a page whose only
+  actions already 403 for them), not a new security boundary.
+- **`Layout.tsx`**: the Simulation/Financial `<NavLink>`s are now wrapped in
+  `role !== 'viewer' &&`, same conditional-rendering shape as the existing
+  admin-only Feedback link a few lines below.
+
+**Tested**: `Layout.test.tsx` gained 3 tests (viewer sees neither link,
+operator/admin see both). `App.test.tsx` gained 3 tests for `RequireOperator`
+directly (viewer redirected to `/forecast`, operator/admin render the
+guarded page) - `MemoryRouter` + a real `AuthProvider` seeded with a decoded-
+role JWT, same harness shape `Layout.test.tsx` already used. Full suite
+235/235, `tsc` clean, `oxlint` clean. **Live-verified** via local `uvicorn` +
+`vite dev`: logged in as `pttlng` (viewer) - nav bar shows only Forecast/3D
+View/Energy Report/Irradiance Map, and navigating straight to `/financial`
+in the URL bar bounces back to `/forecast`; logged in as `admin` - both
+links present and `/financial` loads normally.
+
 ## Run locally
 
 ```bash

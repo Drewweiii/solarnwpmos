@@ -43,12 +43,21 @@ export function Layout() {
           <NavLink to="/forecast" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
             Forecast
           </NavLink>
-          <NavLink to="/simulation" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
-            Simulation
-          </NavLink>
-          <NavLink to="/financial" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
-            Financial
-          </NavLink>
+          {/* Simulation/Financial hidden from viewer - both are operator-
+              and-up already server-side (require_role("operator") on their
+              POST routes), this just stops a viewer from landing on a page
+              whose only actions already reject them - see App.tsx's
+              RequireOperator for the matching direct-URL guard. */}
+          {role !== 'viewer' && (
+            <>
+              <NavLink to="/simulation" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
+                Simulation
+              </NavLink>
+              <NavLink to="/financial" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
+                Financial
+              </NavLink>
+            </>
+          )}
           <NavLink to="/3d" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
             3D View
           </NavLink>
