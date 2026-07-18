@@ -1,6 +1,7 @@
 import type {
   AssetRegistry,
   ChatMessage,
+  CloudConditionsResponse,
   EnergyReportResponse,
   FeedbackItem,
   FinancialRequest,
@@ -96,6 +97,8 @@ export const getPerformance = (zone: string, token: string): Promise<Performance
 // frontend can always slice a smaller display range out of one cached response.
 export const getWeatherStrip = (token: string, hoursEachSide = 12): Promise<WeatherStripResponse> =>
   request(`/weather/strip?hours_each_side=${hoursEachSide}`, token)
+
+export const getCloudConditions = (token: string): Promise<CloudConditionsResponse> => request('/weather/clouds', token)
 
 export const postSimulate = (zone: string, body: SimulateRequest, token: string): Promise<SimulateResponse> =>
   request(`/simulate/${zone}`, token, { method: 'POST', body: JSON.stringify(body) })

@@ -192,15 +192,32 @@ class RealDataStore:
         with self._connect() as conn:
             df = pd.read_sql_query("SELECT * FROM nwp_history ORDER BY valid_time", conn)
         if len(df):
-            df["valid_time"] = pd.to_datetime(df["valid_time"], utc=True)
-            df["issue_time"] = pd.to_datetime(df["issue_time"], utc=True)
+            # format="ISO8601" (not the default format-inferred-from-the-first-
+            # row behavior) - every row here is stored via `datetime.isoformat()`
+            # (see insert_nwp_points below), whose *precision* varies with
+            # whether the source datetime happened to carry microseconds (an
+            # hour-aligned valid_time never does; issue_time, when it comes
+            # from datetime.now(), always does) - pandas' default inference
+            # locks onto whichever precision the first row happens to have and
+            # then rejects every other row that doesn't match exactly. Found
+            # live 2026-07-18 via the same bug in cloud_history_df() below.
+            df["valid_time"] = pd.to_datetime(df["valid_time"], utc=True, format="ISO8601")
+            df["issue_time"] = pd.to_datetime(df["issue_time"], utc=True, format="ISO8601")
         return df
 
     def cloud_history_df(self) -> pd.DataFrame:
         with self._connect() as conn:
             df = pd.read_sql_query("SELECT * FROM cloud_history ORDER BY observed_at", conn)
         if len(df):
-            df["observed_at"] = pd.to_datetime(df["observed_at"], utc=True)
+            # format="ISO8601" - see nwp_history_df's own comment just above
+            # for why the default mixed-precision-hostile inference breaks
+            # here specifically: this table's rows come from real Himawari
+            # frames (a fixed poll-tick timestamp, no microseconds) mixed
+            # with any manually-inserted/test observed_at that came from
+            # datetime.now() (microseconds present) - a real 500 (found live
+            # 2026-07-18 while building GET /weather/clouds), not a
+            # theoretical one.
+            df["observed_at"] = pd.to_datetime(df["observed_at"], utc=True, format="ISO8601")
         return df
 
     def uv_history_df(self) -> pd.DataFrame:

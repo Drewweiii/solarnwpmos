@@ -720,3 +720,44 @@ The frontend half (an actual browser session auto-logging out after this
 same kind of restart, with the Thai notice shown on the Login screen) was
 also verified live via Playwright - see `web/README.md`'s matching dated
 entry for that half and its screenshot.
+
+### Added - `GET /weather/clouds` (2026-07-18)
+
+New route in `routes_weather.py`, alongside the existing `/weather/strip`:
+the single latest real Himawari cloud reading (site-wide, same "weather
+isn't per-zone" reasoning `/weather/strip` already documents) - opacity %
+plus a motion vector (speed/direction), straight off `cloud_history`
+(Module 2's ingestion, the same table Module 4's Sum-k LSTM cloud-index
+feature and the minute-ahead model's motion features already read).
+`available: false` (not a 404/error) when no cloud row has ever been
+recorded yet or the latest one is older than 30 minutes (a stalled-poller
+guard, not an expected steady-state path - the Himawari poller runs every
+~10min).
+
+Built for `web/`'s Solar3DPage - a drifting cloud-layer visualization,
+after the user noticed every panel's solar-access color seemed to move in
+lockstep with the sun alone and asked for real cloud data to be shown. See
+`web/README.md`'s matching dated entry for the frontend half, including the
+honesty caveat on what this can and can't claim to show (a site-wide
+opacity scalar + motion vector, not a spatial raster - no per-panel shadow
+claim is made).
+
+**Found and fixed a real bug while building this**: seeding a manually-
+inserted cloud reading (`observed_at` from `datetime.now()`, carrying
+microseconds) alongside real backfilled rows (a fixed poll-tick timestamp,
+no microseconds) 500'd - `forecast/nongfab_forecast/local_store.py`'s
+`cloud_history_df()` (and `nwp_history_df()`, sharing the same bug) used
+`pd.to_datetime(..., utc=True)` without an explicit `format=`, which infers
+one fixed timestamp precision from the first row and rejects any other row
+that doesn't match exactly. Fixed with `format="ISO8601"` - see
+`forecast/README.md`'s matching dated entry for the full story and its
+regression test.
+
+**Tested**: `test_get_cloud_conditions_requires_auth`,
+`..._unavailable_when_store_empty`, `..._returns_latest_reading_with_motion`,
+`..._unavailable_when_latest_reading_too_stale` (`test_routes_weather.py`) -
+full suite 146 passed. **Live-verified**: seeded a real row into a
+file-backed store, confirmed the endpoint 500'd (the mixed-precision bug
+above) before the `local_store.py` fix and returned the seeded reading
+correctly after it - see `web/README.md`'s entry for the rendered cloud
+layer itself.

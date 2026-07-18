@@ -105,6 +105,82 @@ def test_get_weather_strip_uses_real_data_once_window_covered(engine, tmp_path, 
     assert center["temp_c"] == pytest.approx(30.0)
 
 
+@dataclass
+class _FakeCloudFrame:
+    observed_at: datetime
+    source: str
+    nong_fab_cloud_opacity_pct: float
+    nong_fab_cloud_index: float
+    motion_speed_kmh: float | None = None
+    motion_direction_deg: float | None = None
+
+
+def test_get_cloud_conditions_requires_auth(app):
+    with TestClient(app) as client:
+        resp = client.get("/weather/clouds")
+    assert resp.status_code == 401
+
+
+def test_get_cloud_conditions_unavailable_when_store_empty(app, token_factory):
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get("/weather/clouds", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["available"] is False
+    assert body["cloud_opacity_pct"] is None
+
+
+def test_get_cloud_conditions_returns_latest_reading_with_motion(engine, tmp_path, monkeypatch):
+    from nongfab_api.auth import create_access_token
+
+    monkeypatch.setattr(routes_weather, "datetime", _FixedDatetime)
+    app, settings = _app_with_file_backed_store(engine, tmp_path)
+
+    with TestClient(app) as client:
+        app.state.real_data_store.insert_cloud_frames(
+            [
+                _FakeCloudFrame(
+                    observed_at=_FIXED_NOW - timedelta(minutes=10), source="test",
+                    nong_fab_cloud_opacity_pct=35.0, nong_fab_cloud_index=0.4,
+                ),
+                # Latest row (by observed_at) - this is the one that should win.
+                _FakeCloudFrame(
+                    observed_at=_FIXED_NOW - timedelta(minutes=2), source="test",
+                    nong_fab_cloud_opacity_pct=62.0, nong_fab_cloud_index=0.7,
+                    motion_speed_kmh=18.5, motion_direction_deg=210.0,
+                ),
+            ]
+        )
+        token = create_access_token("tester", "viewer", settings, app.state.deploy_id)
+        resp = client.get("/weather/clouds", headers={"Authorization": f"Bearer {token}"})
+    body = resp.json()
+    assert body["available"] is True
+    assert body["cloud_opacity_pct"] == pytest.approx(62.0)
+    assert body["motion_speed_kmh"] == pytest.approx(18.5)
+    assert body["motion_direction_deg"] == pytest.approx(210.0)
+
+
+def test_get_cloud_conditions_unavailable_when_latest_reading_too_stale(engine, tmp_path, monkeypatch):
+    from nongfab_api.auth import create_access_token
+
+    monkeypatch.setattr(routes_weather, "datetime", _FixedDatetime)
+    app, settings = _app_with_file_backed_store(engine, tmp_path)
+
+    with TestClient(app) as client:
+        app.state.real_data_store.insert_cloud_frames(
+            [
+                _FakeCloudFrame(
+                    observed_at=_FIXED_NOW - timedelta(hours=2), source="test",
+                    nong_fab_cloud_opacity_pct=50.0, nong_fab_cloud_index=0.5,
+                )
+            ]
+        )
+        token = create_access_token("tester", "viewer", settings, app.state.deploy_id)
+        resp = client.get("/weather/clouds", headers={"Authorization": f"Bearer {token}"})
+    assert resp.json()["available"] is False
+
+
 def test_get_weather_strip_falls_back_to_synthetic_when_real_coverage_too_sparse(engine, tmp_path, monkeypatch):
     from nongfab_api.auth import create_access_token
 

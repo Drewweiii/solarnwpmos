@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getAssets,
+  getCloudConditions,
   getEnergyReport,
   getFeedback,
   getForecast,
@@ -55,6 +56,21 @@ export function useWeatherStrip() {
   return useQuery({
     queryKey: ['weather-strip'],
     queryFn: () => getWeatherStrip(token!),
+    enabled: Boolean(token),
+    refetchInterval: LIVE_REFETCH_INTERVAL_MS,
+  })
+}
+
+// Site-wide, not per-zone (see routes_weather.py's own get_cloud_conditions
+// docstring) - drives Solar3DPage's drifting cloud layer. Polled at the same
+// cadence as the rest of the "live" dashboard data (see LIVE_REFETCH_
+// INTERVAL_MS's own docstring above) so the cloud layer's opacity/drift
+// direction stays current with whatever the Himawari poller last saw.
+export function useCloudConditions() {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['cloud-conditions'],
+    queryFn: () => getCloudConditions(token!),
     enabled: Boolean(token),
     refetchInterval: LIVE_REFETCH_INTERVAL_MS,
   })

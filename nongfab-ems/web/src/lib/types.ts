@@ -106,6 +106,21 @@ export interface WeatherStripResponse {
   points: WeatherStripPoint[]
 }
 
+// GET /weather/clouds - latest real Himawari cloud reading, site-wide (same
+// "weather is site-wide" reasoning as WeatherStripResponse above). Drives
+// Solar3DPage's drifting cloud layer (2026-07-18) - `available: false` (not
+// an error) whenever no cloud row has ever been recorded yet or the latest
+// one is too stale, see routes_weather.py's own docstring.
+// motion_speed_kmh/motion_direction_deg are null whenever the underlying
+// Himawari frame had no previous frame to diff motion against yet.
+export interface CloudConditionsResponse {
+  available: boolean
+  observed_at: string | null
+  cloud_opacity_pct: number | null
+  motion_speed_kmh: number | null
+  motion_direction_deg: number | null
+}
+
 export interface HourlyPoint {
   timestamp: string
   ac_kw: number

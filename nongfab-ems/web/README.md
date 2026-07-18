@@ -1443,6 +1443,137 @@ View/Energy Report/Irradiance Map, and navigating straight to `/financial`
 in the URL bar bounces back to `/forecast`; logged in as `admin` - both
 links present and `/financial` loads normally.
 
+### Added/Fixed - 3D View: sunrise default, ultra-smooth sun, cloud layer, irradiance/angle readouts (2026-07-18, Track 1)
+
+A large batch of `/3d` (Solar3DPage/Solar3DScene) requests from one session,
+including a screen recording showing the sun jumping in visible steps
+rather than gliding:
+
+**1. Control rail explained** (answered in chat, no code): the 5 icons are
+Solar access view (color panels by output level) / String view (color by
+electrical string) / Play-Pause (time-of-day animation) / Reset camera /
+Grid-vs-satellite ground toggle. The top-right red-green bar is the Solar
+Access Gauge; the dial readout is the sun Compass.
+
+**2. Sunrise default + ultra-smooth animation** - two related fixes:
+
+- `Solar3DPage.tsx` now defaults the time slider to the day's actual
+  sunrise (`sunPath.data.points[0]` - `/sun-path` is already filtered to
+  daylight only, `elevation_deg > 0`, so the first point *is* sunrise at
+  15-minute resolution), re-defaulted once per `date` change, instead of a
+  fixed placeholder hour.
+- **Root cause of the laggy animation**: auto-play was a `setInterval`
+  jumping `timeOfDayMinutes` by a fixed 15 minutes every 400ms - each tick
+  re-triggered `useGeometry`'s network fetch and re-rendered the position
+  from whatever that fetch returned, so the sun visibly teleported between
+  snapshots rather than gliding. **Fix**: `Solar3DScene.tsx` gained a new
+  `SunMarker` sub-component that animates entirely inside react-three-
+  fiber's own `useFrame` render loop (imperative ref mutation, zero React
+  re-renders per frame, zero extra network calls) - it linearly interpolates
+  the sun's azimuth/elevation between the day's already-loaded 15-minute
+  `sunPathPoints` samples (new `interpolateSunPosition()` in `lib/solar3d.ts`,
+  returns `null` - not a clamped sunrise/sunset value - for an instant
+  outside the covered daylight range, so a caller can't mistake "no data
+  past sunset" for "the sun is still up"), true 60fps. A throttled
+  (`onAnimatedTimeChange`, every 200ms, not every frame) callback bridges
+  back to the page's own slider/readouts/panel-color fetch, which stays at
+  its own coarser cadence deliberately - the visual glide and the data
+  fetch rate are now fully decoupled.
+
+**3. Prominent irradiance readout**: new card-styled `.solar3d-irradiance-card`
+showing `GET /irradiance-map`'s `clearsky_ghi_w_m2` at the current scrubbed
+instant (same value `IrradianceMapPage` already shows, so the two pages
+agree) - previously not shown on this page at all.
+
+**4. Simulated date/time caption + live angles + zone lat/lon**: a
+`.solar3d-sim-clock` line ("กำลังจำลอง (Simulating) 18 กรกฎาคม 2569 - 07:00
+น. (ICT)") mirrors ForecastPage's clock convention but for the *simulated*
+instant, not real wall-clock time. New Zenith readout (`zenithAngleDeg()` =
+90 - elevation, `lib/solar3d.ts`) next to the existing azimuth/elevation
+Compass. New zone lat/lon readout using the selected zone's own real
+surveyed centroid (`config/assets.yaml` via `/assets` - not the shared
+nominal site location `/geometry`'s own sun-position calc uses; both are
+shown, correctly attributed to what each actually is).
+
+**5. Date-range scope + calendar picker**: the date `<input type="date">`
+already opens a native calendar picker (no change needed there - confirmed,
+not assumed). Added an honest scope caption instead of an arbitrary
+min/max: the sun-path/shading simulation is pure astronomical calculation
+(pvlib via `nongfab_features.clearsky`) valid for *any* date, but
+Forecast/Actual readouts only have real data within `REAL_DATA_WINDOW_DAYS`
+(3) of today - a warning line appears when the selected date falls outside
+that window, rather than silently showing blank numbers with no
+explanation.
+
+**5 (continued) - panel color now blends actual + forecast**: `zoneOutputRatio`
+(drives panel color-by-output in "Solar access" mode) previously used only
+`actualAtScrub?.ac_kw`, which is `undefined` for any date/time outside
+today (`/performance`'s `hourly` field only ever covers "today") - every
+panel silently rendered as 0% output for a future scrub or any other date,
+even though a real forecast number was already fetched and shown as text a
+few lines above. Now falls back to `forecastAtScrub?.pred` whenever no
+actual reading exists.
+
+**5.1 - drifting cloud layer, from real data**: the user asked why every
+panel seems to react to the sun in lockstep, and asked for real cloud data
+(from the Thai Meteorological Department / Himawari feed this project
+already ingests) shown as an animation. New `GET /weather/clouds` (see
+`api/README.md`'s matching entry) exposes the latest real Himawari reading
+- opacity % + motion vector - the same `cloud_history` table Module 4's
+Sum-k LSTM cloud-index feature already reads. New `CloudLayer` component in
+`Solar3DScene.tsx`: several overlapping soft spheres per "puff" (a cheap,
+common cloud-silhouette technique), density from the real opacity %,
+drifting via `useFrame` at a direction/speed derived from the real motion
+vector, wrapping seamlessly within a field sized to each zone's own scene
+scale. **Honesty caveat, kept explicit in the component's own docstring and
+worth repeating here**: `cloud_history` only ever stores one site-wide
+opacity scalar + a motion vector, not a spatial raster (the raw per-pixel
+tile arrays live in MinIO, a separate heavier fetch not wired up here) - so
+this shows "X% cloud cover, drifting this way" honestly; it does not claim
+to show real cloud shapes or which specific panel is shaded at this
+instant, since no data source in this app currently supports that claim.
+
+**Found and fixed a real bug while building the cloud endpoint**: seeding a
+manually-inserted cloud reading (`datetime.now()`, carrying microseconds)
+alongside real rows (no microseconds) 500'd `GET /weather/clouds` -
+`forecast/local_store.py`'s `cloud_history_df()` used
+`pd.to_datetime(..., utc=True)` with no explicit `format=`, which infers
+one fixed precision from the first row and rejects any other row that
+doesn't match exactly (`nwp_history_df()` shared the same latent bug, fixed
+alongside it). See `forecast/README.md`'s matching dated entry.
+
+**Not built this round - real precipitation data doesn't exist anywhere in
+this project yet** (checked directly: `ingestion/nwp` only ever extracts
+SSRD/temp2m from the GFS GRIB2 files it fetches, never APCP, despite APCP
+being present in the same raw index the project already pulls). Building a
+"real rain animation" honestly would mean a new ingestion pipeline first
+(most likely extending the existing GFS fetch to also decode APCP, the
+smallest real path forward, rather than a wholly separate Thai
+Meteorological Department integration) - not started without checking with
+the user first, flagged as a live question instead of either silently
+faking a seasonal-probability rain effect (violates this project's real-
+data-or-honestly-labeled-estimate convention) or silently taking on a new
+multi-day ingestion module unprompted.
+
+**Tested**: `lib/solar3d.ts` - `interpolateSunPosition()` (exact-sample,
+midpoint interpolation, null before/after the covered range, empty/single-
+point edge cases) and `zenithAngleDeg()`, `solar3d.test.ts`. `Solar3DPage.test.tsx`
+gained tests for the sunrise default, the irradiance readout, zenith/lat-lon
+readouts, the actual-to-forecast fallback, and the out-of-range date
+warning. `api`'s `test_routes_weather.py` gained 4 tests for
+`GET /weather/clouds`. `forecast`'s `test_local_store.py` gained a
+regression test for the mixed-timestamp-precision bug. Full web suite
+248/248, `tsc` clean, `oxlint` clean; `api` 146 passed; `forecast` 141
+passed. **Live-verified** via local `uvicorn` + `vite dev`, a real seeded
+cloud reading (confirmed the 500 before the `local_store.py` fix, and the
+correct reading after it), and Playwright screenshots at sunrise (orange/
+red panels, low irradiance, sun marker faint near the horizon) and midday
+with the camera rotated to frame the sun (green panels, 925 W/m² clear-sky
+GHI, the sun marker clearly visible with its glow, and the cloud layer -
+several soft gray puffs partially over the panel rows, visibly drifted
+between two screenshots taken a few seconds apart during Play) - zero
+browser console errors/warnings across the whole run.
+
 ## Run locally
 
 ```bash

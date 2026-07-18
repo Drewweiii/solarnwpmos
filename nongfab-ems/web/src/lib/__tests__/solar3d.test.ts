@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compassLabel, solarAccessColor, sunPositionVector } from '../solar3d'
+import { compassLabel, interpolateSunPosition, solarAccessColor, sunPositionVector, zenithAngleDeg } from '../solar3d'
 
 describe('compassLabel', () => {
   it('maps the 8 cardinal/intercardinal directions', () => {
@@ -56,5 +56,50 @@ describe('sunPositionVector', () => {
     expect(x).toBeCloseTo(0)
     expect(y).toBeCloseTo(10)
     expect(z).toBeCloseTo(0, 4)
+  })
+})
+
+describe('zenithAngleDeg', () => {
+  it('is 0 straight overhead and 90 at the horizon', () => {
+    expect(zenithAngleDeg(90)).toBe(0)
+    expect(zenithAngleDeg(0)).toBe(90)
+  })
+
+  it('goes negative below the horizon, matching a negative elevation', () => {
+    expect(zenithAngleDeg(-10)).toBe(100)
+  })
+})
+
+describe('interpolateSunPosition', () => {
+  const points = [
+    { time: '2026-07-18T00:00:00Z', azimuth_deg: 80, elevation_deg: 0 },
+    { time: '2026-07-18T00:15:00Z', azimuth_deg: 90, elevation_deg: 10 },
+    { time: '2026-07-18T00:30:00Z', azimuth_deg: 100, elevation_deg: 20 },
+  ]
+
+  it('returns the exact point when atIso lands exactly on a sample', () => {
+    expect(interpolateSunPosition(points, '2026-07-18T00:15:00Z')).toEqual({ azimuthDeg: 90, elevationDeg: 10 })
+  })
+
+  it('linearly interpolates halfway between two samples', () => {
+    const result = interpolateSunPosition(points, '2026-07-18T00:07:30Z')
+    expect(result?.azimuthDeg).toBeCloseTo(85)
+    expect(result?.elevationDeg).toBeCloseTo(5)
+  })
+
+  it('returns null before the first point (before sunrise) rather than clamping', () => {
+    expect(interpolateSunPosition(points, '2026-07-17T23:00:00Z')).toBeNull()
+  })
+
+  it('returns null after the last point (after sunset) rather than clamping', () => {
+    expect(interpolateSunPosition(points, '2026-07-18T01:00:00Z')).toBeNull()
+  })
+
+  it('returns null for an empty points array', () => {
+    expect(interpolateSunPosition([], '2026-07-18T00:15:00Z')).toBeNull()
+  })
+
+  it('returns the single point directly when only one sample exists', () => {
+    expect(interpolateSunPosition([points[1]], '2026-07-18T00:15:00Z')).toEqual({ azimuthDeg: 90, elevationDeg: 10 })
   })
 })

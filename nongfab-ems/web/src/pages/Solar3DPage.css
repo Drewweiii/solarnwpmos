@@ -46,6 +46,40 @@
   min-width: 2.5em;
 }
 
+/* --- Simulated date/time caption (2026-07-18) --- */
+
+.solar3d-sim-clock {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.solar3d-sim-clock-label {
+  color: var(--text);
+  opacity: 0.75;
+}
+
+.solar3d-sim-clock-value {
+  font-weight: 600;
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Date-range scope note (2026-07-18) --- */
+
+.solar3d-scope-note {
+  font-size: 12px;
+  color: var(--text);
+  opacity: 0.85;
+  line-height: 140%;
+}
+
+.solar3d-scope-note-warn {
+  color: var(--danger);
+  opacity: 1;
+}
+
 .solar3d-sweep-controls {
   display: flex;
   align-items: center;
@@ -130,6 +164,64 @@
   border-radius: 999px;
   background: var(--danger-bg);
   color: var(--danger);
+}
+
+/* --- Zenith angle + zone lat/lon readouts (2026-07-18) --- */
+
+.solar3d-zenith-readout,
+.solar3d-latlon-readout {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+}
+
+.solar3d-zenith-label,
+.solar3d-latlon-label {
+  color: var(--text);
+  opacity: 0.75;
+}
+
+.solar3d-zenith-value,
+.solar3d-latlon-value {
+  font-weight: 600;
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Irradiance readout card (2026-07-18) - made deliberately prominent,
+   card-styled rather than plain inline text, per the user's own report
+   that it wasn't standing out at all. --- */
+
+.solar3d-irradiance-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  width: fit-content;
+}
+
+.solar3d-irradiance-label {
+  font-size: 13px;
+  color: var(--text);
+  opacity: 0.85;
+}
+
+.solar3d-irradiance-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+}
+
+.solar3d-irradiance-night {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--code-bg);
+  color: var(--text);
 }
 
 .solar3d-forecast-readout {

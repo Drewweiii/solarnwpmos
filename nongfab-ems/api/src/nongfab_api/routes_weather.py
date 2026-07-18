@@ -101,3 +101,56 @@ async def get_weather_strip(
         return WeatherStripResponse(data_source="real", points=real_points)
 
     return WeatherStripResponse(data_source="synthetic", points=_synthetic_window(now, hours_each_side))
+
+
+# A cloud observation older than this is stale enough that showing it as
+# "current" would be misleading (the Himawari poller runs every ~10min - see
+# ingestion_scheduler.py's himawari_poll_interval_seconds - so a healthy
+# process should never actually hit this in practice; it's a guard against a
+# stalled poller silently freezing the 3D view's cloud layer in place).
+_CLOUD_MAX_AGE_MINUTES = 30
+
+
+class CloudConditionsResponse(BaseModel):
+    available: bool
+    observed_at: datetime | None = None
+    cloud_opacity_pct: float | None = None
+    # None whenever the underlying CloudRasterFrame had no previous frame to
+    # diff motion against yet (see himawari_ingestion.schemas.CloudRasterFrame's
+    # own docstring) - the frontend keeps the cloud layer static (opacity only,
+    # no drift) rather than guessing a fabricated direction/speed.
+    motion_speed_kmh: float | None = None
+    motion_direction_deg: float | None = None
+
+
+@router.get("/weather/clouds", response_model=CloudConditionsResponse)
+async def get_cloud_conditions(request: Request, _user=Depends(require_role("viewer"))) -> CloudConditionsResponse:
+    """Site-wide (not per-zone - one shared Himawari tile sample, same
+    "weather is site-wide" reasoning as `/weather/strip` above) latest real
+    cloud reading - opacity + motion vector, straight off `cloud_history`
+    (Module 2's Himawari ingestion, already the same source `real_data.py`'s
+    Sum-k LSTM cloud-index feature and the minute-ahead model's motion
+    features read). Built for Solar3DPage's drifting cloud-layer visual
+    (2026-07-18 user request) - `available=False` (not a 404) when no cloud
+    row has ever been recorded yet or the latest one is too stale, so the
+    frontend can render "no live cloud data" instead of a crash.
+    """
+    store: RealDataStore = request.app.state.real_data_store
+    df = store.cloud_history_df()
+    if df.empty:
+        return CloudConditionsResponse(available=False)
+
+    latest = df.iloc[-1]
+    observed_at = latest["observed_at"].to_pydatetime()
+    if datetime.now(timezone.utc) - observed_at > timedelta(minutes=_CLOUD_MAX_AGE_MINUTES):
+        return CloudConditionsResponse(available=False)
+
+    motion_speed = latest.get("motion_speed_kmh")
+    motion_direction = latest.get("motion_direction_deg")
+    return CloudConditionsResponse(
+        available=True,
+        observed_at=observed_at,
+        cloud_opacity_pct=float(latest["cloud_opacity_pct"]),
+        motion_speed_kmh=float(motion_speed) if pd.notna(motion_speed) else None,
+        motion_direction_deg=float(motion_direction) if pd.notna(motion_direction) else None,
+    )

@@ -1,13 +1,15 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '../../lib/api'
 import { AuthProvider } from '../../lib/auth'
 import type {
   AssetRegistry,
+  CloudConditionsResponse,
   ForecastResponse,
   GeometryResponse,
+  IrradianceMapResponse,
   PerformanceResponse,
   SunPathResponse,
   Zone,
@@ -17,9 +19,16 @@ import { Solar3DPage } from '../Solar3DPage'
 // Solar3DScene renders a real WebGL <Canvas> (react-three-fiber), which
 // jsdom can't provide a context for - mock it so this test exercises the
 // surrounding controls/data-wiring only. The canvas itself is verified live
-// (see web/README.md "Verified live").
+// (see web/README.md "Verified live"). Exposes a couple more of the props
+// this page now passes down (zoneOutputRatio, cloudOpacityPct) as plain
+// text so tests can assert on what's actually being computed/passed
+// without needing a real WebGL context for them either.
 vi.mock('../../components/Solar3DScene', () => ({
-  Solar3DScene: ({ panels }: { panels: unknown[] }) => <div data-testid="mock-scene">{panels.length} panels</div>,
+  Solar3DScene: ({ panels, zoneOutputRatio, cloudOpacityPct }: { panels: unknown[]; zoneOutputRatio?: number; cloudOpacityPct: number | null }) => (
+    <div data-testid="mock-scene">
+      {panels.length} panels, ratio={zoneOutputRatio}, cloud={String(cloudOpacityPct)}
+    </div>
+  ),
 }))
 
 function makeZone(id: string): Zone {
@@ -62,7 +71,29 @@ function makeGeometry(zone: string, panelCount: number): GeometryResponse {
 const sunPath: SunPathResponse = {
   zone: 'GIS',
   date: '2026-07-14',
-  points: [{ time: '2026-07-14T05:00:00Z', azimuth_deg: 206, elevation_deg: 38 }],
+  points: [
+    { time: '2026-07-14T00:00:00Z', azimuth_deg: 70, elevation_deg: 1 },
+    { time: '2026-07-14T05:00:00Z', azimuth_deg: 206, elevation_deg: 38 },
+    { time: '2026-07-14T11:00:00Z', azimuth_deg: 300, elevation_deg: 2 },
+  ],
+}
+
+const cloudConditions: CloudConditionsResponse = {
+  available: true,
+  observed_at: '2026-07-14T05:00:00Z',
+  cloud_opacity_pct: 42,
+  motion_speed_kmh: 12,
+  motion_direction_deg: 180,
+}
+
+function makeIrradianceMap(): IrradianceMapResponse {
+  return {
+    at: '2026-07-14T05:00:00Z',
+    sun: { azimuth_deg: 206, elevation_deg: 38 },
+    clearsky_ghi_w_m2: 612,
+    grid: [],
+    zones: [],
+  }
 }
 
 function makeForecast(zone: string): ForecastResponse {
@@ -116,6 +147,8 @@ describe('Solar3DPage', () => {
     vi.spyOn(api, 'getSunPath').mockResolvedValue(sunPath)
     vi.spyOn(api, 'getForecast').mockImplementation((zone) => Promise.resolve(makeForecast(zone)))
     vi.spyOn(api, 'getPerformance').mockImplementation((zone) => Promise.resolve(makePerformance(zone)))
+    vi.spyOn(api, 'getCloudConditions').mockResolvedValue(cloudConditions)
+    vi.spyOn(api, 'getIrradianceMap').mockResolvedValue(makeIrradianceMap())
   })
 
   it('defaults to GIS and has no All-zones tab', async () => {
@@ -193,6 +226,43 @@ describe('Solar3DPage', () => {
     renderPage()
     expect(await screen.findByRole('alert')).toHaveTextContent(/01A\.L/)
     expect(screen.getByRole('alert')).toHaveTextContent(/3\.20 kW > 2\.0 kW/)
+  })
+
+  it('defaults the time slider to the day\'s sunrise, not a fixed hardcoded hour', async () => {
+    renderPage()
+    // sunPath's first point (elevation_deg > 0, the earliest daylight
+    // sample - see routes_solar3d.py's own /sun-path docstring) is at
+    // 00:00 UTC = 07:00 ICT in this fixture.
+    expect(await screen.findByText('07:00')).toBeInTheDocument()
+  })
+
+  it('shows the clear-sky irradiance readout prominently', async () => {
+    renderPage()
+    expect(await screen.findByText(/612 W\/m/)).toBeInTheDocument()
+  })
+
+  it('shows zenith angle and the selected zone\'s own lat/lon', async () => {
+    renderPage()
+    // elevation 38deg -> zenith 90-38 = 52deg
+    expect(await screen.findByText('52°')).toBeInTheDocument()
+    expect(await screen.findByText(/12\.68000, 101\.12000/)).toBeInTheDocument()
+  })
+
+  it('falls back to the forecast reading for panel-color output ratio when no actual reading exists', async () => {
+    vi.spyOn(api, 'getPerformance').mockImplementation((zone) => Promise.resolve({ ...makePerformance(zone), hourly: [] }))
+    renderPage()
+    // forecast pred=42.5, zone capacity=50 -> 42.5/50 = 0.85
+    expect(await screen.findByText(/ratio=0\.85/)).toBeInTheDocument()
+  })
+
+  it('warns when the selected date falls outside the real Forecast/Actual data window', async () => {
+    renderPage()
+    await screen.findByTestId('mock-scene')
+    const dateInput = screen.getByLabelText('Date')
+    const farFuture = new Date()
+    farFuture.setDate(farFuture.getDate() + 30)
+    fireEvent.change(dateInput, { target: { value: farFuture.toISOString().slice(0, 10) } })
+    expect(await screen.findByText(/นอกช่วงนี้/)).toBeInTheDocument()
   })
 
   it('moving the time slider re-fetches geometry with the new time', async () => {

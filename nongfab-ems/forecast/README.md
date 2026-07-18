@@ -753,6 +753,26 @@ See `web/README.md`'s matching dated entry for the frontend half (the
 3-tier recency coloring, the Minute-ahead panel's backward window, and a
 real color-choice bug found live-testing this).
 
+## Fixed - `local_store.py`'s `nwp_history_df()`/`cloud_history_df()` crashed on mixed-precision timestamps (2026-07-18)
+
+Found live while building `GET /weather/clouds` (see `api/README.md`'s
+matching entry - the 3D view's drifting cloud layer, `web/README.md`'s own
+dated entry): seeding one manually-inserted `cloud_history` row (`observed_at`
+from `datetime.now()`, which carries microseconds) alongside real Himawari
+rows (a fixed poll-tick timestamp, no microseconds) 500'd with a pandas
+`ValueError` - `pd.to_datetime(df[col], utc=True)` without an explicit
+`format=` infers one fixed precision from the *first* row and rejects any
+other row whose `.isoformat()` string doesn't match that exact precision.
+Both `nwp_history_df()` (valid_time/issue_time) and `cloud_history_df()`
+(observed_at) shared this latent bug - fixed both with `format="ISO8601"`,
+which tolerates any valid ISO8601 precision per-row rather than locking to
+whichever the first row happened to have. Regression test in
+`test_local_store.py` seeds exactly this mixed-precision scenario. Real bug
+in shipped code, not just a test artifact - any caller storing a
+`datetime.now()`-derived timestamp next to a clock-aligned one (exactly
+what `record_generated_power()`'s `hour_anchor` vs. a raw `datetime.now()`
+insert would do too) could have hit this in production.
+
 ## Known gaps / next steps
 
 - **No automatic retraining pipeline of its own** - `registry.log_run()` +

@@ -158,6 +158,33 @@ def test_insert_cloud_frames_accepts_frames_without_motion_attributes():
     assert df.iloc[0]["motion_speed_kmh"] is None or pd.isna(df.iloc[0]["motion_speed_kmh"])
 
 
+def test_cloud_history_df_handles_mixed_timestamp_precision():
+    """Found live 2026-07-18 while building GET /weather/clouds: a row whose
+    observed_at came from `datetime.now()` (microseconds present) mixed with
+    a row whose observed_at didn't (a fixed poll-tick timestamp, the normal
+    case for real Himawari frames) crashed `cloud_history_df()` with a
+    pandas ValueError - `pd.to_datetime(..., utc=True)` without an explicit
+    `format=` infers one fixed precision from the first row and rejects any
+    other row that doesn't match it exactly. Regression test for the
+    `format="ISO8601"` fix, which tolerates both."""
+    store = RealDataStore()
+    store.insert_cloud_frames(
+        [
+            _FakeCloudFrame(
+                observed_at=datetime(2026, 7, 14, 0, 0, 0, tzinfo=timezone.utc),  # no microseconds
+                nong_fab_cloud_opacity_pct=40.0, nong_fab_cloud_index=0.4, source="test",
+            ),
+            _FakeCloudFrame(
+                observed_at=datetime(2026, 7, 14, 0, 10, 0, 498139, tzinfo=timezone.utc),  # microseconds present
+                nong_fab_cloud_opacity_pct=45.0, nong_fab_cloud_index=0.45, source="test",
+            ),
+        ]
+    )
+    df = store.cloud_history_df()
+    assert len(df) == 2
+    assert df["observed_at"].is_monotonic_increasing
+
+
 def test_latest_cloud_observation_returns_none_when_empty():
     store = RealDataStore()
     assert store.latest_cloud_observation() is None
