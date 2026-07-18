@@ -1,5 +1,6 @@
 import type {
   AssetRegistry,
+  ChatMessage,
   EnergyReportResponse,
   FeedbackItem,
   FinancialRequest,
@@ -135,3 +136,8 @@ export function chatSocketUrl(token: string): string {
   const wsBase = API_BASE_URL.replace(/^http/, 'ws')
   return `${wsBase}/ws/chat?token=${encodeURIComponent(token)}`
 }
+
+// Scroll-back page for the chat panel - the `limit` messages immediately
+// before `beforeId`, oldest-first (see ws_chat.py's `GET /chat/history`).
+export const getChatHistory = (beforeId: number, token: string, limit = 50): Promise<{ messages: ChatMessage[] }> =>
+  request(`/chat/history?before_id=${beforeId}&limit=${limit}`, token)

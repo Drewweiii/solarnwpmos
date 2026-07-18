@@ -347,6 +347,9 @@ export interface ChatMessage {
   role: string
   text: string
   created_at: string
+  display_name: string
+  avatar: string | null
+  client_id: string | null
 }
 
 export interface ChatPresence {

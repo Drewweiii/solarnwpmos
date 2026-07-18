@@ -27,10 +27,19 @@ class UserORM(Base):
 
 
 class ChatMessageORM(Base):
-    """Maps to `chat_messages` (db/migrations/0005_chat_and_feedback.sql) -
-    persisted history for the single site-wide visitor chat room served by
-    ws_chat.py, so a client that connects mid-conversation can be replayed
-    recent messages instead of joining a blank room.
+    """Maps to `chat_messages` (db/migrations/0005_chat_and_feedback.sql,
+    extended by 0006_chat_profile_and_history.sql) - persisted history for
+    the single site-wide visitor chat room served by ws_chat.py, so a client
+    that connects mid-conversation can be replayed recent messages instead
+    of joining a blank room.
+
+    `display_name`/`avatar`/`client_id` are nullable: the viewer/operator
+    demo logins are shared credentials (see auth.py's DEMO_USERS), so
+    `username` alone can't tell two different real people apart - these
+    columns carry the per-browser identity the frontend lets each person
+    pick for themselves (nongfab web/src/lib/chatProfile.ts). Rows written
+    before this column existed simply have NULLs here; application code
+    falls back to `username`/a default avatar for those.
     """
 
     __tablename__ = "chat_messages"
@@ -40,6 +49,9 @@ class ChatMessageORM(Base):
     role: Mapped[str] = mapped_column(String)
     text: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    display_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    avatar: Mapped[str | None] = mapped_column(String, nullable=True)
+    client_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class FeedbackMessageORM(Base):
