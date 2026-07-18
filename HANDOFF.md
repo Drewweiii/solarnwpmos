@@ -188,3 +188,88 @@ Track 1 ตามที่ตกลงไว้ใน `CLAUDE.md`)
    เดิม) - build ผ่านแล้วหลัง merge
 3. ถ้าแตะ `api/` เพิ่มเติม (เช่น ทำ WebSocket ใหม่สำหรับแชทผู้ชม) อย่าลืมเตือน
    เรื่อง Railway manual deploy ตามหัวข้อใน `CLAUDE.md`
+
+## 2026-07-18 13:09 ICT
+
+**Track 2 — หน้าตา/Interface + AI assistant + ระบบเชื่อมต่อผู้ชม** (บัญชีนี้ /
+branch `claude/solar-optimization-forecasting-jryux7`)
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+สร้าง **ระบบเครือข่ายผู้ชมครบทั้ง 4 ส่วน** ตามที่ผู้ใช้ขอ ("ทุกอย่างที่ว่ามา
+เลย") - commit `54041a9`:
+
+1. **แชทเรียลไทม์แบบห้องเดียวรวมทั้งเว็บ** (ผู้ใช้ยืนยันผ่านคำถามที่ถาม: "ห้อง
+   เดียวรวมทั้งเว็บ" ไม่แยกตามหน้า/โซน) - `api/src/nongfab_api/ws_chat.py`
+   (`GET /ws/chat`, auth ผ่าน `?token=`) broadcast ข้อความให้ทุก client ที่ต่อ
+   อยู่ พร้อม replay ประวัติ 50 ข้อความล่าสุดตอน connect (`ChatStore`, ตาราง
+   `chat_messages` ใหม่)
+2. **Presence indicator** - `ConnectionManager` ใน `ws_chat.py` นับจำนวน
+   socket ที่ต่ออยู่ (ต่อ process เดียว ไม่มี pub/sub ข้าม process เพราะ deploy
+   นี้รันแค่ 1 process) broadcast เป็น event `presence` ทุกครั้งที่มีคนเข้า/ออก
+   - แสดงเป็น badge ตัวเลขที่ปุ่ม toggle ของ widget
+3. **แบบฟอร์ม contact/feedback** + **ช่องทางถึง admin โดยเฉพาะ** (ผู้ใช้ตอบ
+   ว่าอยากได้ทั้งสองอย่างรวมกัน ไม่ใช่แยก 2 ฟีเจอร์) -
+   `api/src/nongfab_api/routes_feedback.py` (`POST /feedback` ทุก role ที่
+   login แล้วส่งได้, `GET /feedback` admin เท่านั้น) ตาราง `feedback_messages`
+   ใหม่ - **ไม่มี** ระบบ reply/resolve (ผู้ใช้ไม่ได้ขอ ตั้งใจทำแบบง่ายที่สุด)
+4. **หน้า admin ดูข้อความในเว็บ** (ผู้ใช้ยืนยันผ่านคำถามที่ถามว่าต้องการ UI ใน
+   เว็บ ไม่ใช่แค่เก็บ DB) - หน้าใหม่ `/admin/feedback`
+   (`web/src/pages/AdminFeedbackPage.tsx`) ขึ้น nav bar เฉพาะ role admin,
+   guard เส้นทางด้วย `RequireAdmin` ใน `App.tsx` (ไม่ใช่แค่ซ่อนลิงก์ nav)
+5. Frontend UI: `web/src/components/VisitorNetwork.tsx` + `.css` - widget
+   ลอยมุมซ้ายล่าง (มาสคอต/AI assistant อยู่มุมขวาล่างอยู่แล้ว) รวมแชท+feedback
+   เป็น 2 แท็บในหน้าต่างเดียว ไม่ทำเป็นปุ่มลอยแยก 4 ปุ่มเพราะจะรกเว็บเกินไป
+   (เป็นการตัดสินใจของฉันเอง ไม่ได้ถามผู้ใช้แยก แต่แจ้งไว้ตรงๆ)
+6. **เปลี่ยน public viewer login เป็น `pttlng`/`12345`** ตามที่ผู้ใช้ระบุตรงๆ
+   (`api/src/nongfab_api/auth.py`'s `DEMO_USERS`, เดิมคือ
+   `viewer`/`viewer-demo-pw`) - อัปเดต README ทั้ง 2 ไฟล์ + test ที่ hardcode
+   credential เดิมด้วยแล้ว
+7. Bug ที่เจอจาก test จริง (ไม่ใช่แค่เดา): ตอนแรก `VisitorNetwork.tsx` เรียก
+   `useChatSocket()` **สองครั้ง** (ที่ widget เองสำหรับนับ online, และใน
+   `ChatTab` สำหรับข้อความ) ทำให้เปิด WebSocket connection ซ้อนกัน 2 เส้นต่อ
+   widget 1 ตัว - แก้โดยเรียก hook แค่ครั้งเดียวใน `VisitorNetwork` แล้วส่ง
+   state ลงไปเป็น prop ให้ `ChatTab` แทน
+8. ทดสอบครบ: backend pytest ใหม่ 12 ตัวผ่าน (test_ws_chat.py,
+   test_routes_feedback.py) + suite เต็ม 130 ตัวผ่าน, frontend vitest ใหม่ 10
+   ตัวผ่าน + suite เต็ม 163 ตัวผ่าน, `tsc --noEmit` ผ่าน, verify จริงด้วย
+   Playwright (2 browser context จำลอง admin กับ viewer แยกกัน) - ยืนยันว่า
+   ข้อความจาก viewer ขึ้นที่ admin แบบเรียลไทม์จริง, presence นับถูก (2→3),
+   feedback ที่ viewer ส่งไปโผล่ในหน้า admin inbox จริง, เวลาที่แสดงเป็น
+   Asia/Bangkok (ICT) ตาม standing policy, ทดสอบ dark mode แล้วด้วย
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- Login credential สาธารณะสำหรับผู้ชมตอนนี้คือ **`pttlng` / `12345`** (role
+  viewer) - แจกให้ผู้ชมใช้เข้าแชท/ส่ง feedback ได้ - บัญชี `admin`/
+  `admin-demo-pw` และ `operator`/`operator-demo-pw` ยังเหมือนเดิม
+- `/ws/chat` เป็น in-memory connection manager ต่อ process เดียว (ไม่มี
+  Redis pub/sub) - ถ้า deploy จริงมีมากกว่า 1 API process/instance พร้อมกัน
+  เมื่อไหร่ ผู้ชมที่ต่อกับ process ต่างกันจะไม่เห็นข้อความกัน ต้องแก้เพิ่ม
+  ตอนนั้น (ตอนนี้ deploy เป็น 1 process จึงยังไม่ใช่ปัญหา)
+- ยังไม่มี migration SQL ถูกรันจริงบน production Postgres (Railway) -
+  `create_tables_on_startup` (default true) จะสร้างตารางให้อัตโนมัติตอน
+  deploy ครั้งถัดไป เหมือนตาราง `users` เดิม แต่ `db/migrations/
+  0005_chat_and_feedback.sql` ก็มีไว้เป็น source of truth คู่กันแล้ว
+- **Railway ยังไม่ auto-deploy** - session นี้แตะ `api/` เพิ่ม endpoint ใหม่
+  (`/ws/chat`, `/feedback`) และตาราง DB ใหม่ - **ต้องกด Deploy บน Railway
+  ด้วยตัวเองหลัง push นี้** ถ้ายังไม่ได้กด
+- Financial module ยังใช้ placeholder ทั้งหมด (ไม่เปลี่ยนแปลงจาก entry ก่อน
+  หน้า)
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **งาน Track 2 ที่ผู้ใช้ระบุไว้ทั้งหมดตอนนี้เสร็จครบแล้ว** (มาสคอต, AI
+   assistant, แชท, presence, feedback form, admin inbox) - รอผู้ใช้สั่งงาน
+   เพิ่มเติม หรือ polish/ขัดเกลาตามฟีดแบ็กที่จะได้รับ
+2. **ต้องกด Deploy บน Railway ด้วยตัวเอง** (purple "Deploy" button, tab
+   Deployments ของ service `api`) เพื่อให้ `/ws/chat` และ `/feedback`
+   endpoint ใหม่ + ตาราง DB ใหม่ใช้งานได้จริงบน production - ยังไม่ยืนยันว่า
+   กดแล้วหรือยัง
+3. แจ้งผู้ใช้เรื่อง credential ใหม่ `pttlng`/`12345` ให้เอาไปแปะ/แจกจริงตามที่
+   ตั้งใจไว้ (เว็บไซต์เอง ป้ายหน้างาน ฯลฯ) - session นี้แค่ implement ฝั่งระบบ
+   ให้เท่านั้น
+4. ถ้ามีคนถามเรื่อง production data volume ของ `chat_messages` ในอนาคต
+   (ยังไม่มี retention/cleanup policy) - เป็นจุดที่ยังไม่ได้ทำไว้ ถ้า
+   production มีข้อความเยอะมากอาจต้องเพิ่ม pagination ที่ GET /feedback หรือ
+   cap ประวัติแชทให้เก่ากว่านี้ถูกลบทิ้ง
