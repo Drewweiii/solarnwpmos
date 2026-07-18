@@ -154,3 +154,80 @@ async def get_cloud_conditions(request: Request, _user=Depends(require_role("vie
         motion_speed_kmh=float(motion_speed) if pd.notna(motion_speed) else None,
         motion_direction_deg=float(motion_direction) if pd.notna(motion_direction) else None,
     )
+
+
+# A near-term GFS reading only - same "current conditions, not a 3-day forecast
+# preview" intent as _nearest_real_row's own default max_delta_hours used by
+# /weather/strip above. Unlike cloud_history (only ever populated with
+# already-observed frames), nwp_history also holds forecast_hours out to 72h
+# (see ingestion/nwp/config.py) - without this cap, "latest row" would mean
+# "furthest-future forecast row", not "now".
+_PRECIP_MAX_LEAD_HOURS = 1.5
+
+# WMO surface-observation intensity bands (mm accumulated in roughly an hour -
+# light <2.5, moderate 2.5-7.6, heavy >7.6). Applied directly to precip_mm as a
+# deliberate simplification for this decorative visual, not a rigorous rain-rate
+# computation - see NWPForecastPoint.precip_mm's own docstring: it's GFS's raw
+# accumulated-since-init APCP value for whichever forecast hour happened to be
+# nearest to now, not a de-accumulated mm/h rate. At the short lead times this
+# endpoint restricts itself to (a fresh poll's fhour=1/2 rows, not a stale
+# far-future one), GFS's own accumulation window is close enough to 1h that
+# this stays an honest approximation - see forecast/README.md's rain-feature
+# entry for the fuller reasoning.
+_PRECIP_LIGHT_MM = 2.5
+_PRECIP_MODERATE_MM = 7.6
+
+
+class PrecipitationConditionsResponse(BaseModel):
+    available: bool
+    observed_at: datetime | None = None
+    precip_mm: float | None = None
+    # "none" | "light" | "moderate" | "heavy" - None only when available=False.
+    intensity: str | None = None
+
+
+def _precip_intensity(precip_mm: float) -> str:
+    if precip_mm <= 0.1:
+        return "none"
+    if precip_mm < _PRECIP_LIGHT_MM:
+        return "light"
+    if precip_mm < _PRECIP_MODERATE_MM:
+        return "moderate"
+    return "heavy"
+
+
+@router.get("/weather/precipitation", response_model=PrecipitationConditionsResponse)
+async def get_precipitation_conditions(request: Request, _user=Depends(require_role("viewer"))) -> PrecipitationConditionsResponse:
+    """Site-wide latest real precipitation reading (same "weather is site-wide"
+    reasoning as /weather/strip and /weather/clouds above), straight off the same
+    `nwp_history` table Day-ahead/Intra-day training already reads - GFS's own
+    APCP field (see ingestion/nwp's datasource.py and README for the full
+    ingestion path added 2026-07-18). Built for Solar3DPage's rain-animation
+    visual (2026-07-18 user request, explicitly Thailand-seasonal rain only, no
+    snow). `available=False` when no row has a non-null precip_mm within
+    `_PRECIP_MAX_LEAD_HOURS` of now - either because the GFS subset genuinely
+    carried no APCP message for that hour (see NWPForecastPoint.precip_mm's own
+    docstring) or because no fresh poll has landed recently - the frontend
+    renders "no rain" rather than guessing.
+    """
+    store: RealDataStore = request.app.state.real_data_store
+    df = store.nwp_history_df()
+    if df.empty:
+        return PrecipitationConditionsResponse(available=False)
+
+    df = df[df["precip_mm"].notna()]
+    if df.empty:
+        return PrecipitationConditionsResponse(available=False)
+
+    now = datetime.now(timezone.utc)
+    row = _nearest_real_row(df, now, max_delta_hours=_PRECIP_MAX_LEAD_HOURS)
+    if row is None:
+        return PrecipitationConditionsResponse(available=False)
+
+    precip_mm = float(row["precip_mm"])
+    return PrecipitationConditionsResponse(
+        available=True,
+        observed_at=row["valid_time"].to_pydatetime(),
+        precip_mm=precip_mm,
+        intensity=_precip_intensity(precip_mm),
+    )

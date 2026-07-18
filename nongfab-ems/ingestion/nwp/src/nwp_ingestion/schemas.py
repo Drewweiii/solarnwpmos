@@ -29,6 +29,11 @@ class NWPForecastPoint(BaseModel):
     wind10m_u_ms: float = Field(ge=-100, le=100)
     wind10m_v_ms: float = Field(ge=-100, le=100)
     relative_humidity_pct: float = Field(ge=0, le=105)  # GFS RH can slightly exceed 100 (model artifact)
+    # Accumulated precipitation (APCP, GRIB shortName "tp") since the GFS cycle's
+    # own init time, in mm - None (not 0.0) when the subset genuinely carried no
+    # APCP message, so "no data" is never confused with "confirmed dry" - see
+    # datasource._decode_grib_sync's own comment for when that happens live.
+    precip_mm: float | None = Field(default=None, ge=0, le=500)
     source: str
 
     @field_validator("issue_time", "valid_time")

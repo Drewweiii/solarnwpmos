@@ -28,6 +28,7 @@ class _FakeNWPPoint:
     wind10m_v_ms: float
     relative_humidity_pct: float
     source: str
+    precip_mm: float | None = None
 
 
 def _real_points_around(now: datetime, hours_each_side: int) -> list[_FakeNWPPoint]:
@@ -179,6 +180,99 @@ def test_get_cloud_conditions_unavailable_when_latest_reading_too_stale(engine, 
         token = create_access_token("tester", "viewer", settings, app.state.deploy_id)
         resp = client.get("/weather/clouds", headers={"Authorization": f"Bearer {token}"})
     assert resp.json()["available"] is False
+
+
+def test_get_precipitation_conditions_requires_auth(app):
+    with TestClient(app) as client:
+        resp = client.get("/weather/precipitation")
+    assert resp.status_code == 401
+
+
+def test_get_precipitation_conditions_unavailable_when_store_empty(app, token_factory):
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get("/weather/precipitation", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["available"] is False
+    assert body["precip_mm"] is None
+    assert body["intensity"] is None
+
+
+def test_get_precipitation_conditions_unavailable_when_no_row_carries_precip(engine, tmp_path, monkeypatch):
+    """Rows exist (e.g. PVGIS backfill, or NWP rows ingested before this feature
+    existed) but none has a non-null precip_mm - must not be confused with a
+    genuine "it's dry" reading.
+    """
+    from nongfab_api.auth import create_access_token
+
+    monkeypatch.setattr(routes_weather, "datetime", _FixedDatetime)
+    app, settings = _app_with_file_backed_store(engine, tmp_path)
+
+    with TestClient(app) as client:
+        app.state.real_data_store.insert_nwp_points(_real_points_around(_FIXED_NOW, hours_each_side=1))
+        token = create_access_token("tester", "viewer", settings, app.state.deploy_id)
+        resp = client.get("/weather/precipitation", headers={"Authorization": f"Bearer {token}"})
+    assert resp.json()["available"] is False
+
+
+def test_get_precipitation_conditions_returns_nearest_reading_with_intensity(engine, tmp_path, monkeypatch):
+    from nongfab_api.auth import create_access_token
+
+    monkeypatch.setattr(routes_weather, "datetime", _FixedDatetime)
+    app, settings = _app_with_file_backed_store(engine, tmp_path)
+
+    hour_start = _FIXED_NOW.replace(minute=0, second=0, microsecond=0)
+    with TestClient(app) as client:
+        app.state.real_data_store.insert_nwp_points(
+            [
+                # Far-future row (outside _PRECIP_MAX_LEAD_HOURS) - must lose to the
+                # near-term one below even though it's a heavier rain value.
+                _FakeNWPPoint(
+                    valid_time=hour_start + timedelta(hours=24), issue_time=hour_start,
+                    ssrd_w_m2=500.0, temp2m_c=30.0, wind10m_u_ms=1.0, wind10m_v_ms=1.0,
+                    relative_humidity_pct=70.0, source="test-real", precip_mm=20.0,
+                ),
+                # Near-"now" row - this is the one that should win.
+                _FakeNWPPoint(
+                    valid_time=hour_start, issue_time=hour_start,
+                    ssrd_w_m2=500.0, temp2m_c=30.0, wind10m_u_ms=1.0, wind10m_v_ms=1.0,
+                    relative_humidity_pct=70.0, source="test-real", precip_mm=4.0,
+                ),
+            ]
+        )
+        token = create_access_token("tester", "viewer", settings, app.state.deploy_id)
+        resp = client.get("/weather/precipitation", headers={"Authorization": f"Bearer {token}"})
+    body = resp.json()
+    assert body["available"] is True
+    assert body["precip_mm"] == pytest.approx(4.0)
+    assert body["intensity"] == "moderate"  # 2.5 <= 4.0 < 7.6
+
+
+@pytest.mark.parametrize(
+    "precip_mm,expected_intensity",
+    [(0.0, "none"), (0.05, "none"), (1.0, "light"), (5.0, "moderate"), (10.0, "heavy")],
+)
+def test_get_precipitation_conditions_intensity_bands(engine, tmp_path, monkeypatch, precip_mm, expected_intensity):
+    from nongfab_api.auth import create_access_token
+
+    monkeypatch.setattr(routes_weather, "datetime", _FixedDatetime)
+    app, settings = _app_with_file_backed_store(engine, tmp_path)
+
+    hour_start = _FIXED_NOW.replace(minute=0, second=0, microsecond=0)
+    with TestClient(app) as client:
+        app.state.real_data_store.insert_nwp_points(
+            [
+                _FakeNWPPoint(
+                    valid_time=hour_start, issue_time=hour_start,
+                    ssrd_w_m2=500.0, temp2m_c=30.0, wind10m_u_ms=1.0, wind10m_v_ms=1.0,
+                    relative_humidity_pct=70.0, source="test-real", precip_mm=precip_mm,
+                ),
+            ]
+        )
+        token = create_access_token("tester", "viewer", settings, app.state.deploy_id)
+        resp = client.get("/weather/precipitation", headers={"Authorization": f"Bearer {token}"})
+    assert resp.json()["intensity"] == expected_intensity
 
 
 def test_get_weather_strip_falls_back_to_synthetic_when_real_coverage_too_sparse(engine, tmp_path, monkeypatch):

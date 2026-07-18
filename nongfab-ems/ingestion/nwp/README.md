@@ -253,6 +253,61 @@ would silently cap real future NWP data at 48h. Brought in sync with
 `api/config.py`'s list. `ingestion/nwp -v`: 41 passed, 5 skipped
 (unchanged - no test asserted the exact old values), `ruff check` clean.
 
+## Added - precipitation (APCP) decoding, for Solar3DPage's rain animation (2026-07-18)
+
+The user approved building a real rain-animation "gimmick" for `/3d`
+(explicitly Thailand-seasonal rain only - "ส่วนหิมะ ไทยไม่มีหิมะเเน่ๆไม่ต้องทำหิมะมานะ",
+i.e. no snow), on the condition it use genuine Thai Met data, not a
+seasonal-calendar heuristic. Investigated first (not assumed): grepped this
+whole package and confirmed NO precipitation field was extracted anywhere,
+despite GFS's own APCP field already sitting in the same GRIB2 `.idx` index
+this package already pulls DSWRF/TMP/RH/UGRD/VGRD from - meaning the real
+fix is extending the *existing* GFS fetch, not standing up a separate Thai
+Meteorological Department integration (which would also have violated the
+project's Thailand-first data policy only by *adding* a second, redundant
+source rather than by conflicting with it - moot once the existing GFS path
+covered it).
+
+`_build_filter_url` now also requests `var_APCP=on`. `_decode_grib_sync`
+opens a 4th `filter_by_keys` view (`{"typeOfLevel": "surface", "shortName":
+"tp"}` - GFS's own APCP field decodes under cfgrib's short name `tp`, not
+`apcp`) and sets `NWPForecastPoint.precip_mm` from it - **defensively, not
+required**: verified live against the real sample fixture
+(`sample_gfs_nongfab.grib2`, captured before `var_APCP` existed) that a
+`filter_by_keys` match against a field the subset genuinely doesn't carry
+returns an *empty* `xarray.Dataset` (zero data_vars), not an exception - so
+`precip_mm` stays `None` (never a fabricated `0.0`) whenever that happens,
+same "honest absence" pattern `GET /weather/clouds` already established.
+
+`S3GfsBackfillDataSource.fetch_cycle` fetches precipitation the same way,
+via a new `_S3_BACKFILL_PRECIP_FIELD = ("APCP", "surface")` - kept
+**separate** from `_S3_BACKFILL_FIELDS`'s existing 5 required fields, in its
+own `try/except`, so a precip-specific failure can never fail the whole
+backfill row the way a missing core field already correctly does. Real
+quirk caught live in `fixtures/sample_gfs_aws_f001.idx` (not assumed):
+GFS's f001 file genuinely publishes **two** identical `APCP:surface:0-1
+hour acc fcst` idx lines at different byte offsets - `_byte_range_for_field`
+resolves this the same way it already resolves any other (shortName,
+level) collision, by taking the first match; new test
+`test_byte_range_for_field_resolves_duplicate_apcp_entries` pins this down
+against the real fixture rather than a synthetic one.
+
+**Honesty caveat, carried through to the API layer** (see `api/README.md`'s
+matching entry): `precip_mm` is GFS's raw *accumulated-since-init* APCP
+value for whichever forecast hour was decoded, not a de-accumulated mm/h
+rate - the accumulation window is genuinely ~1h at short lead times (f001)
+but widens at longer ones, same caveat DSWRF/`ssrd_w_m2` already carries
+implicitly. `GET /weather/precipitation` restricts itself to near-term
+readings specifically so this approximation stays reasonable - see that
+route's own docstring.
+
+Tests: `nwp -v` covers `var_APCP` in the filter URL, `precip_mm is None` on
+the real (APCP-less) fixture, the duplicate-idx-entry resolution, and both
+the success and defensive-failure paths through
+`S3GfsBackfillDataSource.fetch_cycle` (a simulated precip decode failure
+leaves the 5 required fields unaffected) - `43 passed, 5 skipped` (skips are
+the existing live-network-gated tests, unrelated).
+
 ## Known gaps / next steps
 
 - `db/migrations/0003_nwp_forecast.sql` is written but, like Module 1's

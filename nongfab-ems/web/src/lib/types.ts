@@ -121,6 +121,21 @@ export interface CloudConditionsResponse {
   motion_direction_deg: number | null
 }
 
+// GET /weather/precipitation - latest real GFS precipitation (APCP) reading
+// near "now", site-wide. Drives Solar3DPage's rain animation (2026-07-18 user
+// request - Thailand-seasonal rain only, no snow). `available: false` when no
+// row within routes_weather.py's near-term lead-hour window carries a real
+// (non-null) precip_mm - see that route's own docstring for the accumulation-
+// window honesty caveat behind the intensity bands.
+export type PrecipitationIntensity = 'none' | 'light' | 'moderate' | 'heavy'
+
+export interface PrecipitationConditionsResponse {
+  available: boolean
+  observed_at: string | null
+  precip_mm: number | null
+  intensity: PrecipitationIntensity | null
+}
+
 export interface HourlyPoint {
   timestamp: string
   ac_kw: number

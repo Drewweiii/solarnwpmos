@@ -12,7 +12,7 @@ import type { DirectionalLight, Group } from 'three'
 import { TextureLoader, type Texture } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { interpolateSunPosition, solarAccessColor, sunPositionVector } from '../lib/solar3d'
-import type { Panel, SunPathPoint } from '../lib/types'
+import type { Panel, PrecipitationIntensity, SunPathPoint } from '../lib/types'
 
 // Exposed to Solar3DPage's icon rail "reset camera" button - React 19 takes
 // `ref` as a plain prop (no forwardRef wrapper needed), see this component's
@@ -440,6 +440,93 @@ function CloudLayer({ center, span, opacityPct, motionSpeedKmh, motionDirectionD
   )
 }
 
+interface RainLayerProps {
+  center: [number, number]
+  span: number
+  precipMm: number | null
+  intensity: PrecipitationIntensity | null
+}
+
+// Particle counts per WMO intensity band (see routes_weather.py's own
+// _PRECIP_LIGHT_MM/_PRECIP_MODERATE_MM docstring for where these bands come
+// from) - individual meshes, not InstancedMesh, matching this file's existing
+// "keep it simple" convention (PanelMesh/CloudLayer already render one mesh
+// per panel/puff rather than instancing) - these counts were kept modest
+// specifically so that stays cheap enough at "heavy" too.
+const RAIN_PARTICLE_COUNTS: Record<Exclude<PrecipitationIntensity, 'none'>, number> = {
+  light: 60,
+  moderate: 120,
+  heavy: 200,
+}
+
+// Scene-units/sec fall speed - schematic, not physical (same "reasonable,
+// not measured" spirit as CLOUD_SPEED_SCALE's own docstring), tuned so drops
+// read as fast, clearly-falling streaks rather than drifting snow-like specks
+// - a real, deliberate visual distinction, not an oversight: the user
+// explicitly asked for rain only, no snow (Thailand has none).
+const RAIN_FALL_SPEED = 26
+
+// A falling-rain particle layer, driven by the site's real latest GFS
+// precipitation reading (GET /weather/precipitation - see that route's own
+// docstring for the accumulated-mm honesty caveat behind these intensity
+// bands) - added per the user's own 2026-07-18 request, gated on Thailand's
+// real rainy-season data rather than a decorative always-on effect. Renders
+// nothing at all (not just an empty group) when there's no real precip
+// reading or intensity is "none", so an unavailable/dry reading never shows
+// fabricated rain - same "honest absence over guessed presence" pattern
+// CloudLayer already established for cloud cover.
+function RainLayer({ center, span, precipMm, intensity }: RainLayerProps) {
+  const dropRefs = useRef<(Group | null)[]>([])
+  const fieldSpan = span * 2.2
+  const height = span * 0.9 + 20
+  const count = intensity && intensity !== 'none' ? RAIN_PARTICLE_COUNTS[intensity] : 0
+
+  const drops = useMemo(() => {
+    let seed = 7
+    const rand = () => {
+      seed = (seed * 9301 + 49297) % 233280
+      return seed / 233280
+    }
+    return Array.from({ length: count }, () => ({
+      x: (rand() - 0.5) * fieldSpan,
+      z: (rand() - 0.5) * fieldSpan,
+      y0: rand() * height,
+      speedFactor: 0.8 + rand() * 0.4,
+    }))
+  }, [count, fieldSpan, height])
+
+  useFrame((_, delta) => {
+    for (let i = 0; i < drops.length; i++) {
+      const node = dropRefs.current[i]
+      if (!node) continue
+      let y = node.position.y - RAIN_FALL_SPEED * drops[i].speedFactor * delta
+      if (y < 0) y += height
+      node.position.y = y
+    }
+  })
+
+  if (count === 0 || precipMm == null || precipMm <= 0) return null
+
+  return (
+    <group position={[center[0], 0, -center[1]]}>
+      {drops.map((d, i) => (
+        <group
+          key={i}
+          ref={(el) => {
+            dropRefs.current[i] = el
+          }}
+          position={[d.x, d.y0, d.z]}
+        >
+          <mesh>
+            <cylinderGeometry args={[0.035, 0.035, 0.9, 4]} />
+            <meshBasicMaterial color="#93c5fd" transparent opacity={0.5} depthWrite={false} />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  )
+}
+
 interface Solar3DSceneProps {
   panels: Panel[]
   tiltDeg: number
@@ -464,6 +551,11 @@ interface Solar3DSceneProps {
   cloudOpacityPct: number | null
   cloudMotionSpeedKmh: number | null
   cloudMotionDirectionDeg: number | null
+  // Latest real GFS precipitation reading (GET /weather/precipitation) for
+  // the falling-rain layer - see RainLayer's own docstring. `null`/`"none"`
+  // render no rain at all rather than a fabricated drizzle.
+  precipMm: number | null
+  precipIntensity: PrecipitationIntensity | null
   viewMode: 'access' | 'string'
   // Jetty's trestle/pier structure renders as an elevated deck instead of a
   // solid building block - see PIER_DECK_HEIGHT_M's own docstring. Keyed by
@@ -506,6 +598,8 @@ export function Solar3DScene({
   cloudOpacityPct,
   cloudMotionSpeedKmh,
   cloudMotionDirectionDeg,
+  precipMm,
+  precipIntensity,
   viewMode,
   zone,
   groundStyle,
@@ -670,6 +764,7 @@ export function Solar3DScene({
         motionSpeedKmh={cloudMotionSpeedKmh}
         motionDirectionDeg={cloudMotionDirectionDeg}
       />
+      <RainLayer center={bounds.full.center} span={bounds.full.span} precipMm={precipMm} intensity={precipIntensity} />
 
       <OrbitControls ref={controlsRef} target={[focusCenterScene[0], panelBaseY, focusCenterScene[1]]} />
     </Canvas>

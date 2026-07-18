@@ -54,6 +54,7 @@ def _build_filter_url(settings: Settings, cycle_issue_time: datetime, forecast_h
         "var_RH": "on",
         "var_UGRD": "on",
         "var_VGRD": "on",
+        "var_APCP": "on",
         "lev_surface": "on",
         "lev_2_m_above_ground": "on",
         "lev_10_m_above_ground": "on",
@@ -71,11 +72,20 @@ def _decode_grib_sync(grib_bytes: bytes, target_lat: float, target_lon: float, s
     point nearest to Nong Fab. Must run off the event loop - see
     NomadsGfsDataSource._decode.
 
-    Opens the file three times with distinct `filter_by_keys` (surface/sdswrf,
-    heightAboveGround=2, heightAboveGround=10) rather than once - verified live that
-    a single open_dataset() call raises cfgrib.dataset.DatasetBuildError when 2m and
-    10m heightAboveGround fields are mixed (cfgrib can't merge two different fixed
-    values of the same coordinate into one Dataset).
+    Opens the file four times with distinct `filter_by_keys` (surface/sdswrf,
+    heightAboveGround=2, heightAboveGround=10, surface/tp) rather than once -
+    verified live that a single open_dataset() call raises
+    cfgrib.dataset.DatasetBuildError when 2m and 10m heightAboveGround fields are
+    mixed (cfgrib can't merge two different fixed values of the same coordinate
+    into one Dataset).
+
+    Precipitation (APCP, GRIB shortName "tp") is decoded defensively, not required:
+    verified live against the real sample fixture that a `filter_by_keys` match on a
+    field the subset genuinely doesn't carry (e.g. a fixture captured before
+    var_APCP was added to the filter request, or f000 which never carries APCP at
+    all per _default_forecast_hours's own docstring) returns an *empty* Dataset
+    (zero data_vars), not an exception - so `"tp" not in ds_precip.data_vars` is the
+    real signal to check, and precip_mm is left None rather than fabricating 0mm.
     """
     import xarray as xr
 
@@ -95,12 +105,20 @@ def _decode_grib_sync(grib_bytes: bytes, target_lat: float, target_lon: float, s
             tmp.name, engine="cfgrib",
             backend_kwargs={"filter_by_keys": {"typeOfLevel": "surface", "shortName": "sdswrf"}, "indexpath": ""},
         )
+        ds_precip = xr.open_dataset(
+            tmp.name, engine="cfgrib",
+            backend_kwargs={"filter_by_keys": {"typeOfLevel": "surface", "shortName": "tp"}, "indexpath": ""},
+        )
 
         t2m = ds_2m["t2m"].sel(latitude=target_lat, longitude=target_lon, method="nearest")
         r2 = ds_2m["r2"].sel(latitude=target_lat, longitude=target_lon, method="nearest")
         u10 = ds_10m["u10"].sel(latitude=target_lat, longitude=target_lon, method="nearest")
         v10 = ds_10m["v10"].sel(latitude=target_lat, longitude=target_lon, method="nearest")
         sdswrf = ds_sfc["sdswrf"].sel(latitude=target_lat, longitude=target_lon, method="nearest")
+        precip_mm: float | None = None
+        if "tp" in ds_precip.data_vars:
+            tp = ds_precip["tp"].sel(latitude=target_lat, longitude=target_lon, method="nearest")
+            precip_mm = float(tp.item())
 
         matched_lat = float(t2m["latitude"].item())
         matched_lon = float(t2m["longitude"].item())
@@ -117,6 +135,7 @@ def _decode_grib_sync(grib_bytes: bytes, target_lat: float, target_lon: float, s
             wind10m_u_ms=float(u10.item()),
             wind10m_v_ms=float(v10.item()),
             relative_humidity_pct=float(r2.item()),
+            precip_mm=precip_mm,
             source=source_label,
         )
 
@@ -137,6 +156,17 @@ _S3_BACKFILL_FIELDS: dict[str, tuple[str, str]] = {
     "wind10m_u_ms": ("UGRD", "10 m above ground"),
     "wind10m_v_ms": ("VGRD", "10 m above ground"),
 }
+
+# Precipitation (APCP) is fetched separately from the 5 fields above, not folded
+# into that dict - a missing/unmatched APCP message must not fail the whole
+# backfill row the way a missing core field would (see fetch_cycle's own try/except
+# around this). Verified live 2026-07-18 against a real f001 .idx sidecar
+# (fixtures/sample_gfs_aws_f001.idx) that GFS genuinely publishes *two* identical
+# "APCP:surface:0-1 hour acc fcst" idx lines at the same forecast hour (a known GFS
+# publishing quirk, not a parsing bug) - _byte_range_for_field's exact-match-first
+# behavior resolves this by taking whichever sorts first in the .idx, same as any
+# other (shortName, level) collision.
+_S3_BACKFILL_PRECIP_FIELD: tuple[str, str] = ("APCP", "surface")
 
 
 def _parse_grib_idx(idx_text: str) -> list[tuple[int, int, str, str]]:
@@ -360,6 +390,16 @@ class S3GfsBackfillDataSource(NWPDataSource):
             raw_field_bytes.append(body)
             values[field_name] = await asyncio.to_thread(_decode_single_field_grib_sync, body, self._target_lat, self._target_lon)
 
+        precip_mm: float | None = None
+        try:
+            short_name, level = _S3_BACKFILL_PRECIP_FIELD
+            start, end = _byte_range_for_field(idx, short_name, level)
+            precip_body = await self._fetch_range_with_retry(base_url, start, end)
+            raw_field_bytes.append(precip_body)
+            precip_mm = await asyncio.to_thread(_decode_single_field_grib_sync, precip_body, self._target_lat, self._target_lon)
+        except Exception as exc:  # noqa: BLE001 - see docstring: precip is optional, never fails the row
+            logger.warning("S3 GFS backfill: no APCP precipitation message for issue_time=%s fhour=%s (%s)", issue_time, forecast_hour, exc)
+
         valid_time = issue_time + timedelta(hours=forecast_hour)
         point = NWPForecastPoint(
             issue_time=issue_time,
@@ -371,6 +411,7 @@ class S3GfsBackfillDataSource(NWPDataSource):
             wind10m_u_ms=values["wind10m_u_ms"],
             wind10m_v_ms=values["wind10m_v_ms"],
             relative_humidity_pct=values["relative_humidity_pct"],
+            precip_mm=precip_mm,
             source=self.SOURCE_NAME,
         )
         raw = RawFetchResult(

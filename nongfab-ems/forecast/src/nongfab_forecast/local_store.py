@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS nwp_history (
     wind10m_u_ms REAL,
     wind10m_v_ms REAL,
     relative_humidity_pct REAL,
+    precip_mm REAL,
     source TEXT NOT NULL,
     PRIMARY KEY (valid_time, issue_time, source)
 );
@@ -114,6 +115,10 @@ class RealDataStore:
             conn.execute("ALTER TABLE forecast_history ADD COLUMN candidate_errors TEXT")
         except sqlite3.OperationalError:
             pass
+        try:
+            conn.execute("ALTER TABLE nwp_history ADD COLUMN precip_mm REAL")
+        except sqlite3.OperationalError:
+            pass
 
     @contextmanager
     def _connect(self):
@@ -134,7 +139,14 @@ class RealDataStore:
         rows = [
             (
                 p.valid_time.isoformat(), p.issue_time.isoformat(), float(p.ssrd_w_m2), float(p.temp2m_c),
-                float(p.wind10m_u_ms), float(p.wind10m_v_ms), float(p.relative_humidity_pct), p.source,
+                float(p.wind10m_u_ms), float(p.wind10m_v_ms), float(p.relative_humidity_pct),
+                # getattr with a None default, same as insert_cloud_frames' motion
+                # fields just above - not every NWPForecastPoint-like object a
+                # caller passes in is guaranteed to carry precip_mm (e.g. PVGIS's
+                # own points don't), and a genuinely-decoded-but-absent APCP
+                # message is already None per NWPForecastPoint's own docstring.
+                float(p.precip_mm) if getattr(p, "precip_mm", None) is not None else None,
+                p.source,
             )
             for p in points
         ]
@@ -143,8 +155,8 @@ class RealDataStore:
         with self._connect() as conn:
             conn.executemany(
                 "INSERT OR REPLACE INTO nwp_history "
-                "(valid_time, issue_time, ssrd_w_m2, temp2m_c, wind10m_u_ms, wind10m_v_ms, relative_humidity_pct, source) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "(valid_time, issue_time, ssrd_w_m2, temp2m_c, wind10m_u_ms, wind10m_v_ms, relative_humidity_pct, precip_mm, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
             )
             conn.commit()

@@ -1036,3 +1036,108 @@ render ถูกต้อง
 4. รอ user ตอบเรื่อง Day-ahead hybrid real+synthetic (ค้างจาก entry ก่อน)
 5. Next steps อื่นจาก entry ก่อนหน้าๆ ยังค้างเหมือนเดิม (Financial module
    placeholder, prompt รวม Irradiance Map+3D View ให้ Track 2)
+
+---
+
+## 2026-07-18 22:12 ICT
+
+**Track 1 - เนื้อหาเชิงวิชาการ (Content/Engineering)**
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+User ถามสองเรื่องพร้อมกัน: (1) เช็ค priority list ที่เคยคุยกันไว้ก่อนหน้านี้ว่า
+ตอนนี้เป็นยังไงบ้าง โดยประกาศชัดว่า FusionSolar "ทิ้งไปเลยขอไม่ได้เเล้วจริงๆ"
+(2) ไฟเขียวให้สร้างฟีเจอร์ฝน (ข้อ 5.2 ที่ค้างไว้จาก entry ก่อนหน้านี้ รอ user
+คอนเฟิร์มก่อนเพราะเป็นงาน ingestion pipeline ใหม่)
+
+**A. สรุป priority list + ปิดสถานะ FusionSolar ถาวร**
+
+- Priority list ฉบับเต็มไม่เคย commit ไว้ในไฟล์ไหนเลย (เป็นสิ่งที่ user บอก
+  ตรงในแชทช่วง 2026-07-15/16 ก่อนมี `HANDOFF.md` ด้วยซ้ำ) - เจอแค่การอ้างอิง
+  อ้อมๆ ใน `forecast/README.md` (บรรทัด 406-408, 464, 524-526 เดิม): ข้อ 3
+  คือ "real bias-correction validation", FusionSolar เป็น "top blocker
+  สำหรับหลายข้อ" ในลิสต์
+- สิ่งที่ทำสำเร็จ/หาทางเลี่ยงได้แล้วโดยไม่ต้องรอ FusionSolar: PVGIS (ทดแทน
+  ได้แค่ข้อมูลสภาพอากาศ ไม่ใช่ข้อมูลผลิตไฟจริง - พิจารณา PVOutput/NREL
+  PVDAQ/Ausgrid/Kaggle แล้วปฏิเสธหมดเพราะเป็นข้อมูลผลิตไฟจากไซต์อื่น ทดแทน
+  ข้อมูลจริงของ Nong Fab เองไม่ได้), Sum-k LSTM (แข่งเป็น candidate ที่ 3
+  ได้แล้วโดยไม่ต้องรอ), และการ reframe เป้าหมายโปรเจกต์ทั้งก้อนไปทาง
+  Financial module เมื่อ 2026-07-16 (เพราะ forecasting แบบ sub-daily มี
+  operational value น้อยที่ไซต์นี้ - ไม่มี battery, ผูกกับ grid เต็มรูปแบบ)
+- **ปิดสถานะถาวรตามที่ user สั่งรอบนี้**: แก้ `forecast/README.md` จาก
+  "access is pending" เป็น "confirmed permanently unavailable" ทั้ง 2 จุด -
+  ข้อ 3 ของ priority list (real bias-correction validation) ปิดถาวร ไม่ใช่
+  แค่ค้างรอเหมือนเดิม ระบุชัดในไฟล์ว่า bias-correction cascade ที่ทำไปแล้ว
+  จะ validate ได้แค่ทางอ้อม (held-out RMSE กับข้อมูล synthetic/PVGIS) ไป
+  ตลอด ไม่ใช่ gap ที่รอปิดในอนาคต
+
+**B. สร้างฟีเจอร์ฝนจริง (ข้อ 5.2) ครบวงจร ตั้งแต่ ingestion ถึง 3D animation**
+
+- **`ingestion/nwp`**: `_build_filter_url` เพิ่ม `var_APCP=on`;
+  `_decode_grib_sync` decode field ใหม่ (`precip_mm`, GRIB shortName `tp`)
+  แบบ defensive - คืนค่า `None` (ไม่ใช่ `0.0` มั่วๆ) ถ้า subset ไม่มี field
+  นี้จริง (verify กับ fixture จริงที่ capture ไว้ก่อนเพิ่ม `var_APCP` แล้ว
+  เห็นว่าได้ Dataset เปล่า ไม่ error) `S3GfsBackfillDataSource` ก็ดึง APCP
+  เช่นกัน แยก try/except ต่างหากจาก 5 field หลัก (พังแล้วไม่ทำให้ row
+  ทั้งแถวพัง) - เจอ quirk จริงของ GFS ระหว่างทำ: f001 มี APCP entry **ซ้ำกัน
+  2 บรรทัด** ใน `.idx` จริง (ไม่ใช่ bug parsing) มี test pin ไว้แล้ว
+- **`forecast/local_store.py`**: เพิ่ม column `precip_mm` ใน `nwp_history`
+  พร้อม migration (`ALTER TABLE` แบบ idempotent เหมือน `candidate_errors`
+  เดิม) สำหรับ DB เก่าที่มีอยู่แล้ว
+- **`api/routes_weather.py`**: endpoint ใหม่ `GET /weather/precipitation` -
+  หาแถวที่ใกล้ "ตอนนี้" ที่สุด (ไม่ใช่แถวสุดท้าย เพราะ `nwp_history` มี
+  forecast ล่วงหน้าถึง 72 ชม.) แปลงเป็น intensity band ตามมาตรฐาน WMO
+  (light/moderate/heavy) - `available: false` เมื่อไม่มีข้อมูลจริงในช่วงเวลา
+  ใกล้พอ ไม่ใช่โกหกว่าฝนไม่ตก
+- **Frontend**: `RainLayer` component ใหม่ใน `Solar3DScene.tsx` - ฝนตกจริง
+  เป็นเส้น (ไม่ใช่ทรงกลมแบบเมฆ) จำนวนอนุภาคปรับตาม intensity (60/120/200)
+  ใช้ `useFrame` แบบเดียวกับ `SunMarker`/`CloudLayer` (animation ใน r3f
+  render loop ไม่ใช่ React state) **ไม่ทำหิมะตามที่ user สั่งชัดเจน**
+  (`Solar3DPage.tsx` ต่อ hook ใหม่ `usePrecipitationConditions()` เข้ากับ
+  scene เหมือน cloud data)
+- Test ผ่านหมด: `nwp` 43 passed (5 skip เดิม ไม่เกี่ยวกัน), `forecast` 135
+  passed, `api` 155 passed, `web` 264/264 (`tsc`/`oxlint` clean)
+- **Live-verify จริง**: boot `uvicorn`+`vite dev`, login ผ่าน `/auth/token`
+  จริง, seed ข้อมูลฝนจริง (`precip_mm=6.2`) ผ่าน `RealDataStore` แล้วยิง
+  `GET /weather/precipitation` เห็นค่ากลับมาถูกต้อง, เปิด `/3d` ผ่าน browser
+  จริง (Playwright) เห็น response เดียวกันไหลถึง frontend และ**เห็นเส้นฝน
+  ตกจริงในภาพ 3D** (มี screenshot ยืนยัน) ไม่มี console error/warning เลย
+- Commit + push แล้วไปที่ `claude/solar-optimization-forecasting-jryux7`
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- ไฟล์หลักที่แก้/เพิ่มรอบนี้: `ingestion/nwp/src/nwp_ingestion/{schemas,
+  datasource}.py`, `forecast/src/nongfab_forecast/local_store.py`,
+  `api/src/nongfab_api/routes_weather.py`, `web/src/components/
+  Solar3DScene.tsx` (`RainLayer` ใหม่), `web/src/pages/Solar3DPage.tsx`,
+  `web/src/lib/{types,api,queries}.ts` - README ทั้ง 4 module (`ingestion/
+  nwp`, `forecast`, `api`, `web`) มี entry วันที่ 2026-07-18 อธิบายครบ
+- **FusionSolar ปิดถาวรแล้ว** - อย่าเสนอ/รอ FusionSolar อีกใน session ถัดไป
+  ถ้า user ถามเรื่อง real bias-correction validation อีก ให้บอกตรงว่าปิด
+  ถาวรแล้วตามที่ user สั่งเอง ไม่ใช่เรื่องที่ยังเปิดรออยู่
+- `precip_mm` เป็นค่า **accumulated ตั้งแต่ init ของ GFS cycle** ไม่ใช่
+  mm/hr rate แท้ๆ - endpoint จำกัดแค่ reading ใกล้ "ตอนนี้" เพื่อให้
+  approximation นี้สมเหตุสมผล (accumulation window ของ GFS ใกล้ 1 ชม.
+  ที่ lead time สั้นๆ) - ถ้าจะทำอะไรที่ต้องใช้ mm/hr แม่นจริง ต้องทำ
+  de-accumulation (ลบค่าระหว่าง forecast hour ติดกัน) เพิ่ม ยังไม่ได้ทำ
+- **เตือนซ้ำเรื่อง Financial module (จาก CLAUDE.md standing reminder)**:
+  `/financial` ยังใช้ placeholder ทั้งหมด (CAPEX ฿30,000/kWp, PEA tariff
+  ฿4.0/kWh, WACC 8%, BOI holiday=0) - รอบนี้พูดถึง Financial module อ้อมๆ
+  ตอนสรุป priority list (มันคือเป้าหมายที่ reframe ไปแทน forecasting) แต่
+  ยังไม่ได้ถามตัวเลขจริงจาก user - ถ้า session หน้าคุยเรื่อง `/financial`
+  อีก ให้ถามตัวเลขจริง 4 ตัวนี้จาก user
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **⚠️ Reminder: รอบนี้แตะ `api/` (routes_weather.py) และ dependency ของมัน
+   (`forecast/local_store.py`)** - ต้องกด Deploy เองที่ Railway dashboard
+   ถ้าอยากให้ `GET /weather/precipitation` กับ column ใหม่ไปโผล่บน
+   production (auto deploy ยังใช้ไม่ได้ตามเดิม)
+2. รอ user ตอบเรื่องกล้อง 3D auto-follow ดวงอาทิตย์ (ค้างจาก entry ก่อนหน้า)
+3. รอ user ตอบเรื่อง Day-ahead hybrid real+synthetic (ค้างจาก entry ก่อนหน้า)
+4. ถ้า user อยากได้ mm/hr rate ที่แม่นกว่านี้สำหรับฝน (ไม่ใช่แค่ accumulated
+   ดิบ) ต้องทำ de-accumulation logic เพิ่ม - ยังไม่ได้ประเมิน scope
+5. Financial module placeholder (ตัวเลขจริง CAPEX/PEA tariff/WACC/BOI) -
+   ยังรอ user เหมือนเดิม
+6. Next steps อื่นจาก entry ก่อนหน้าๆ ยังค้างเหมือนเดิม (prompt รวม
+   Irradiance Map+3D View ให้ Track 2 - ส่งไปแล้ว รอ Track 2 ทำ)

@@ -8,6 +8,7 @@ import {
   getGeometry,
   getIrradianceMap,
   getPerformance,
+  getPrecipitationConditions,
   getSunPath,
   getWeatherStrip,
   postFeedback,
@@ -71,6 +72,20 @@ export function useCloudConditions() {
   return useQuery({
     queryKey: ['cloud-conditions'],
     queryFn: () => getCloudConditions(token!),
+    enabled: Boolean(token),
+    refetchInterval: LIVE_REFETCH_INTERVAL_MS,
+  })
+}
+
+// Site-wide, not per-zone (see routes_weather.py's own get_precipitation_
+// conditions docstring) - drives Solar3DPage's rain animation. Same polling
+// cadence as useCloudConditions above, for the same "stays current with the
+// live dashboard" reasoning.
+export function usePrecipitationConditions() {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['precipitation-conditions'],
+    queryFn: () => getPrecipitationConditions(token!),
     enabled: Boolean(token),
     refetchInterval: LIVE_REFETCH_INTERVAL_MS,
   })

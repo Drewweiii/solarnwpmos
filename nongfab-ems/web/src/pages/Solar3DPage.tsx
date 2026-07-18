@@ -7,7 +7,16 @@ import { Solar3DIconRail } from '../components/Solar3DIconRail'
 import { ZoneSelector } from '../components/ZoneSelector'
 import { nearestToTimestamp } from '../lib/chartData'
 import { zenithAngleDeg } from '../lib/solar3d'
-import { useCloudConditions, useForecast, useGeometry, useIrradianceMap, usePerformance, useSunPath, useZones } from '../lib/queries'
+import {
+  useCloudConditions,
+  useForecast,
+  useGeometry,
+  useIrradianceMap,
+  usePerformance,
+  usePrecipitationConditions,
+  useSunPath,
+  useZones,
+} from '../lib/queries'
 import { esriWorldImageryTileUrl } from '../lib/satelliteTile'
 import { buildAtIso, minutesToHhMm, todayIso, utcMinutesToIctHhMm } from '../lib/timeScrub'
 import './Solar3DPage.css'
@@ -56,6 +65,7 @@ export function Solar3DPage() {
   const sunPath = useSunPath(zone, date)
   const zones = useZones()
   const cloudConditions = useCloudConditions()
+  const precipitationConditions = usePrecipitationConditions()
   const irradiance = useIrradianceMap(atIso)
 
   // Defaults `timeOfDayMinutes` to the day's actual sunrise once per `date`
@@ -273,6 +283,8 @@ export function Solar3DPage() {
               cloudOpacityPct={cloudConditions.data?.available ? (cloudConditions.data.cloud_opacity_pct ?? null) : null}
               cloudMotionSpeedKmh={cloudConditions.data?.available ? (cloudConditions.data.motion_speed_kmh ?? null) : null}
               cloudMotionDirectionDeg={cloudConditions.data?.available ? (cloudConditions.data.motion_direction_deg ?? null) : null}
+              precipMm={precipitationConditions.data?.available ? (precipitationConditions.data.precip_mm ?? null) : null}
+              precipIntensity={precipitationConditions.data?.available ? (precipitationConditions.data.intensity ?? null) : null}
               viewMode={viewMode}
               zone={zone}
               groundStyle={groundStyle}

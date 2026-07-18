@@ -819,3 +819,47 @@ pagination/isolation. Full backend suite 148 passed. See `web/README.md`'s
 matching dated entry for the frontend contact-list/thread rework and its
 live 3-visitor Playwright verification (including the same privacy
 property proven end-to-end through real browsers, not just the WS layer).
+
+### Added - `GET /weather/precipitation` (2026-07-18)
+
+Sibling route to `/weather/clouds` just above, same "site-wide, not
+per-zone" reasoning - the latest real GFS precipitation (APCP) reading near
+"now", off `nwp_history` (see `ingestion/nwp/README.md`'s and
+`forecast/README.md`'s matching dated entries for the ingestion/storage
+halves - this route's own change is additive, just a new query against a
+table that already existed). Built for Solar3DPage's rain animation, per
+the same 2026-07-18 request as the cloud layer - the user explicitly
+confirmed real Thai Met data was required (no seasonal-calendar heuristic)
+and explicitly excluded snow.
+
+`nwp_history` also holds forecast rows out to 72h (unlike `cloud_history`,
+which only ever holds already-observed frames) - without a lead-time cap,
+"latest row" would mean "furthest-future forecast row", not "now". New
+`_PRECIP_MAX_LEAD_HOURS = 1.5` restricts the search to near-term rows,
+reusing `/weather/strip`'s existing `_nearest_real_row()` helper rather than
+duplicating it. `available: false` when no row within that window carries a
+non-null `precip_mm` - either the GFS subset genuinely carried no APCP
+message for that hour, or no fresh poll has landed recently.
+
+`intensity` (`"none"`/`"light"`/`"moderate"`/`"heavy"`) applies WMO surface-
+observation bands (light <2.5mm, moderate 2.5-7.6mm, heavy >7.6mm) directly
+to `precip_mm`, as a deliberate simplification for a decorative visual, not
+a rigorous rain-rate computation - `precip_mm` is GFS's raw accumulated-
+since-init value for whichever hour was decoded, not a de-accumulated mm/h
+rate (see `ingestion/nwp/README.md`'s entry). Restricting to near-term rows
+keeps this an honest approximation (GFS's own accumulation window is close
+to 1h at short lead times).
+
+**Tested**: requires-auth, unavailable-when-store-empty, unavailable-when-
+no-row-carries-precip (rows exist but all `precip_mm` are `NULL` - must not
+be confused with "confirmed dry"), returns-the-near-term-reading-over-a-
+heavier-far-future-one, and a parametrized sweep of the 5 intensity-band
+edges (`test_routes_weather.py`) - full suite green. **Live-verified**:
+booted the API against a file-backed store, seeded a real `precip_mm=6.2`
+row via `RealDataStore.insert_nwp_points`, confirmed `GET
+/weather/precipitation` returned `{"available": true, "precip_mm": 6.2,
+"intensity": "moderate", ...}` end-to-end; then loaded `/3d` in a real
+browser (Playwright) and confirmed the reading reached the frontend (network
+response inspected directly) and rendered as visible falling rain streaks
+over the panels with zero console errors - see `web/README.md`'s matching
+entry for the frontend half and screenshot.
