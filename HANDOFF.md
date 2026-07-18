@@ -940,3 +940,99 @@ render ถูกต้อง
 2. Next steps ข้ออื่นจาก entry ก่อนหน้า (17:11) ยังค้างเหมือนเดิมทั้งหมด -
    ดูรายการเต็มด้านบน (Railway deploy reminder, กล้อง 3D auto-follow,
    Day-ahead hybrid real+synthetic, Financial module placeholder)
+
+## 2026-07-18 19:39 ICT
+
+**Track 1 - เนื้อหาเชิงวิชาการ (Content/Engineering)**
+
+รอบนี้ user ส่งคลิปวิดีโอ + feedback ยาวมากเรื่องหน้า 3D View (`/3d`) ทั้งหมด
+5 ข้อใหญ่ (บางข้อมีข้อย่อย) - สรุปทำเสร็จเกือบทั้งหมดยกเว้นข้อ 5.2 (ฝน) ที่
+หยุดถามก่อนเพราะข้อมูลจริงไม่มีอยู่เลย
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+- **(ข้อ 1) อธิบายแถบควบคุมในหน้า 3D View** - ตอบตรงในแชท ไม่ใช่โค้ด: ☀️
+  Solar access view / 📊 String view / ▶️⏸ Play-Pause / ↻ Reset camera / 🛰
+  สลับพื้น grid-กับ-satellite แถบไล่สีแดง-เขียวมุมขวาบนคือ Solar Access Gauge
+  หน้าปัดคือ Compass (azimuth/elevation ดวงอาทิตย์)
+- **(ข้อ 2) แก้ดวงอาทิตย์เริ่มต้นไม่ตรงพระอาทิตย์ขึ้นจริง + แก้ animation
+  กระตุก**: ค่าเริ่มต้นตอนนี้ดึงจากจุดแรกของ `/sun-path` (ซึ่งกรองเอาเฉพาะ
+  ช่วงกลางวันอยู่แล้ว - จุดแรกคือพระอาทิตย์ขึ้นจริงพอดี) แทนเวลาตายตัวเดิม
+  - **root cause ของอาการกระตุก**: ของเดิมใช้ `setInterval` ขยับทีละ 15 นาที
+    ทุก 400ms แล้วยิง fetch ใหม่ทุกครั้ง ทำให้ดวงอาทิตย์ "กระโดด" ไม่ไหล แก้
+    โดยย้าย animation ไปทำงานข้างในของ react-three-fiber's `useFrame` เอง
+    (imperative, ไม่มี React re-render ต่อเฟรม ไม่มีการยิง network เพิ่ม)
+    แล้ว interpolate ตำแหน่งต่อเนื่องจากจุดข้อมูล sun-path 15 นาทีที่โหลดมา
+    ครั้งเดียวทั้งวันอยู่แล้ว - ได้ 60fps จริงๆ ไม่ใช่แค่ลด step ให้ถี่ขึ้น
+- **(ข้อ 3) เพิ่มแถบ irradiance ให้เด่นชัด**: การ์ดใหม่โชว์ Clear-sky GHI
+  (ค่าเดียวกับหน้า Irradiance Map ที่เวลาเดียวกัน) แยกเด่นจากตัวเลขอื่น
+- **(ข้อ 4) เพิ่มเวลากำกับการ simulation + มุมต่างๆ + lat/lon**: บรรทัด
+  "กำลังจำลอง (Simulating) 18 กรกฎาคม 2569 - 07:00 น. (ICT)" แบบเดียวกับ
+  นาฬิกาหน้า Forecast, เพิ่ม Zenith angle (90-elevation) ข้าง Compass เดิม,
+  เพิ่มพิกัด lat/lon จริงของโซนที่เลือกอยู่ (GIS/ISB/Jetty) จาก config จริง
+- **(ข้อ 5) บอกขอบเขตวันที่ + ปฏิทิน**: `<input type="date">` เดิมเปิด
+  ปฏิทินอยู่แล้ว (เช็คแล้ว ไม่ต้องแก้) - เพิ่ม caption อธิบายแทนการล็อควันที่
+  ตายตัว: จำลองตำแหน่งดวงอาทิตย์ได้ทุกวันที่ (คำนวณดาราศาสตร์ ไม่มีข้อจำกัด)
+  แต่ Forecast/Actual มีข้อมูลจริงแค่ ~3 วันย้อนหลัง/ล่วงหน้า - มี warning
+  โผล่เมื่อวันที่เลือกอยู่นอกช่วงนี้
+  - **แถมแก้ bug จริงที่เจอ**: สีแผงตอนนี้ผสม actual+forecast แล้ว (เดิมใช้
+    แค่ actual ซึ่งไม่มีค่านอก "วันนี้" ทำให้ทุกแผงโชว์ 0% เสมอเวลาเลื่อนไป
+    วันอื่นหรือเวลาในอนาคตของวันนี้ ทั้งที่มีตัวเลข forecast จริงอยู่แล้ว)
+- **(ข้อ 5.1) เพิ่ม cloud layer ลอยจริงจากข้อมูลจริง**: สร้าง endpoint ใหม่
+  `GET /weather/clouds` ดึงค่าล่าสุดจาก Himawari (`cloud_history` - ตัวเดียว
+  กับที่ Sum-k LSTM ใช้อยู่แล้ว) ทั้ง opacity% และ motion vector (ทิศ+ความเร็ว)
+  แล้ว render เป็นก้อนเมฆลอยจริงใน 3D scene ลอยตามทิศ/ความเร็วจริง -
+  **ข้อจำกัดที่บอกตรงๆ ไม่ปิดบัง**: ระบบเก็บแค่ค่า opacity รวมทั้งโรงงาน
+  ไม่ใช่ raster เชิงพื้นที่ (ข้อมูล pixel จริงอยู่ใน MinIO แยกต่างหาก ยังไม่ได้
+  ต่อ) เพราะฉะนั้นนี่คือ "มีเมฆ X% ลอยทิศนี้" ตามจริง ไม่ใช่การจำลองเงาบัง
+  แผงทีละแผงที่แม่นยำเชิงพื้นที่ - ยังทำแบบนั้นไม่ได้เพราะไม่มีข้อมูลรองรับ
+  - **เจอ bug จริงระหว่างสร้าง endpoint นี้**: `cloud_history_df()`/
+    `nwp_history_df()` ใน `local_store.py` พังถ้า timestamp ในตารางมีความ
+    ละเอียดไม่เท่ากัน (มี/ไม่มี microseconds ปนกัน) - `pd.to_datetime` เดา
+    format จากแถวแรกแล้วปฏิเสธแถวอื่นที่ไม่ตรงเป๊ะ เป็น bug จริงที่อาจเกิดใน
+    production ได้ ไม่ใช่แค่ปัญหา test - แก้แล้วด้วย `format="ISO8601"`
+    พร้อม regression test
+- **(ข้อ 5.2 ฝน) หยุดถามก่อน ไม่ทำเอง**: เช็คตรงแล้วว่า **ไม่มีข้อมูลฝน/
+  precipitation จริงอยู่ในระบบนี้เลยสักที่** (`ingestion/nwp` ดึงแค่ SSRD กับ
+  temp2m จาก GFS ไม่เคยดึง APCP แม้จะอยู่ใน index เดียวกันที่ดึงอยู่แล้วก็ตาม)
+  การทำ "ฝนจากข้อมูลจริง" ให้ตรงตามที่ user ขอ ต้องสร้าง ingestion pipeline
+  ใหม่ก่อน (ทางที่สมเหตุสมผลที่สุดคือต่อยอด GFS fetch เดิมให้ดึง APCP ด้วย
+  ไม่ใช่ต่อ Thai Meteorological Dept แยกใหม่ทั้งหมด) - งานขนาดใหญ่พอสมควร
+  เลยหยุดถาม user ก่อนแทนที่จะเดาทำเอง หรือปลอมด้วย heuristic ฤดูกาล (ผิด
+  หลักการ "ข้อมูลจริงหรือบอกตรงว่าเป็นค่าประมาณ" ของโปรเจกต์นี้)
+- Test ทั้งหมดผ่าน: web 262/262 (`tsc`/`oxlint` clean), `api` 146,
+  `forecast` 141 - live-verify ผ่าน Playwright จริงหลายมุม (พระอาทิตย์ขึ้น,
+  เที่ยงพร้อมหมุนกล้องเห็นดวงอาทิตย์+เมฆชัดเจน, กด Play แล้วเวลา/ตำแหน่ง
+  ขยับจริงไม่ค้าง) ไม่มี console error/warning เลยตลอดการทดสอบ
+- Commit + push แล้ว (merge กับงานของ Track 2 ที่ push มาระหว่างทาง
+  เรียบร้อย conflict เดียวใน `web/README.md` แก้โดยเก็บ entry ทั้งสอง track)
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- ไฟล์หลักที่แก้/เพิ่มรอบนี้: `web/src/pages/Solar3DPage.tsx` (rewrite
+  ใหญ่), `web/src/components/Solar3DScene.tsx` (`SunMarker`/`CloudLayer`
+  ใหม่), `web/src/lib/solar3d.ts` (`interpolateSunPosition`/`zenithAngleDeg`
+  ใหม่), `api/src/nongfab_api/routes_weather.py` (`GET /weather/clouds`
+  ใหม่), `forecast/src/nongfab_forecast/local_store.py` (bug fix)
+- Pattern ที่ตั้งไว้ให้ session หน้าถ้าจะทำ animation ลื่นๆ ใน 3D scene อีก:
+  อย่าใช้ React state + setInterval ขยับทีละก้อนใหญ่ - ให้ทำ animation จริง
+  ข้างใน `useFrame` (imperative ref mutation) แล้วค่อย throttle callback
+  กลับมาที่ React state แยกต่างหาก (ตัวอย่างเต็มดูที่ `SunMarker`)
+- `CloudLayer` เป็น "stylized" ไม่ใช่ physically-accurate - ถ้า user ขอเงา
+  บังแผงแบบแม่นยำจริงๆ ในอนาคต ต้องต่อ MinIO raw raster tiles ก่อน (งานใหญ่
+  กว่านี้มาก ยังไม่ได้ประเมิน scope)
+- ยังไม่ได้ทำ "กล้อง 3D auto-follow ดวงอาทิตย์" (ที่เสนอไว้ใน entry ก่อน
+  หน้านี้) - ไม่เกี่ยวกับรอบนี้โดยตรง แต่ยังเป็นคำถามค้างอยู่
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **⚠️ Reminder: รอบนี้แตะ `api/` (routes_weather.py) และ dependency ของมัน
+   (`forecast/local_store.py`)** - ต้องกด Deploy เองที่ Railway dashboard
+   ถ้าอยากให้ `GET /weather/clouds` กับ bug fix ไปโผล่บน production (auto
+   deploy ยังใช้ไม่ได้ตามเดิม)
+2. รอ user ตอบคำถามเรื่องฝน (ข้อ 5.2): จะให้สร้าง ingestion pipeline ใหม่
+   สำหรับดึง APCP จาก GFS จริงไหม (งานใหญ่ ควรเริ่มเป็น task แยก)
+3. รอ user ตอบเรื่องกล้อง 3D auto-follow ดวงอาทิตย์ (ค้างจาก entry ก่อน)
+4. รอ user ตอบเรื่อง Day-ahead hybrid real+synthetic (ค้างจาก entry ก่อน)
+5. Next steps อื่นจาก entry ก่อนหน้าๆ ยังค้างเหมือนเดิม (Financial module
+   placeholder, prompt รวม Irradiance Map+3D View ให้ Track 2)
