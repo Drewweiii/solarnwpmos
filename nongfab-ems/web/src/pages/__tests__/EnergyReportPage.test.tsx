@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '../../lib/api'
 import { AuthProvider } from '../../lib/auth'
 import type { AssetRegistry, EnergyReportResponse, Zone } from '../../lib/types'
-import { EnergyReportPage } from '../EnergyReportPage'
+import { EnergyReportPage, MONTH_LABELS } from '../EnergyReportPage'
 
 function makeZone(id: string): Zone {
   return {
@@ -153,6 +153,19 @@ describe('EnergyReportPage', () => {
     expect(await screen.findByText(/monthly generation/i)).toBeInTheDocument()
     expect(screen.getByText('Normal season')).toBeInTheDocument()
     expect(screen.getByText(/rainy season/i)).toBeInTheDocument()
+  })
+
+  it('labels the monthly chart with full Thai month names, not abbreviations', () => {
+    // recharts' <ResponsiveContainer> never renders tick text in jsdom (zero
+    // measured width/height), so this asserts on the same MONTH_LABELS array
+    // the chart's tickFormatter/labelFormatter both read from, rather than
+    // trying to query rendered SVG text that won't exist in this environment.
+    expect(MONTH_LABELS).toHaveLength(12)
+    expect(MONTH_LABELS[0]).toBe('มกราคม')
+    expect(MONTH_LABELS[11]).toBe('ธันวาคม')
+    for (const label of MONTH_LABELS) {
+      expect(label.length).toBeGreaterThan(1) // full names, not single-letter abbreviations
+    }
   })
 
   it('renders sun exposure and the 25-year estimate', async () => {

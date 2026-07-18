@@ -2254,3 +2254,24 @@ Playwright** against a real dev server + API (not just the test harness):
 scripted the identical bounce sequence in a real browser session and
 confirmed only one menu bubble remains on screen afterward (screenshot
 matches the assertion).
+
+### Fixed - Energy Report's monthly chart used single-letter English month labels (2026-07-18, Track 1 work, done by Track 2 with permission)
+
+The user asked for full (not abbreviated) Thai month names on the Monthly
+generation chart - it previously read `MONTH_LABELS = ['J', 'F', 'M', ...]`,
+a single English letter per bar. Replaced with the full spelled-out Thai
+names (มกราคม, กุมภาพันธ์, ... ธันวาคม), which are long enough that the
+X-axis ticks needed angling (`angle={-40}`, `textAnchor="end"`, extra
+`height`/`tickMargin`/bottom margin) to avoid overlapping across 12 bars -
+same pattern ForecastPage.tsx already established for its own long-label
+axis. `MONTH_LABELS` is now exported (not module-private) since recharts'
+`<ResponsiveContainer>` never renders real tick text under jsdom (reports
+zero measured width/height), so the only reliable way to test this is
+asserting on the array the chart's `tickFormatter`/`labelFormatter` both
+read from, not by querying rendered SVG text.
+
+**Tested**: new test asserts all 12 entries, first/last values, and that
+none are single-character abbreviations. Full suite 311/311, `tsc` clean.
+**Live-verified via Playwright**: logged in, navigated to Energy Report,
+screenshotted the rendered chart - all 12 full Thai names render angled,
+legible, with no overlap or clipping.
