@@ -926,6 +926,49 @@ project. Its unit tests (`deployWatch.test.ts`) cover the `index.html`-diff
 logic in isolation with a mocked `fetch`, but the real Cloudflare deploy
 path itself is unverified.
 
+### Fixed - Forecast/Prediction interval disappearing once an hour passed (2026-07-18)
+
+Follow-up to the "Generated-power bars showing future data" fix above: that
+fix correctly truncates `generated` to real "now", but the user pointed out
+the *opposite* problem existed for the Forecast line and Prediction
+interval band - they visibly vanished for any hour once real time moved
+past it, because Intra-day/Day-ahead's `/forecast` endpoint is always
+computed fresh "as of now" (`forecast/serving.py`'s `issued_at`) and only
+ever returns lead hours *forward* from whenever it was called - it was
+never a record of what had been predicted for an hour that has since
+passed.
+
+New `lib/forecastHistory.ts` (`useForecastHistory`) accumulates every
+forecast point ever fetched this session, keyed by target timestamp, so
+once an hour has been forecast it stays on the chart even after that hour
+is in the past - a newer issuance for the same hour overwrites the older
+one. Wired into `ForecastPage.tsx` between the raw per-poll
+`latestForecastPoints` and the existing `mergeGeneratedAndForecast` +
+`truncateGeneratedToNow` pipeline; resets whenever the viewer switches zone
+or horizon (`${zoneId}:${horizon}` as the reset key).
+
+**Bug found and fixed during this same pass**: the first version compared
+accumulated points by object identity (`!==`), but `sumForecastAcrossZones`
+and the query-derived arrays it consumes have no referential stability
+across renders (a fresh array/fresh point objects every render, even when
+the underlying values haven't changed) - so every point looked "changed"
+on every render, which fed back into the hook's own `setHistory` call and
+produced a real `Maximum update depth exceeded` crash, found live testing
+this exact fix (not caught by the unit tests, which all passed against
+happy-path inputs). Fixed by comparing points field-by-field instead of by
+reference; a regression test (`forecastHistory.test.ts`) now locks this in
+by asserting a brand-new object with identical field values does not
+trigger a state update.
+
+Verified live via Playwright with a mocked `/forecast` route serving two
+different lead-hour windows across a real 60-second poll interval: the
+chart's Forecast/Prediction-interval line visibly kept the *first* poll's
+points after the *second* poll's response had moved on, and hovering a
+genuinely past hour's point showed Generated power, Forecast, Model error,
+and Prediction interval all together in one tooltip - the user's own
+explicit ask. `tsc -b`, `vitest run` (137/137, 5 new in
+`forecastHistory.test.ts`), and `oxlint` all clean.
+
 ## Run locally
 
 ```bash

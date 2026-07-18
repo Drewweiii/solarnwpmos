@@ -32,6 +32,7 @@ import {
   useWeatherStrip,
   useZones,
 } from '../lib/queries'
+import { useForecastHistory } from '../lib/forecastHistory'
 import { formatDateHourIct, formatHourIct as formatHour } from '../lib/timeScrub'
 import type { ForecastHorizon, ForecastPoint, HourlyPoint } from '../lib/types'
 import './ForecastPage.css'
@@ -84,10 +85,16 @@ export function ForecastPage() {
     return singlePerformance.data?.hourly ?? []
   }, [isAllZones, allPerformance, singlePerformance.data])
 
-  const forecastPoints: ForecastPoint[] = useMemo(() => {
+  const latestForecastPoints: ForecastPoint[] = useMemo(() => {
     if (isAllZones) return sumForecastAcrossZones(allForecast.map((q) => q.data?.points ?? []))
     return singleForecast.data?.points ?? []
   }, [isAllZones, allForecast, singleForecast.data])
+
+  // Accumulates every forecast point ever fetched this session instead of
+  // only the latest poll's forward-looking window, so the Forecast line and
+  // Prediction interval band don't vanish for an hour just because it's now
+  // in the past - see forecastHistory.ts's own docstring (2026-07-18).
+  const forecastPoints = useForecastHistory(latestForecastPoints, `${zoneId}:${horizon}`)
 
   const chartRows = useMemo(
     () => truncateGeneratedToNow(mergeGeneratedAndForecast(hourly, forecastPoints)),
@@ -397,11 +404,12 @@ function ViewerGuidePanel() {
             ไม่แสดงล่วงหน้า เพื่อไม่ให้สับสนกับเส้นพยากรณ์
           </li>
           <li>
-            <strong>เส้นสีน้ำเงิน "Forecast":</strong> ค่าพยากรณ์กำลังการผลิตไฟฟ้า
+            <strong>เส้นสีน้ำเงิน "Forecast":</strong> ค่าพยากรณ์กำลังการผลิตไฟฟ้า - ยังคงแสดงไว้แม้เวลานั้นจะผ่านไปแล้ว
+            เพื่อให้เทียบกับแท่งสีม่วง (ค่าจริง) ที่เกิดขึ้นในชั่วโมงเดียวกันได้
           </li>
           <li>
             <strong>แถบสีเขียวโปร่งใส "Prediction interval":</strong> ช่วงความไม่แน่นอนของค่าพยากรณ์ - ค่าจริงมีโอกาสสูงที่จะอยู่ในช่วงนี้
-            ยิ่งแถบกว้าง ยิ่งไม่แน่นอน
+            ยิ่งแถบกว้าง ยิ่งไม่แน่นอน (แสดงค้างไว้เหมือนเส้น Forecast เช่นกัน)
           </li>
           <li>
             <strong>เส้นประสีเทา "Model error (RMSE)" (เฉพาะ Intra-day):</strong> ความคลาดเคลื่อนของโมเดลที่ชนะการแข่งขันในชั่วโมงนั้น
