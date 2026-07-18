@@ -29,7 +29,14 @@ export const AVATAR_OPTIONS: AvatarOption[] = [
   { id: 'cat', emoji: '🐱', color: '#F472B6' },
   { id: 'fox', emoji: '🦊', color: '#FB7185' },
   { id: 'panda', emoji: '🐼', color: '#64748B' },
-  { id: 'koala', emoji: '🐨', color: '#94A3B8' },
+  // Was koala 🐨 on a grey (#94A3B8) circle - the emoji's own grey/white fur
+  // tones sit so close to that background color that it read as a blank
+  // circle in practice (reported 2026-07-18, confirmed via screenshot: every
+  // other avatar rendered fine, only this one looked empty). Hamster on a
+  // warm, clearly-contrasting tan background fixes both the near-invisible
+  // rendering and having two grey circles (panda + koala) sitting next to
+  // each other and being hard to tell apart at a glance.
+  { id: 'hamster', emoji: '🐹', color: '#D97706' },
   { id: 'lion', emoji: '🦁', color: '#FBBF24' },
   { id: 'penguin', emoji: '🐧', color: '#38BDF8' },
   { id: 'unicorn', emoji: '🦄', color: '#C084FC' },

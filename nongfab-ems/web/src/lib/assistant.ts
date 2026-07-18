@@ -15,6 +15,14 @@ import type { PerformanceResponse } from './types'
 
 export interface AssistantContext {
   token: string
+  /** Optional - only used to keep a couple of canned answers (page listing,
+   * Financial) honest about what a viewer can actually reach. Simulation/
+   * Financial are operator-and-up only (Layout.tsx/App.tsx's
+   * RequireOperator, 2026-07-18) - a viewer asking about them should be told
+   * that plainly, not walked through using a page they can't open. Missing/
+   * unknown role is treated the same as non-viewer (never hides anything by
+   * default). */
+  role?: string | null
 }
 
 export interface AssistantIntent {
@@ -78,14 +86,24 @@ const HAND_WRITTEN_INTENTS: AssistantIntent[] = [
   {
     id: 'help_navigation',
     keywords: ['ใช้งานยังไง', 'ใช้ยังไง', 'หน้าไหน', 'เมนู', 'how to use', 'navigate', 'มีหน้าอะไรบ้าง'],
-    respond: () =>
-      'เว็บนี้มี 6 หน้าหลักครับ:\n' +
-      '• Forecast — กราฟพยากรณ์การผลิตไฟ เทียบกับของจริง ดูได้ทั้งรายวัน/รายชั่วโมง\n' +
-      '• Simulation — ทดลองสถานการณ์สมมติ เช่น เมฆเยอะขึ้น หรือแผงเสื่อมสภาพ\n' +
-      '• Financial — วิเคราะห์ความคุ้มค่าการลงทุน (NPV/IRR/คืนทุน)\n' +
-      '• 3D View — ดูโรงงานจำลอง 3 มิติ พร้อมเงาและเส้นทางดวงอาทิตย์\n' +
-      '• Energy Report — รายงานสรุปพลังงานรายปี/รายเดือน\n' +
-      '• Irradiance Map — แผนที่ความเข้มแสงอาทิตย์ในพื้นที่',
+    respond: (_question, ctx) => {
+      const isViewer = ctx.role === 'viewer'
+      const lines = [
+        '• Forecast — กราฟพยากรณ์การผลิตไฟ เทียบกับของจริง ดูได้ทั้งรายวัน/รายชั่วโมง',
+        ...(isViewer
+          ? []
+          : [
+              '• Simulation — ทดลองสถานการณ์สมมติ เช่น เมฆเยอะขึ้น หรือแผงเสื่อมสภาพ',
+              '• Financial — วิเคราะห์ความคุ้มค่าการลงทุน (NPV/IRR/คืนทุน)',
+            ]),
+        '• 3D View — ดูโรงงานจำลอง 3 มิติ พร้อมเงาและเส้นทางดวงอาทิตย์',
+        '• Energy Report — รายงานสรุปพลังงานรายปี/รายเดือน',
+        '• Irradiance Map — แผนที่ความเข้มแสงอาทิตย์ในพื้นที่',
+      ]
+      const intro = isViewer ? `เว็บนี้มี ${lines.length} หน้าที่ผู้ชมทั่วไปดูได้ครับ:` : `เว็บนี้มี ${lines.length} หน้าหลักครับ:`
+      const viewerNote = isViewer ? '\n(Simulation กับ Financial เปิดให้เฉพาะบัญชี operator ขึ้นไปครับ)' : ''
+      return `${intro}\n${lines.join('\n')}${viewerNote}`
+    },
   },
   // Knowledge (canned, definitional) intents are matched before the
   // data-fetching ones below: a keyword like "kwp" appears in both a plain
@@ -186,10 +204,12 @@ const HAND_WRITTEN_INTENTS: AssistantIntent[] = [
   {
     id: 'financial_info',
     keywords: ['การเงิน', 'ลงทุน', 'คืนทุน', 'roi', 'npv', 'irr', 'financial', 'คุ้มไหม'],
-    respond: () =>
-      'หน้า Financial คำนวณความคุ้มค่าการลงทุน (NPV/IRR/LCOE/ระยะเวลาคืนทุน) ให้ครับ ' +
-      'แต่ตอนนี้ตัวเลขต้นทุน/ค่าไฟ/อัตราดอกเบี้ยยังเป็นค่าประมาณเบื้องต้น ยังไม่ใช่ตัวเลขจริงของโครงการนี้ ' +
-      'ลองเข้าไปปรับตัวเลขเองที่หน้า Financial ได้เลยครับ',
+    respond: (_question, ctx) =>
+      ctx.role === 'viewer'
+        ? 'หน้า Financial (วิเคราะห์ความคุ้มค่าการลงทุน) เปิดให้เฉพาะบัญชี operator ขึ้นไปครับ บัญชีผู้ชมทั่วไปยังเข้าดูหน้านี้ไม่ได้ครับ'
+        : 'หน้า Financial คำนวณความคุ้มค่าการลงทุน (NPV/IRR/LCOE/ระยะเวลาคืนทุน) ให้ครับ ' +
+          'แต่ตอนนี้ตัวเลขต้นทุน/ค่าไฟ/อัตราดอกเบี้ยยังเป็นค่าประมาณเบื้องต้น ยังไม่ใช่ตัวเลขจริงของโครงการนี้ ' +
+          'ลองเข้าไปปรับตัวเลขเองที่หน้า Financial ได้เลยครับ',
   },
 ]
 
