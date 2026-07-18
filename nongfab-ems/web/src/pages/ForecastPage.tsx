@@ -408,11 +408,16 @@ export function ForecastPage() {
                   dot={{ r: 2 }}
                   connectNulls
                 />
+                {/* Dashed (not solid, unlike actualPast/actualNow either side of
+                    it) - the 3 "actual" lines share a color legend already, but
+                    color alone was hard to tell apart at a glance where lines
+                    cross/overlap - reported 2026-07-18. */}
                 <Line
                   dataKey="actualToday"
                   name="Actual power (earlier today)"
                   stroke="var(--chart-actual-today)"
                   strokeWidth={2}
+                  strokeDasharray="6 3"
                   dot={{ r: 2 }}
                   connectNulls
                 />
@@ -433,11 +438,20 @@ export function ForecastPage() {
                   fill="var(--chart-pi)"
                   fillOpacity={0.25}
                 />
+                {/* Dotted (round dots via a very short dash + round linecap,
+                    not a plain dash) - Forecast is the one line every other
+                    line on this chart gets compared against, so it needs its
+                    own distinct style, not just its own color, at every point
+                    it overlaps one of the 3 "actual" lines - reported
+                    2026-07-18: "เส้นกราฟ...มีการซ้อนกัน...ให้ใช้บางเส้นเป็น
+                    เส้นประ เส้นประแบบจุดแทนขีด". */}
                 <Line
                   dataKey="pred"
                   name="Forecast"
                   stroke="var(--chart-forecast)"
                   strokeWidth={2}
+                  strokeDasharray="1 6"
+                  strokeLinecap="round"
                   dot={horizonToggle === 'hour' ? forecastDot : { r: 2 }}
                   connectNulls
                 />
@@ -718,7 +732,16 @@ function MinuteAheadPanel({ rows, isLoading, hasError, isPhysicsBaseline }: Minu
                   labelFormatter={(label) => (typeof label === 'string' ? formatHour(label) : String(label))}
                   formatter={(value) => (typeof value === 'number' ? value.toFixed(1) : String(value))}
                 />
-                <Line dataKey="pred" name="Minute-ahead forecast" stroke="var(--chart-minute)" strokeWidth={2} dot={{ r: 2 }} connectNulls />
+                <Line
+                  dataKey="pred"
+                  name="Minute-ahead forecast"
+                  stroke="var(--chart-minute)"
+                  strokeWidth={2}
+                  strokeDasharray="1 6"
+                  strokeLinecap="round"
+                  dot={{ r: 2 }}
+                  connectNulls
+                />
                 <Line
                   dataKey="actualPast"
                   name="Actual power (before today)"
@@ -732,6 +755,7 @@ function MinuteAheadPanel({ rows, isLoading, hasError, isPhysicsBaseline }: Minu
                   name="Actual power (earlier today)"
                   stroke="var(--chart-actual-today)"
                   strokeWidth={2}
+                  strokeDasharray="6 3"
                   dot={{ r: 3 }}
                   connectNulls
                 />

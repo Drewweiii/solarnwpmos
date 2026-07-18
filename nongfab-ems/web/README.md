@@ -2275,3 +2275,27 @@ none are single-character abbreviations. Full suite 311/311, `tsc` clean.
 **Live-verified via Playwright**: logged in, navigated to Energy Report,
 screenshotted the rendered chart - all 12 full Thai names render angled,
 legible, with no overlap or clipping.
+
+### Fixed - Forecast page's overlapping chart lines were hard to tell apart even with different colors (2026-07-18, Track 1 work, done by Track 2 with permission)
+
+The Day-ahead/Intra-day power chart and the Minute-ahead chart both plot
+4 lines over the same time axis (`actualPast`, `actualToday`, `actualNow`,
+`pred`/Forecast) - each already its own color, but at every point two of
+them cross or run close together, color alone wasn't enough to tell which
+was which at a glance. Gave the two most-likely-to-overlap lines their own
+stroke style instead of just color: `pred` (Forecast, the one every other
+line gets compared against) is now dotted - a very short dash
+(`strokeDasharray="1 6"`) with `strokeLinecap="round"` so each dash
+renders as a small round dot rather than a rectangular dash, per the
+user's explicit preference for "เส้นประแบบจุดแทนขีด" (dot-style, not
+dash-style) - and `actualToday` gets a regular dash (`"6 3"`) since it
+sits directly between `actualPast` and `actualNow` and is the one most
+often sandwiched between two solid lines. `actualPast` and `actualNow`
+stay solid as the two "anchor" reference lines.
+
+**Tested**: `ForecastPage.test.tsx` full suite still passes unchanged
+(12/12) - this is a pure presentation change, no data/behavior shift.
+`tsc` clean. **Live-verified via Playwright**: logged in, screenshotted
+the rendered Day-ahead chart - confirmed the dotted Forecast line is
+visually distinct from the solid Actual-power line at every point they
+cross, including where the two directly overlap.
