@@ -273,3 +273,80 @@ branch `claude/solar-optimization-forecasting-jryux7`)
    (ยังไม่มี retention/cleanup policy) - เป็นจุดที่ยังไม่ได้ทำไว้ ถ้า
    production มีข้อความเยอะมากอาจต้องเพิ่ม pagination ที่ GET /feedback หรือ
    cap ประวัติแชทให้เก่ากว่านี้ถูกลบทิ้ง
+
+## 2026-07-18 13:42 ICT
+
+**Track 2 — หน้าตา/Interface + AI assistant + ระบบเชื่อมต่อผู้ชม** (บัญชีนี้ /
+branch `claude/solar-optimization-forecasting-jryux7`)
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+ผู้ใช้ขอเพิ่มเติม 2 เรื่องสำหรับระบบแชทที่เพิ่งสร้างไป (entry ก่อนหน้า) -
+ทำเสร็จแล้ว commit `9f059b2`:
+
+1. **ระบบตั้งชื่อ + เลือก avatar แบบ LINE** สำหรับ viewer/operator - เหตุผล
+   สำคัญ: login ของ viewer (`pttlng`/`12345`) เป็น credential ที่ใช้ร่วมกัน
+   หลายคนพร้อมกันได้ ดังนั้น `username` เดียวไม่พอจะแยกว่าใครเป็นใครในแชท -
+   เพิ่ม `web/src/lib/chatProfile.ts` (catalog avatar อิโมจิ 12 แบบ + สุ่ม
+   `clientId` ต่อ browser เก็บใน localStorage) และหน้าฟอร์มตั้งค่าก่อนเริ่ม
+   แชทครั้งแรก (`ProfileSetup` ใน `VisitorNetwork.tsx`) มีปุ่มแก้ไขทีหลังได้
+   (ปุ่มดินสอ) - **admin ไม่ต้องทำส่วนนี้เลย** ระบบ force ชื่อ "admin" +
+   avatar "crown" 👑 ให้อัตโนมัติ ทั้งฝั่ง UI (ข้าม picker) และฝั่ง backend
+   (`ws_chat.py` ไม่เชื่อค่าที่ client ส่งมาสำหรับ role admin เด็ดขาด)
+2. **เลื่อนดูข้อความเก่าได้ (scroll-back)** - เพิ่ม `GET /chat/history?
+   before_id=` endpoint (`ws_chat.py`) โหลดข้อความเก่าทีละหน้าเมื่อเลื่อนขึ้น
+   บนสุดของแชท (infinite scroll, คง scroll position ไว้ไม่กระโดด)
+3. **ระบบแจ้งเตือนข้อความที่ยังไม่ได้อ่าน แบบ LINE/Messenger** - badge สีแดง
+   (ใช้ `--danger` แทนสีม่วงเดิมที่เคยโชว์ online count) นับจำนวนข้อความใหม่
+   ที่เข้ามาระหว่างที่ไม่ได้เปิดดูแท็บแชทอยู่ เก็บ `lastReadMessageId` ไว้ใน
+   localStorage เพื่อให้ค่านี้อยู่ข้ามการ reload หน้าเว็บด้วย (ไม่ใช่แค่ใน
+   session เดียว) - เคลียร์อัตโนมัติทันทีที่เปิดแท็บแชทดู
+4. เพิ่ม `client_id` เข้าไปใน schema/protocol ของข้อความแชทด้วย (ไม่ใช่แค่
+   `username`) เพื่อให้ตรวจจับ "ข้อความของตัวเอง" (สำหรับ bubble style ชิดขวา)
+   ถูกต้องแม้จะ login ด้วย username เดียวกันหลายคนพร้อมกัน - migration ใหม่
+   `db/migrations/0006_chat_profile_and_history.sql` เพิ่ม 3 column
+   (`display_name`, `avatar`, `client_id`) ลงตาราง `chat_messages` เดิม
+5. **บั๊กจริงที่เจอจาก Playwright live verify** (ไม่ใช่แค่ unit test): admin
+   เห็นฟอร์มตั้งชื่อ/avatar ทั้งที่ไม่ควรเห็นเลย - สาเหตุคือ `role` จาก
+   `useAuth()` เป็น `null` ชั่วขณะหนึ่ง render หลัง login เสร็จ (เพราะ
+   `AuthProvider` ถอดรหัส JWT claims ผ่าน `useEffect` ไม่ใช่ synchronous)
+   แล้วค่า `null` นั้นดันถูก "จำ" ไว้ถาวรใน `useState` lazy initializer ของ
+   `VisitorNetwork` (evaluate แค่ครั้งเดียวตอน mount) ทำให้ admin ถูกเข้าใจผิด
+   ว่าไม่ใช่ admin ไปตลอด - แก้โดยคำนวณเงื่อนไข admin ใหม่ทุก render แทน
+6. ทดสอบครบ: unit/component tests ใหม่/แก้ไข ผ่านหมด (backend 22 ตัวที่
+   test_ws_chat.py+test_routes_feedback.py+test_login.py, suite เต็ม 135 ตัว
+   ผ่าน / frontend suite เต็ม 170 ตัวผ่าน) `tsc --noEmit` ผ่าน verify จริงผ่าน
+   Playwright จำลอง 2 browser (admin + viewer) ยืนยันครบทุกจุด: admin ไม่เห็น
+   picker, viewer เห็น picker ครั้งแรกแล้วหายไปหลัง reload (persist สำเร็จ),
+   badge แจ้งเตือนขึ้นเลข 1 ตอนปิดหน้าต่างแล้วมีข้อความใหม่ และหายไปทันทีที่
+   เปิดดู, admin เห็นชื่อ+avatar ที่ viewer เลือกจริง
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- ระหว่าง push งานนี้ push ชนกับงานของ Track 1 สองรอบ (ทั้ง entry ก่อนหน้า
+  และรอบนี้) - ใช้ `git pull --rebase` แก้ทุกครั้ง ไม่มี merge conflict เกิดขึ้น
+  จริงสักครั้ง เพราะ Track 1/2 แยกไฟล์กันชัดเจนตามที่ตกลงไว้ - build/test
+  ผ่านหมดหลัง rebase ทุกครั้งเช่นกัน
+- Client-side `chatProfile.ts` ใช้ `crypto.randomUUID()` - รองรับ browser
+  สมัยใหม่ทั้งหมดที่เว็บนี้ target อยู่แล้ว ไม่ต้องมี polyfill
+- ยังไม่มีการ resolve/reply ให้ feedback (ตามที่ตั้งใจไว้แต่แรก - ผู้ใช้ไม่ได้
+  ขอ) และยังไม่มี retention policy ให้ `chat_messages` (ข้อความสะสมไปเรื่อยๆ
+  ไม่มีวันลบอัตโนมัติ) - เหมือน entry ก่อนหน้าที่เคยเตือนไว้แล้ว
+- **Railway ยังไม่ auto-deploy** - session นี้แก้ `api/` เพิ่มเติมอีก (endpoint
+  ใหม่ `GET /chat/history`, protocol `/ws/chat` เปลี่ยน, ตาราง DB เพิ่ม 3
+  column) - ต้องกด Deploy บน Railway เองอีกครั้งหลัง push นี้ด้วย (รวมกับที่
+  ค้างจาก entry ก่อนหน้าถ้ายังไม่ได้กด)
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **งาน Track 2 ที่ผู้ใช้ระบุไว้ล่าสุดเสร็จครบแล้ว** (profile picker,
+   scroll-back, unread badge) - รอผู้ใช้สั่งงานเพิ่มเติม หรือฟีดแบ็กจากการ
+   ทดลองใช้จริง
+2. **ต้องกด Deploy บน Railway ด้วยตัวเอง** อีกครั้ง (purple "Deploy" button,
+   tab Deployments ของ service `api`) - migration `0006_chat_profile_and_
+   history.sql` ต้องรันบน production Postgres ด้วย (หรือปล่อยให้
+   `create_tables_on_startup` จัดการก็ได้ถ้ายังไม่เคย deploy ตาราง
+   `chat_messages` มาก่อนเลย - แต่ถ้า deploy ตารางเดิมไปแล้วตั้งแต่ entry
+   ก่อนหน้า ต้องรัน migration SQL เพิ่มคอลัมน์จริงๆ ไม่งั้น column ใหม่จะไม่มี)
+3. ถ้าผู้ใช้อยากได้ retention policy สำหรับ `chat_messages` หรือระบบ reply
+   ให้ feedback ในอนาคต ยังไม่มีใครเริ่มทำไว้เลย
