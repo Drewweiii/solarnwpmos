@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useAuth } from '../lib/auth'
+import { LoginSolarDecor } from './LoginSolarDecor'
 import { LoginWelcome } from './LoginWelcome'
 import { OrgLogos } from './OrgLogos'
 
@@ -26,6 +27,7 @@ export function Login() {
 
   return (
     <div className="login-screen">
+      <LoginSolarDecor />
       <LoginWelcome />
       <OrgLogos variant="login" />
       <form className="login-form" onSubmit={handleSubmit}>

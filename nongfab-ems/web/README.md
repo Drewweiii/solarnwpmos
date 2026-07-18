@@ -1895,6 +1895,28 @@ mascot and chat toggle are visible in the initial viewport with no zoom
 needed, and the collapsed model-info table stays genuinely hidden (visible
 screenshot: just the collapsed "▶" summary rows, no leaked table content).
 
+### Added - subtle solar-system decoration on the login screen (2026-07-18)
+
+The user asked for the empty left/right margins on a wide login screen to
+be decorated in a solar-system theme, explicitly "ทำพอดีๆ" (tastefully, not
+cluttered) - so this is deliberately restrained: `LoginSolarDecor.tsx`
+renders a small glowing sun + two thin orbit rings (one small dot each,
+`--accent` purple and a light blue) per side, plus 3 faint twinkling stars,
+all `aria-hidden`/`pointer-events: none` (carries no information) at ~40%
+opacity so it never competes with the actual sign-in form. `position:
+fixed` at `z-index: -1` so it can never sit above the form or the
+`LoginWelcome` modal regardless of DOM order. Orbits rotate slowly (34s/
+64s, opposite directions) via CSS `@keyframes`, respecting
+`prefers-reduced-motion`. Hidden entirely below a 1020px viewport - no
+spare margin to decorate there, and it must never become a third source of
+the mobile horizontal-overflow bug fixed just above in this same entry.
+
+**Tested**: `LoginSolarDecor.test.tsx` (new) - renders without crashing,
+`aria-hidden`, no interactive elements. Full suite 290/290, `tsc` clean.
+**Live-verified via Playwright** at a 1600px viewport in both color
+schemes (screenshots) and confirmed `display: none` actually applies at
+900px width (below the breakpoint).
+
 ## Run locally
 
 ```bash
