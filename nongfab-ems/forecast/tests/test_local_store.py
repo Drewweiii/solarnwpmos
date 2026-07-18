@@ -1,3 +1,4 @@
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -355,6 +356,72 @@ def test_migrates_pre_precip_mm_nwp_history_table(tmp_path):
     ])
     df = store.nwp_history_df()
     assert df.iloc[0]["precip_mm"] == 3.1
+
+
+def test_in_memory_store_is_usable_from_a_different_thread_than_it_was_created_on():
+    """Regression test (2026-07-18): production's api/ constructs its one
+    RealDataStore on startup, but reads it from more than one thread over
+    the app's lifetime - request-driven reads via asyncio.to_thread *and* a
+    separately-scheduled background retrain job. Railway's own deploy logs
+    showed this failing for real: "retrain failed for Jetty/day" with
+    sqlite3.ProgrammingError: SQLite objects created in a thread can only be
+    used in that same thread. Reproduces that exact shape: construct on the
+    main thread, read from a different one.
+    """
+    store = RealDataStore(db_path=":memory:")
+    store.insert_nwp_points([
+        _FakeNWPPoint(
+            valid_time=datetime(2026, 7, 18, 0, tzinfo=timezone.utc), issue_time=datetime(2026, 7, 18, 0, tzinfo=timezone.utc),
+            ssrd_w_m2=1.0, temp2m_c=1.0, wind10m_u_ms=1.0, wind10m_v_ms=1.0, relative_humidity_pct=1.0, source="test",
+        )
+    ])
+
+    results: dict[str, object] = {}
+
+    def read_from_another_thread():
+        try:
+            results["df"] = store.nwp_history_df()
+        except Exception as exc:  # noqa: BLE001 - captured to fail the test with a clear assertion, not a thread-swallowed traceback
+            results["error"] = exc
+
+    thread = threading.Thread(target=read_from_another_thread)
+    thread.start()
+    thread.join()
+
+    assert "error" not in results, f"reading from another thread raised: {results.get('error')!r}"
+    assert len(results["df"]) == 1
+
+
+def test_in_memory_store_serializes_concurrent_access_across_threads():
+    """Same scenario as above but with real concurrent writers/readers (not
+    just sequential different-thread access) - guards the _memory_lock
+    actually serializing access, not just check_same_thread=False silencing
+    the same-thread assertion while leaving concurrent use unsafe.
+    """
+    store = RealDataStore(db_path=":memory:")
+    errors: list[Exception] = []
+
+    def insert_one(i: int):
+        try:
+            store.insert_nwp_points([
+                _FakeNWPPoint(
+                    valid_time=datetime(2026, 7, 18, i % 24, tzinfo=timezone.utc),
+                    issue_time=datetime(2026, 7, 18, 0, tzinfo=timezone.utc),
+                    ssrd_w_m2=float(i), temp2m_c=1.0, wind10m_u_ms=1.0, wind10m_v_ms=1.0, relative_humidity_pct=1.0,
+                    source=f"thread-{i}",
+                )
+            ])
+        except Exception as exc:  # noqa: BLE001 - collected below for a clear assertion
+            errors.append(exc)
+
+    threads = [threading.Thread(target=insert_one, args=(i,)) for i in range(20)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+    assert store.counts()["nwp_history"] == 20
 
 
 def test_two_in_memory_stores_do_not_share_state():

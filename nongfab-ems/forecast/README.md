@@ -857,6 +857,46 @@ attribute at all, and the same pre-existing-table migration scenario
 `test_migrates_pre_candidate_errors_forecast_history_table` already
 established for `forecast_history`. `forecast -v`: all passing.
 
+## Fixed - `RealDataStore`'s `:memory:` mode crashed background retrain jobs with a cross-thread SQLite error (2026-07-18)
+
+Reported by the user from Railway's own Deploy Logs: `"retrain failed for
+Jetty/day, will retry next cycle"` followed by
+`sqlite3.ProgrammingError: SQLite objects created in a thread can only be
+used in that same thread`. Root cause was in `local_store.py`'s `:memory:`
+special case, not the retrain loop itself: `RealDataStore.__init__` opens
+one `sqlite3.Connection` and holds it open for the store's whole lifetime
+(documented, deliberate - a fresh `connect()` on `:memory:` would be a
+*different*, independently-empty database each time), but that connection
+is only usable from whichever thread created it by default. Production's
+one `RealDataStore` (constructed once at `api/`'s startup, per
+`real_data_db_path` defaulting to `""` -> `:memory:`) gets read from more
+than one thread over its life: request-driven reads via `asyncio.to_thread`,
+*and* `ingestion_scheduler.py`'s separately-scheduled background retrain
+job. Whichever of those two didn't happen to run on the thread that called
+`__init__` hit this every time.
+
+Fixed with `check_same_thread=False` on that one connection plus an
+explicit `threading.Lock` (`_memory_lock`) that every `_connect()` call
+holds for its full duration - `check_same_thread=False` alone only lifts
+sqlite3's own same-thread assertion, it does not make a single
+`Connection` object safe for genuinely concurrent use from multiple
+threads, so the lock is what actually makes this safe rather than just
+quiet. The file-backed path (`NONGFAB_REAL_DATA_DB` set to a real path)
+was never affected - it already reconnects fresh per call, which
+sidesteps this class of bug entirely per this module's own docstring.
+
+**Tested**: two new regression tests -
+`test_in_memory_store_is_usable_from_a_different_thread_than_it_was_created_on`
+reproduces the exact scenario (construct on the main thread, read from a
+different one) and, before the fix, raised the identical
+`sqlite3.ProgrammingError` message seen in the Railway logs (verified by
+temporarily reverting the fix and re-running - confirms the test would
+have caught this); `test_in_memory_store_serializes_concurrent_access_across_threads`
+fires 20 concurrent inserts from 20 threads and asserts every single one
+lands with no lost writes, guarding the lock actually serializing access
+rather than just silencing the same-thread check. Full `forecast` suite:
+146/146 passing. `ruff check`: clean.
+
 ## Known gaps / next steps
 
 - **No automatic retraining pipeline of its own** - `registry.log_run()` +
