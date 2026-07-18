@@ -5,6 +5,7 @@ import {
   formatDateHourUtc,
   formatHourIct,
   formatHourUtc,
+  ictDateKey,
   minutesToHhMm,
   todayIso,
   utcMinutesToIctHhMm,
@@ -69,6 +70,22 @@ describe('formatHourIct', () => {
 
   it('rolls over into the next day past 17:00 UTC', () => {
     expect(formatHourIct('2026-07-17T17:30:00Z')).toBe('00:30')
+  })
+})
+
+describe('ictDateKey', () => {
+  it('returns a YYYY-MM-DD date in Thai local time', () => {
+    expect(ictDateKey('2026-07-17T05:30:00Z')).toBe('2026-07-17') // 12:30 ICT, same UTC date
+  })
+
+  it('rolls the date forward across the UTC+7 boundary (late UTC evening)', () => {
+    expect(ictDateKey('2026-07-17T17:30:00Z')).toBe('2026-07-18') // 00:30 ICT the next day
+  })
+
+  it('keeps the *previous* UTC date for ICT early-morning hours', () => {
+    // 2026-07-13T18:00:00Z is 01:00 ICT on 2026-07-14 - a UTC date slice
+    // would wrongly say "2026-07-13".
+    expect(ictDateKey('2026-07-13T18:00:00Z')).toBe('2026-07-14')
   })
 })
 

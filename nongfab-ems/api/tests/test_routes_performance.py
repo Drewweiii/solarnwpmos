@@ -61,6 +61,12 @@ def test_get_performance_returns_metrics_for_viewer(app, token_factory, monkeypa
     # day's hourly sum, not equal to it (that was the pre-fix bug).
     assert body["ac_energy_kwh_today"] < sum(p["ac_kw"] for p in body["hourly"])
     assert body["ac_energy_kwh_today"] == pytest.approx(sum(p["ac_kw"] for p in body["hourly"][:4]))
+    # 2026-07-18: persisted actual/generated-power history (previous days,
+    # not just today) - backfilled on this same call since none existed yet.
+    assert "history" in body
+    assert isinstance(body["history"], list)
+    assert len(body["history"]) > 0
+    assert {"timestamp", "ac_kw"} <= body["history"][0].keys()
 
 
 def test_get_performance_includes_zone_coordinates_and_cloud_factor(app, token_factory):

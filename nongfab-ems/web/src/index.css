@@ -20,6 +20,19 @@
   --chart-sumk: #0d9488;
   --chart-minute: #dc2626;
   --chart-error: #78716c;
+  /* Actual/generated power, split into 3 recency tiers (2026-07-18) - the
+     most-recent reading keeps --accent (unchanged, same purple the old
+     single "Generated power" bar always used); these 2 are new, for the
+     2 tiers extending backward in time that didn't exist before.
+     --chart-actual-past was originally an indigo (#4338ca) but live-testing
+     showed it read as near-identical to --chart-forecast's blue once both
+     were on screen together - defeating the whole point of this feature
+     (the user's own complaint was exactly this kind of "hard to tell
+     apart"). Switched to a warm brown/gold, the only hue family not
+     already used elsewhere on this chart (blue/green/orange/teal/red/
+     purple/pink are all taken - see the other --chart-* vars above). */
+  --chart-actual-today: #db2777;
+  --chart-actual-past: #92400e;
   --danger: #dc2626;
   --danger-bg: rgba(220, 38, 38, 0.1);
   --ok: #16a34a;
@@ -66,6 +79,8 @@
     --chart-sumk: #2dd4bf;
     --chart-minute: #f87171;
     --chart-error: #a8a29e;
+    --chart-actual-today: #f9a8d4;
+    --chart-actual-past: #d97706;
     --danger: #f87171;
     --danger-bg: rgba(248, 113, 113, 0.15);
     --ok: #4ade80;

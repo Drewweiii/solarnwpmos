@@ -15,6 +15,7 @@ function makePerformance(zone: string, ac_kw: number, ac_energy_kwh_today: numbe
     specific_yield_kwh_per_kwp_today: 4,
     loss_breakdown: {},
     hourly: [{ timestamp: new Date().toISOString(), ac_kw, ssrd_w_m2: 500, temp_c: 30 }],
+    history: [],
     cloud_factor: 0.5,
   }
 }

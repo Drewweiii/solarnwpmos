@@ -1079,6 +1079,76 @@ with the winner's `fill-opacity: 1` vs losers' `0.3` confirmed directly
 against the rendered SVG, and (d) the expanded guide panel's new RMSE
 section rendering correctly.
 
+### Added - Actual/generated power split into 3 recency-colored lines, multi-day history (2026-07-18)
+
+The main chart's "Generated power" was a single purple `<Bar>`, only ever
+showing *today* (`/performance`'s `hourly` field has no persistence, see
+`forecast/README.md`'s matching entry for the backend half). The user asked
+for two things: (1) extend it backward across multiple days like the
+Forecast/PI line already does, and (2) since one flat color would be hard
+to read against the blue Forecast line, split it into 3 recency-colored
+tiers instead of one.
+
+- **`lib/types.ts`**: new `GeneratedPowerPoint {timestamp, ac_kw}`;
+  `PerformanceResponse` gained `history: GeneratedPowerPoint[]`.
+- **`lib/timeScrub.ts`**: new `ictDateKey(iso)` - YYYY-MM-DD in Thai local
+  time (`en-CA` locale formatting happens to be ISO-shaped), needed because
+  "is this today?" must follow this project's Thailand-first display
+  convention (root `CLAUDE.md`), not a UTC calendar-day slice - ICT's early
+  morning hours (00:00-06:59 ICT) fall on the *previous* UTC calendar date.
+- **`lib/chartData.ts`**: `ChartRow`'s single `generated` field replaced
+  with `actualPast`/`actualToday`/`actualNow` (previous days / today-but-
+  already-past / the single most-recent already-happened reading).
+  `mergeGeneratedAndForecast()` gained `history`/`nowIso` parameters and
+  now outer-joins 3 sources (today's `hourly`, persisted `history`,
+  `forecastPoints`) instead of 2; `truncateGeneratedToNow()` nulls all 3
+  tiers instead of one. New `sumGeneratedPowerHistoryAcrossZones()` (same
+  "All" zone aggregation pattern as `sumHourlyAcrossZones`) and
+  `filterToRecentPast()` (bounds `useForecastHistory`'s otherwise-unbounded
+  accumulation to a trailing window - used by the Minute-ahead panel below).
+- **`index.css`**: 2 new chart color variables, `--chart-actual-today` and
+  `--chart-actual-past` (the "now" tier keeps `--accent`, unchanged - same
+  purple the old single bar always used). **Found live-testing**: the
+  first choice for `--chart-actual-past` was an indigo (`#4338ca`) - it
+  read as visually near-identical to `--chart-forecast`'s blue once both
+  were rendered together, defeating the whole point of this feature (the
+  user's own original complaint was exactly this "hard to tell apart"
+  problem). Switched to a warm brown/gold (`#92400e` light / `#d97706`
+  dark) - the only hue family not already claimed by another `--chart-*`
+  variable on this same chart (blue/green/orange/teal/red/purple/pink are
+  all taken).
+- **`pages/ForecastPage.tsx`**: main chart's `<Bar dataKey="generated">`
+  replaced with 3 `<Line>`s (`actualPast`/`actualToday`/`actualNow`); new
+  caption below the chart explaining the 3 tiers; `ViewerGuidePanel`'s
+  "Generated power" bullet rewritten to describe the 3-color line instead.
+  `MinuteAheadPanel` gained two additions per the user's explicit request:
+  (1) its own forecast line now looks ~30 min *backward* too, not just
+  forward - `useForecastHistory` (the same client-side accumulator the
+  main chart already used) wired to `minutePoints` for the first time,
+  filtered to a trailing 30-min window via the new `filterToRecentPast()`;
+  minute-ahead has no server-side persistence (`forecast/serving.py`'s
+  `FORECAST_HISTORY_LOOKBACK_HOURS` excludes it on purpose), so this
+  client-side accumulation is the only source for that. (2) the same
+  3-tier actual-power lines now overlay the Minute-ahead panel too, reusing
+  `chartRows` (hourly resolution - there is no minute-resolution actual-
+  power source anywhere in this system) narrowed to a ±90 min window via
+  each `<Line>`'s own `data` prop (Recharts supports per-series `data`
+  distinct from the parent chart's, so no merge into one unified row array
+  was needed for this).
+
+**Live-verified end to end via Playwright**, not just `vitest run`
+(204/204, several new in `chartData.test.ts`/`timeScrub.test.ts`/
+`ForecastPage.test.tsx`) and `tsc -b` (clean): booted a real `uvicorn`
+(file-backed SQLite) and confirmed a fresh boot's `/performance/GIS`
+already returned 72 backfilled `history` rows immediately (no cold-start
+gap), then loaded the dashboard in a real browser and confirmed (a) the
+legend and caption for all 3 tiers, (b) a hovered "before today" point's
+tooltip correctly labeled and valued, (c) the indigo-vs-blue color clash
+found and fixed as described above (screenshots before/after), (d) dark
+mode, and (e) the Minute-ahead panel's backward window and actual-power
+overlay rendering alongside its own forecast line and the main chart's
+per-model error lines simultaneously with no visual collision.
+
 ## Run locally
 
 ```bash

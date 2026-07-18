@@ -7,13 +7,18 @@ from nongfab_forecast.local_store import RealDataStore
 from nongfab_forecast.serving import (
     FALLBACK_PI_HALF_WIDTH_PCT,
     FORECAST_HISTORY_LOOKBACK_HOURS,
+    GENERATED_POWER_BACKFILL_HOURS,
+    GENERATED_POWER_HORIZON,
     ModelNotTrainedError,
     UnknownHorizonError,
     UnknownZoneError,
     _ceil_to,
     backfill_forecast_history,
+    backfill_generated_power_history,
+    generated_power_history,
     get_forecast_with_fallback,
     get_latest_forecast,
+    record_generated_power,
     validate_horizon,
     validate_zone,
 )
@@ -252,3 +257,71 @@ def test_backfill_forecast_history_is_a_noop_for_minute_horizon():
     inserted = backfill_forecast_history("GIS", "minute", store, now=datetime.now(timezone.utc))
     assert inserted == 0
     assert store.counts()["forecast_history"] == 0
+
+
+def test_record_generated_power_persists_at_the_hour_boundary():
+    store = RealDataStore()
+    now = datetime(2026, 7, 18, 14, 23, 7, tzinfo=timezone.utc)
+    inserted = record_generated_power("GIS", store, 42.5, now=now)
+    assert inserted == 1
+
+    rows = store.forecast_history_points("GIS", GENERATED_POWER_HORIZON, since=now - timedelta(hours=1))
+    assert len(rows) == 1
+    target_time, pred, *_rest = rows[0]
+    assert target_time == datetime(2026, 7, 18, 14, tzinfo=timezone.utc).isoformat()  # rounded down to the hour
+    assert pred == pytest.approx(42.5)
+
+
+def test_record_generated_power_upserts_within_the_same_hour():
+    store = RealDataStore()
+    now = datetime(2026, 7, 18, 14, 0, tzinfo=timezone.utc)
+    record_generated_power("GIS", store, 10.0, now=now)
+    record_generated_power("GIS", store, 20.0, now=now + timedelta(minutes=30))
+
+    rows = store.forecast_history_points("GIS", GENERATED_POWER_HORIZON, since=now - timedelta(hours=1))
+    assert len(rows) == 1  # same hour bucket, not two rows
+    assert rows[0][1] == pytest.approx(20.0)  # the later poll's value won
+
+
+def test_generated_power_history_reads_back_only_timestamp_and_pred():
+    store = RealDataStore()
+    now = datetime(2026, 7, 18, 14, tzinfo=timezone.utc)
+    record_generated_power("GIS", store, 33.0, now=now)
+
+    points = generated_power_history("GIS", store, since=now - timedelta(hours=1))
+    assert len(points) == 1
+    assert points[0].timestamp == now
+    assert points[0].pred == pytest.approx(33.0)
+    assert points[0].algorithm is None  # not a forecast - no algorithm/error/candidate_errors ever set
+    assert points[0].error is None
+    assert points[0].candidate_errors is None
+
+
+def test_backfill_generated_power_history_seeds_the_full_lookback_window():
+    now = datetime(2026, 7, 18, 12, tzinfo=timezone.utc)
+    store = RealDataStore()
+
+    inserted = backfill_generated_power_history("GIS", store, now=now)
+
+    assert inserted == GENERATED_POWER_BACKFILL_HOURS
+    points = generated_power_history("GIS", store, since=now - timedelta(hours=GENERATED_POWER_BACKFILL_HOURS))
+    assert len(points) == GENERATED_POWER_BACKFILL_HOURS
+    for point in points:
+        assert point.timestamp < now
+
+
+def test_a_live_poll_overwrites_its_own_backfilled_hour():
+    """Same 'freshest wins' upsert semantics as forecast_history's own
+    backfill-then-live-poll overlap - once record_generated_power() reports
+    a real reading for the current hour, it must supersede whatever
+    backfill_generated_power_history() estimated for that same hour."""
+    now = datetime(2026, 7, 18, 12, tzinfo=timezone.utc)
+    store = RealDataStore()
+    backfill_generated_power_history("GIS", store, now=now)
+
+    current_hour = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
+    record_generated_power("GIS", store, 999.0, now=current_hour)
+
+    points = generated_power_history("GIS", store, since=now - timedelta(hours=GENERATED_POWER_BACKFILL_HOURS))
+    matched = next(p for p in points if p.timestamp == current_hour)
+    assert matched.pred == pytest.approx(999.0)

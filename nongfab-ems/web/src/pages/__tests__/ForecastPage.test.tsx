@@ -50,6 +50,13 @@ function makePerformance(zone: string, peakKw: number): PerformanceResponse {
     specific_yield_kwh_per_kwp_today: 6.4,
     loss_breakdown: { soiling_pct: 2.5 },
     hourly,
+    // 2 previous days of persisted actual power (2026-07-18) - lets tests
+    // verify the "before today" tier actually has data to render, not just
+    // today's own `hourly`.
+    history: [
+      { timestamp: '2026-07-12T10:00:00Z', ac_kw: peakKw * 0.5 },
+      { timestamp: '2026-07-13T10:00:00Z', ac_kw: peakKw * 0.6 },
+    ],
     cloud_factor: 0.75,
   }
 }
@@ -219,6 +226,25 @@ describe('ForecastPage', () => {
     const panel = await screen.findByLabelText(/model competition panel/i)
     expect(within(panel).queryByText('No data yet.')).not.toBeInTheDocument()
     expect(within(panel).queryByText(/no intra-day forecast model/i)).not.toBeInTheDocument()
+  })
+
+  it('shows the 3-tier actual-power caption once any actual-power data is present', async () => {
+    // jsdom's ResponsiveContainer never gets a real box (see the Model
+    // Competition test above), so this only asserts the data-presence
+    // branch was taken, not the rendered SVG's stroke colors - those are
+    // covered by chartData.test.ts's own tier-assignment unit tests plus
+    // live Playwright verification (see forecast/README.md's dated entry).
+    vi.useFakeTimers({ toFake: ['Date'] })
+    // Within the fixture's "today" (2026-07-14), matching hourlySeries's own
+    // UTC-day timestamps, so `hourly` data qualifies as "today"/"now" tiers
+    // and makePerformance's `history` (07-12, 07-13) qualifies as "before
+    // today".
+    vi.setSystemTime(new Date('2026-07-14T12:00:00.000Z'))
+
+    renderPage()
+    await clickGisTab()
+
+    expect(await screen.findByText(/เพื่อให้เทียบกับเส้น Forecast สีน้ำเงินได้ง่ายขึ้น/)).toBeInTheDocument()
   })
 })
 

@@ -1,9 +1,20 @@
-import type { ForecastPoint, HourlyPoint } from './types'
+import { ictDateKey } from './timeScrub'
+import type { ForecastPoint, GeneratedPowerPoint, HourlyPoint } from './types'
 
 export interface ChartRow {
   key: string
   timestamp: string
-  generated: number | null
+  // Actual/generated power, split into 3 recency tiers (2026-07-18, replacing
+  // the single `generated` field) so a viewer can tell at a glance how old a
+  // given reading is without having to read the x-axis - added because a
+  // single purple bar/line for "everything real" was hard to compare against
+  // the blue Forecast line at a glance (the user's own report). Exactly one
+  // of these three is non-null for any given already-happened timestamp -
+  // see mergeGeneratedAndForecast's own docstring for the exact boundary
+  // rules. All three are null for a future timestamp (not yet happened).
+  actualPast: number | null // previous days (not today, ICT calendar date)
+  actualToday: number | null // today (ICT), but strictly before `actualNow`'s point
+  actualNow: number | null // the single most recent already-happened reading
   pred: number | null
   lower: number | null
   upper: number | null
@@ -51,85 +62,129 @@ export function exactTimeKey(iso: string): string {
   return iso
 }
 
-/** Outer-joins "generated" (today's actual/baseline power, from
- * /performance's hourly series) with "forecast" (from /forecast) on their
- * hour bucket. The two series can have different, only partially
- * overlapping time ranges (a day-ahead forecast rolls forward from "now",
- * today's baseline is calendar-aligned) - this keeps every hour either side
- * reported, with the other side's fields left null rather than forcing a
- * false alignment. */
-export function mergeGeneratedAndForecast(hourly: HourlyPoint[], forecastPoints: ForecastPoint[]): ChartRow[] {
+/** Keeps only points from `minutesBack` minutes before `nowIso` onward - no
+ * upper bound, so future points (a forward-looking forecast) are always
+ * kept regardless of how far out they reach. Used to bound `
+ * useForecastHistory`'s otherwise-unbounded client-side accumulation
+ * (2026-07-18) for the Minute-ahead panel, which only wants a short
+ * trailing window ("ย้อนหลังซัก 30 นาที" - about 30 min back, per the
+ * user's own request), not the panel's entire accumulated session
+ * history. */
+export function filterToRecentPast<T extends { timestamp: string }>(points: T[], nowIso: string, minutesBack: number): T[] {
+  const cutoffMs = new Date(nowIso).getTime() - minutesBack * 60 * 1000
+  return points.filter((p) => new Date(p.timestamp).getTime() >= cutoffMs)
+}
+
+function emptyChartRow(key: string, timestamp: string): ChartRow {
+  return {
+    key,
+    timestamp,
+    actualPast: null,
+    actualToday: null,
+    actualNow: null,
+    pred: null,
+    lower: null,
+    upper: null,
+    band: null,
+    algorithm: null,
+    error: null,
+    errorLightgbm: null,
+    errorRandomForest: null,
+    errorSumKLstm: null,
+  }
+}
+
+/** Outer-joins actual/generated power (today's `hourly` from /performance,
+ * plus `history` - persisted actual power for *previous* days, 2026-07-18)
+ * with "forecast" (from /forecast) on their hour bucket. The series can have
+ * different, only partially overlapping time ranges (a day-ahead forecast
+ * rolls forward from "now", today's baseline is calendar-aligned) - this
+ * keeps every hour either side reported, with the other side's fields left
+ * null rather than forcing a false alignment.
+ *
+ * Actual/generated power is split into 3 recency tiers rather than one flat
+ * `generated` value (see ChartRow's own docstring for why): the single
+ * already-happened point closest to `nowIso` is `actualNow`; every other
+ * already-happened point on the same ICT calendar date as `nowIso` is
+ * `actualToday`; every already-happened point on an earlier ICT date is
+ * `actualPast`. A point later than `nowIso` (hasn't happened yet) gets none
+ * of the three here - `truncateGeneratedToNow` below is what actually
+ * enforces that boundary for `hourly`'s own future-dated entries (this
+ * function's own tier assignment would otherwise still bucket them as
+ * "today" purely by calendar date, same reasoning `truncateGeneratedToNow`
+ * already documented for the old single-field version). */
+export function mergeGeneratedAndForecast(
+  hourly: HourlyPoint[],
+  forecastPoints: ForecastPoint[],
+  history: GeneratedPowerPoint[] = [],
+  nowIso: string = new Date().toISOString(),
+): ChartRow[] {
   const rows = new Map<string, ChartRow>()
+  const nowMs = new Date(nowIso).getTime()
+  const nowDateKey = ictDateKey(nowIso)
+
+  const allActual = [...history, ...hourly].filter((p) => new Date(p.timestamp).getTime() <= nowMs)
+  const mostRecentTimestamp = allActual.reduce<string | null>(
+    (latest, p) => (latest == null || new Date(p.timestamp).getTime() > new Date(latest).getTime() ? p.timestamp : latest),
+    null,
+  )
+
+  function assignActualTier(row: ChartRow, timestamp: string, ac_kw: number) {
+    if (timestamp === mostRecentTimestamp) row.actualNow = ac_kw
+    else if (ictDateKey(timestamp) === nowDateKey) row.actualToday = ac_kw
+    else row.actualPast = ac_kw
+  }
+
+  for (const point of history) {
+    const key = hourKey(point.timestamp)
+    const row = rows.get(key) ?? emptyChartRow(key, point.timestamp)
+    assignActualTier(row, point.timestamp, point.ac_kw)
+    rows.set(key, row)
+  }
 
   for (const point of hourly) {
     const key = hourKey(point.timestamp)
-    rows.set(key, {
-      key,
-      timestamp: point.timestamp,
-      generated: point.ac_kw,
-      pred: null,
-      lower: null,
-      upper: null,
-      band: null,
-      algorithm: null,
-      error: null,
-      errorLightgbm: null,
-      errorRandomForest: null,
-      errorSumKLstm: null,
-    })
+    const row = rows.get(key) ?? emptyChartRow(key, point.timestamp)
+    assignActualTier(row, point.timestamp, point.ac_kw)
+    rows.set(key, row)
   }
 
   for (const point of forecastPoints) {
     const key = hourKey(point.timestamp)
     const band = point.lower != null && point.upper != null ? point.upper - point.lower : null
-    const errorLightgbm = point.candidate_errors?.lightgbm ?? null
-    const errorRandomForest = point.candidate_errors?.random_forest ?? null
-    const errorSumKLstm = point.candidate_errors?.sum_k_lstm ?? null
-    const existing = rows.get(key)
-    if (existing) {
-      existing.pred = point.pred
-      existing.lower = point.lower
-      existing.upper = point.upper
-      existing.band = band
-      existing.algorithm = point.algorithm
-      existing.error = point.error
-      existing.errorLightgbm = errorLightgbm
-      existing.errorRandomForest = errorRandomForest
-      existing.errorSumKLstm = errorSumKLstm
-    } else {
-      rows.set(key, {
-        key,
-        timestamp: point.timestamp,
-        generated: null,
-        pred: point.pred,
-        lower: point.lower,
-        upper: point.upper,
-        band,
-        algorithm: point.algorithm,
-        error: point.error,
-        errorLightgbm,
-        errorRandomForest,
-        errorSumKLstm,
-      })
-    }
+    const row = rows.get(key) ?? emptyChartRow(key, point.timestamp)
+    row.pred = point.pred
+    row.lower = point.lower
+    row.upper = point.upper
+    row.band = band
+    row.algorithm = point.algorithm
+    row.error = point.error
+    row.errorLightgbm = point.candidate_errors?.lightgbm ?? null
+    row.errorRandomForest = point.candidate_errors?.random_forest ?? null
+    row.errorSumKLstm = point.candidate_errors?.sum_k_lstm ?? null
+    rows.set(key, row)
   }
 
   return [...rows.values()].sort((a, b) => a.key.localeCompare(b.key))
 }
 
-/** Nulls out `generated` (actual/baseline power) for any row whose timestamp
- * is later than `nowIso` - `hourly`'s underlying series is a full synthetic
- * *today* (see mergeGeneratedAndForecast's own docstring above), so without
- * this a chart opened at, say, 08:45 would already show bars out to 17:00
- * that haven't happened yet, making a series meant to read as "what was
- * actually produced" look like it was itself a forecast (found live
- * 2026-07-17, across all/GIS/ISB/Jetty alike). Only `generated` is touched -
- * `pred`/`lower`/`upper`/`band` are left alone, since the forecast line is
- * *supposed* to extend into the future. `nowIso` defaults to the real
- * current time but is a parameter so tests don't depend on wall-clock time. */
+/** Nulls out the 3 actual-power tiers (`actualPast`/`actualToday`/
+ * `actualNow`) for any row whose timestamp is later than `nowIso` -
+ * `hourly`'s underlying series is a full synthetic *today* (see
+ * mergeGeneratedAndForecast's own docstring above), so without this a chart
+ * opened at, say, 08:45 would already show data out to 17:00 that hasn't
+ * happened yet, making a series meant to read as "what was actually
+ * produced" look like it was itself a forecast (found live 2026-07-17,
+ * across all/GIS/ISB/Jetty alike, back when this was a single `generated`
+ * field). Only the 3 actual-power fields are touched - `pred`/`lower`/
+ * `upper`/`band` are left alone, since the forecast line is *supposed* to
+ * extend into the future. `nowIso` defaults to the real current time but is
+ * a parameter so tests don't depend on wall-clock time. */
 export function truncateGeneratedToNow(rows: ChartRow[], nowIso: string = new Date().toISOString()): ChartRow[] {
   const nowMs = new Date(nowIso).getTime()
-  return rows.map((row) => (new Date(row.timestamp).getTime() > nowMs ? { ...row, generated: null } : row))
+  return rows.map((row) =>
+    new Date(row.timestamp).getTime() > nowMs ? { ...row, actualPast: null, actualToday: null, actualNow: null } : row,
+  )
 }
 
 /** Site-wide aggregate for the "All" (รวม) zone selection: power (ac_kw) is
@@ -153,6 +208,27 @@ export function sumHourlyAcrossZones(perZone: HourlyPoint[][]): HourlyPoint[] {
   return [...acc.values()]
     .filter((entry) => entry.n === perZone.length)
     .map((entry) => ({ timestamp: entry.timestamp, ac_kw: entry.ac_kw, ssrd_w_m2: entry.ssrd_w_m2 / entry.n, temp_c: entry.temp_c / entry.n }))
+    .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+}
+
+/** Same "All" (รวม) aggregation as `sumHourlyAcrossZones` above, for
+ * `/performance`'s `history` field (persisted actual/generated power for
+ * previous days, 2026-07-18) instead of `hourly` - power sums across zones,
+ * only a timestamp every zone reported is kept. */
+export function sumGeneratedPowerHistoryAcrossZones(perZone: GeneratedPowerPoint[][]): GeneratedPowerPoint[] {
+  const acc = new Map<string, { timestamp: string; ac_kw: number; n: number }>()
+  for (const series of perZone) {
+    for (const point of series) {
+      const key = hourKey(point.timestamp)
+      const entry = acc.get(key) ?? { timestamp: point.timestamp, ac_kw: 0, n: 0 }
+      entry.ac_kw += point.ac_kw
+      entry.n += 1
+      acc.set(key, entry)
+    }
+  }
+  return [...acc.values()]
+    .filter((entry) => entry.n === perZone.length)
+    .map((entry) => ({ timestamp: entry.timestamp, ac_kw: entry.ac_kw }))
     .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
 }
 

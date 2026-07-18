@@ -2,19 +2,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildCompetitionRows,
   exactTimeKey,
+  filterToRecentPast,
   hourKey,
   mergeGeneratedAndForecast,
   nearestToNow,
   nearestToTimestamp,
   sumForecastAcrossZones,
+  sumGeneratedPowerHistoryAcrossZones,
   sumHourlyAcrossZones,
   truncateGeneratedToNow,
   weatherIconFor,
 } from '../chartData'
-import type { ForecastPoint, HourlyPoint } from '../types'
+import type { ForecastPoint, GeneratedPowerPoint, HourlyPoint } from '../types'
 
 function hourly(hourUtc: number, ac_kw: number, ssrd_w_m2 = 500, temp_c = 30): HourlyPoint {
   return { timestamp: `2026-07-14T${String(hourUtc).padStart(2, '0')}:00:00Z`, ac_kw, ssrd_w_m2, temp_c }
+}
+
+function historyPoint(iso: string, ac_kw: number): GeneratedPowerPoint {
+  return { timestamp: iso, ac_kw }
 }
 
 function forecastPoint(
@@ -57,56 +63,136 @@ describe('exactTimeKey', () => {
   })
 })
 
+describe('filterToRecentPast', () => {
+  const now = '2026-07-14T12:00:00Z'
+
+  it('drops points older than the cutoff', () => {
+    const points = [{ timestamp: '2026-07-14T11:00:00Z' }, { timestamp: '2026-07-14T11:31:00Z' }]
+    expect(filterToRecentPast(points, now, 30).map((p) => p.timestamp)).toEqual(['2026-07-14T11:31:00Z'])
+  })
+
+  it('keeps a point exactly at the cutoff', () => {
+    const points = [{ timestamp: '2026-07-14T11:30:00Z' }]
+    expect(filterToRecentPast(points, now, 30)).toHaveLength(1)
+  })
+
+  it('keeps every future point regardless of how far out it reaches', () => {
+    const points = [{ timestamp: '2026-07-14T12:00:00Z' }, { timestamp: '2026-07-15T00:00:00Z' }]
+    expect(filterToRecentPast(points, now, 30)).toHaveLength(2)
+  })
+})
+
 describe('mergeGeneratedAndForecast', () => {
+  const now = '2026-07-14T13:00:00Z'
+
   it('outer-joins on hour, filling the missing side with null', () => {
-    const rows = mergeGeneratedAndForecast([hourly(10, 20), hourly(11, 30)], [forecastPoint(11, 28, 20, 36), forecastPoint(12, 32, 24, 40)])
+    const rows = mergeGeneratedAndForecast(
+      [hourly(10, 20), hourly(11, 30)],
+      [forecastPoint(11, 28, 20, 36), forecastPoint(12, 32, 24, 40)],
+      [],
+      now,
+    )
 
     expect(rows.map((r) => r.key)).toEqual(['2026-07-14T10', '2026-07-14T11', '2026-07-14T12'])
-    expect(rows[0]).toMatchObject({ generated: 20, pred: null })
-    expect(rows[1]).toMatchObject({ generated: 30, pred: 28, lower: 20, upper: 36, band: 16 })
-    expect(rows[2]).toMatchObject({ generated: null, pred: 32, band: 16 })
+    // hour 11 is the most recent already-happened actual point (<= now) -> "now" tier
+    expect(rows[1]).toMatchObject({ actualNow: 30, actualToday: null, actualPast: null, pred: 28, lower: 20, upper: 36, band: 16 })
+    // hour 10 is same ICT day but not the most recent -> "today" tier
+    expect(rows[0]).toMatchObject({ actualToday: 20, actualNow: null, pred: null })
+    // hour 12 has no actual data at all
+    expect(rows[2]).toMatchObject({ actualPast: null, actualToday: null, actualNow: null, pred: 32, band: 16 })
   })
 
   it('sorts chronologically regardless of input order', () => {
-    const rows = mergeGeneratedAndForecast([hourly(15, 5), hourly(9, 1)], [])
+    const rows = mergeGeneratedAndForecast([hourly(15, 5), hourly(9, 1)], [], [], now)
     expect(rows.map((r) => r.key)).toEqual(['2026-07-14T09', '2026-07-14T15'])
   })
 
   it('leaves band null when a forecast point has no PI', () => {
-    const rows = mergeGeneratedAndForecast([], [forecastPoint(9, 10)])
+    const rows = mergeGeneratedAndForecast([], [forecastPoint(9, 10)], [], now)
     expect(rows[0]).toMatchObject({ pred: 10, lower: null, upper: null, band: null })
   })
 
   it('carries algorithm and error through from the forecast point', () => {
-    const rows = mergeGeneratedAndForecast([], [forecastPoint(9, 10, 8, 12, 'lightgbm', 3.5)])
+    const rows = mergeGeneratedAndForecast([], [forecastPoint(9, 10, 8, 12, 'lightgbm', 3.5)], [], now)
     expect(rows[0]).toMatchObject({ algorithm: 'lightgbm', error: 3.5 })
+  })
+
+  it('buckets `history` points from an earlier ICT calendar date as the "past" tier', () => {
+    const rows = mergeGeneratedAndForecast([hourly(10, 20)], [], [historyPoint('2026-07-12T10:00:00Z', 15)], now)
+    const pastRow = rows.find((r) => r.key === '2026-07-12T10')
+    expect(pastRow).toMatchObject({ actualPast: 15, actualToday: null, actualNow: null })
+  })
+
+  it('picks the single most-recent already-happened point across multiple `history` entries as the "now" tier', () => {
+    // No `hourly` data at all here (e.g. before today's first poll) - so
+    // the most recent of two *past-day* history points still correctly
+    // becomes the "now" tier, proving the comparison is purely
+    // chronological, not "today's data always wins".
+    const rows = mergeGeneratedAndForecast(
+      [],
+      [],
+      [historyPoint('2026-07-12T10:00:00Z', 15), historyPoint('2026-07-13T10:00:00Z', 25)],
+      now,
+    )
+    expect(rows.find((r) => r.key === '2026-07-13T10')).toMatchObject({ actualNow: 25, actualToday: null, actualPast: null })
+    expect(rows.find((r) => r.key === '2026-07-12T10')).toMatchObject({ actualPast: 15, actualNow: null })
+  })
+
+  it('uses the ICT (not UTC) calendar date to decide "today" vs "past", per the Thailand-first display convention', () => {
+    // 2026-07-14T01:00:00Z is 08:00 ICT on 2026-07-14 - same ICT date as
+    // `now` (13:00Z = 20:00 ICT, still 2026-07-14) - a UTC-date comparison
+    // would already agree here, so this alone doesn't distinguish the two;
+    // paired with the next test below for the boundary case that does.
+    // A later `hourly` point (hour 12) claims the "now" tier so this point
+    // is free to land on "today" instead of being auto-claimed as "now"
+    // for simply being the only actual point in the series.
+    const rows = mergeGeneratedAndForecast([hourly(12, 99)], [], [historyPoint('2026-07-14T01:00:00Z', 7)], now)
+    expect(rows.find((r) => r.key === '2026-07-14T01')).toMatchObject({ actualToday: 7, actualNow: null, actualPast: null })
+  })
+
+  it('treats late-UTC-evening-of-the-previous-day as "today" in ICT (the UTC/ICT boundary case)', () => {
+    // 2026-07-13T18:00:00Z is 01:00 ICT on 2026-07-14 - a *different* UTC
+    // calendar date (07-13) from `now`'s 07-14, but the *same* ICT date. A
+    // naive UTC-date comparison would wrongly bucket this as "past".
+    const rows = mergeGeneratedAndForecast([hourly(12, 99)], [], [historyPoint('2026-07-13T18:00:00Z', 9)], now)
+    expect(rows.find((r) => r.key === '2026-07-13T18')).toMatchObject({ actualToday: 9, actualPast: null, actualNow: null })
   })
 })
 
 describe('truncateGeneratedToNow', () => {
   const now = '2026-07-14T12:00:00Z'
 
-  it('nulls generated for rows after now, leaving forecast fields untouched', () => {
+  it('nulls all 3 actual-power tiers for rows after now, leaving forecast fields untouched', () => {
     const rows = mergeGeneratedAndForecast(
       [hourly(11, 20), hourly(13, 30)], // 13:00 is "in the future" relative to `now`
       [forecastPoint(13, 28, 20, 36)],
+      [],
+      now,
     )
     const truncated = truncateGeneratedToNow(rows, now)
-    expect(truncated.find((r) => r.key === '2026-07-14T11')).toMatchObject({ generated: 20 })
-    expect(truncated.find((r) => r.key === '2026-07-14T13')).toMatchObject({ generated: null, pred: 28, band: 16 })
+    expect(truncated.find((r) => r.key === '2026-07-14T11')).toMatchObject({ actualNow: 20 })
+    expect(truncated.find((r) => r.key === '2026-07-14T13')).toMatchObject({
+      actualPast: null,
+      actualToday: null,
+      actualNow: null,
+      pred: 28,
+      band: 16,
+    })
   })
 
   it('leaves a row exactly at now untouched (not yet "in the future")', () => {
-    const rows = mergeGeneratedAndForecast([hourly(12, 25)], [])
+    const rows = mergeGeneratedAndForecast([hourly(12, 25)], [], [], now)
     const truncated = truncateGeneratedToNow(rows, now)
-    expect(truncated[0].generated).toBe(25)
+    expect(truncated[0].actualNow).toBe(25)
   })
 
   it('defaults to the real current time when no cutoff is passed', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(now))
     const rows = mergeGeneratedAndForecast([hourly(11, 20), hourly(13, 30)], [])
-    expect(truncateGeneratedToNow(rows).map((r) => r.generated)).toEqual([20, null])
+    const truncated = truncateGeneratedToNow(rows)
+    expect(truncated.find((r) => r.key === '2026-07-14T11')?.actualNow).toBe(20)
+    expect(truncated.find((r) => r.key === '2026-07-14T13')).toMatchObject({ actualPast: null, actualToday: null, actualNow: null })
     vi.useRealTimers()
   })
 })
@@ -126,6 +212,22 @@ describe('sumHourlyAcrossZones', () => {
     const isb = [hourly(12, 90)]
     const rows = sumHourlyAcrossZones([gis, isb])
     expect(rows.map((r) => r.timestamp)).toEqual([hourly(12, 0).timestamp])
+  })
+})
+
+describe('sumGeneratedPowerHistoryAcrossZones', () => {
+  it('sums ac_kw across zones for a timestamp every zone reported', () => {
+    const gis = [historyPoint('2026-07-12T10:00:00Z', 15)]
+    const isb = [historyPoint('2026-07-12T10:00:00Z', 25)]
+    const [row] = sumGeneratedPowerHistoryAcrossZones([gis, isb])
+    expect(row).toMatchObject({ ac_kw: 40 })
+  })
+
+  it('drops timestamps not reported by every zone', () => {
+    const gis = [historyPoint('2026-07-12T10:00:00Z', 15), historyPoint('2026-07-12T11:00:00Z', 20)]
+    const isb = [historyPoint('2026-07-12T10:00:00Z', 25)]
+    const rows = sumGeneratedPowerHistoryAcrossZones([gis, isb])
+    expect(rows.map((r) => r.timestamp)).toEqual(['2026-07-12T10:00:00Z'])
   })
 })
 

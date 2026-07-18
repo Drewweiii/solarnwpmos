@@ -701,6 +701,58 @@ physics-baseline-backfilled past points correctly carried `{}` (no ML ran
 for those). See `web/README.md`'s matching dated entry for the frontend
 side and screenshot evidence.
 
+## Actual/generated power history - multi-day retrospective, not just today (2026-07-18)
+
+The dashboard's "Generated power" always came from `api/routes_performance.
+py`'s `/performance/{zone}` `hourly` field - a fully synthetic-per-request
+"today" curve (fixed `seed=0`, recomputed from scratch on every poll, zero
+persistence). There was no way to ask "what was zone X producing 2 days
+ago" at all - only ever "today, right now". The user asked to extend the
+dashboard's actual-power display backward across multiple days, the same
+way `forecast_history` already lets the Forecast/Prediction-interval line
+reach back.
+
+- **New functions in `serving.py`**: `record_generated_power(zone, store,
+  ac_kw, now=None)`, `generated_power_history(zone, store, since)`,
+  `backfill_generated_power_history(zone, store, now=None)`. All three
+  reuse `forecast_history`'s existing table/schema under a new internal-
+  only pseudo-horizon tag, `GENERATED_POWER_HORIZON = "generated"`
+  (`validate_horizon()` deliberately rejects it - never reachable via `GET
+  /forecast/{zone}/{horizon}`, only ever written/read by these three
+  functions directly) - no new table/migration needed, since the shape
+  (one value per zone per hour, upserted freshest-wins) is identical to
+  every other horizon already stored there.
+- **Backfill honesty caveat**: `backfill_generated_power_history()` seeds
+  `GENERATED_POWER_BACKFILL_HOURS` (72h/3 days) using `real_data.
+  physics_baseline_series()` - the exact same "pvlib clear-sky x current
+  cloud reading x the zone's PV model" approximation `backfill_forecast_
+  history()` already uses, with the same caveat: not the true historical
+  cloud cover for those past hours (never recorded), an honest
+  approximation rather than a claimed measurement.
+- **Live recording, not just backfill**: `api/routes_performance.py`'s `GET
+  /performance/{zone}` handler calls `record_generated_power()` with the
+  exact `ac_power_kw_live` value it already computes for "now" on every
+  poll - so going forward, real (well, "real" in this system's existing
+  no-telemetry sense - see this file's own "Known gaps" section) readings
+  accumulate day by day and genuinely supersede the backfilled estimate for
+  each hour once recorded (`INSERT OR REPLACE` upsert, same "freshest
+  wins" semantics as every other horizon).
+- **Startup wiring**: `api/ingestion_scheduler.py`'s new `_backfill_
+  generated_power_history()`, called from `run_startup_backfill()`
+  alongside `_backfill_forecast_history()` (both are pure local
+  computations, no network dependency, so both run first - see that
+  function's own docstring for why network-dependent steps must not block
+  them). Gated per zone on whether it already has data, so a real
+  persistent volume never overwrites accumulated live readings on restart.
+- **New `history` field on `PerformanceResponse`**: `GET /performance/
+  {zone}` now also returns `history: list[GeneratedPowerPoint]`
+  (`timestamp`/`ac_kw` only) - the persisted multi-day series, read via
+  `generated_power_history(zone, store, since=now - 72h)`.
+
+See `web/README.md`'s matching dated entry for the frontend half (the
+3-tier recency coloring, the Minute-ahead panel's backward window, and a
+real color-choice bug found live-testing this).
+
 ## Known gaps / next steps
 
 - **No automatic retraining pipeline of its own** - `registry.log_run()` +

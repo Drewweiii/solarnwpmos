@@ -39,15 +39,18 @@ async def run_startup_backfill(store: RealDataStore, lookback_days: int) -> None
     persistent store (API_REAL_DATA_DB_PATH pointed at a real volume) doesn't
     re-backfill from scratch every restart.
 
-    `_backfill_forecast_history` runs *first*, ahead of the network-dependent
-    steps below - it's a pure local computation (no HTTP calls at all) with
-    no dependency on any of them, so there is no reason for the dashboard's
-    Forecast/Prediction-interval history to sit blocked behind however long
-    NWP/Himawari/PVGIS take to succeed or fail (each is a real network call
-    to an external source, no fixed upper bound on that here) when it could
-    already be showing something the moment the process is ready to serve.
+    `_backfill_forecast_history`/`_backfill_generated_power_history` run
+    *first*, ahead of the network-dependent steps below - both are pure
+    local computations (no HTTP calls at all) with no dependency on any of
+    them, so there is no reason for the dashboard's Forecast/Prediction-
+    interval history (or the actual/generated-power history, 2026-07-18) to
+    sit blocked behind however long NWP/Himawari/PVGIS take to succeed or
+    fail (each is a real network call to an external source, no fixed upper
+    bound on that here) when it could already be showing something the
+    moment the process is ready to serve.
     """
     await _backfill_forecast_history(store)
+    await _backfill_generated_power_history(store)
 
     counts = store.counts()
 
@@ -256,6 +259,34 @@ async def _backfill_forecast_history(store: RealDataStore) -> None:
                 logger.warning(
                     "startup backfill: forecast_history failed for %s/%s, skipping (non-fatal)", zone, horizon, exc_info=True
                 )
+
+
+async def _backfill_generated_power_history(store: RealDataStore) -> None:
+    """One-time cold-start seed of the actual/generated-power history (see
+    `nongfab_forecast.serving.backfill_generated_power_history`'s own
+    docstring) - same "gated per zone on whether it already has data"
+    pattern as `_backfill_forecast_history` above, so a deployment with a
+    real persistent volume never overwrites real accumulated live readings
+    (from `record_generated_power()`, called on every `/performance` poll)
+    with a lesser physics-only seed on every restart.
+    """
+    from nongfab_forecast.serving import (
+        GENERATED_POWER_BACKFILL_HOURS,
+        GENERATED_POWER_HORIZON,
+        backfill_generated_power_history,
+    )
+
+    now = datetime.now(timezone.utc)
+    for zone in ZONES:
+        existing = store.forecast_history_points(zone, GENERATED_POWER_HORIZON, since=now - timedelta(hours=GENERATED_POWER_BACKFILL_HOURS))
+        if existing:
+            logger.info("startup backfill: generated-power history already has data for %s, skipping", zone)
+            continue
+        try:
+            inserted = backfill_generated_power_history(zone, store, now=now)
+            logger.info("startup backfill: generated-power history seeded %d rows for %s", inserted, zone)
+        except Exception:
+            logger.warning("startup backfill: generated-power history failed for %s, skipping (non-fatal)", zone, exc_info=True)
 
 
 async def _poll_himawari_forever(store: RealDataStore, interval_seconds: float) -> None:

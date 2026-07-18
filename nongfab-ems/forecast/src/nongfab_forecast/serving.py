@@ -88,6 +88,22 @@ MAX_DAY_AHEAD_HOURS = 72
 # that function's docstring.
 FORECAST_HISTORY_LOOKBACK_HOURS = {"hour": 24, "day": 72}
 
+# Internal-only pseudo-horizon tag for the actual/generated-power history
+# functions below (record_generated_power/generated_power_history/
+# backfill_generated_power_history, 2026-07-18) - reuses forecast_history's
+# own table/schema (zone, horizon, target_time, ...) rather than a whole new
+# table, since the shape (one value per zone per hour, upserted freshest-
+# wins) is identical. validate_horizon() deliberately rejects this value -
+# it is never a real forecast horizon reachable via GET /forecast/{zone}/
+# {horizon}, only ever written/read directly by the functions below.
+GENERATED_POWER_HORIZON = "generated"
+# How far back backfill_generated_power_history() seeds on a cold start, and
+# how far back GET /performance/{zone}'s new `history` field looks - matches
+# day-ahead's own FORECAST_HISTORY_LOOKBACK_HOURS reach (72h/3 days) so a
+# viewer sees roughly the same span of "actual" history as "forecast"
+# history on the same chart.
+GENERATED_POWER_BACKFILL_HOURS = 72
+
 
 class UnknownZoneError(ValueError):
     pass
@@ -301,6 +317,68 @@ def backfill_forecast_history(zone: str, horizon: str, store: RealDataStore, now
         for ts, row in baseline.iterrows()
     ]
     return store.record_forecast_points(zone, horizon, now, points)
+
+
+def record_generated_power(zone: str, store: RealDataStore, ac_kw: float, now: datetime | None = None) -> int:
+    """Persists one 'actual/generated power' reading for `zone` at the
+    current hour, reusing `forecast_history`'s own table/schema under the
+    dedicated `GENERATED_POWER_HORIZON` tag rather than a new table - the
+    shape (one value per zone per hour, `INSERT OR REPLACE` upserted so a
+    later poll within the same hour refines that hour's own reading) is
+    identical to how every other horizon already persists.
+
+    Called from `api/routes_performance.py`'s `GET /performance/{zone}`
+    handler with the exact same `ac_power_kw_live` value that route already
+    computes and returns for "right now" - this is a genuine, incrementally
+    -accumulated log of what this system's own physics/efficiency model
+    reported at each poll, not a separate recomputation. Without this,
+    `/performance`'s own `hourly` field is entirely synthetic-per-request
+    with zero persistence (see that route's own docstring) - there was
+    previously no way to ask "what was zone X producing 2 days ago" at all,
+    only ever "today, right now". `lower`/`upper`/`algorithm`/`error`/
+    `candidate_errors` are left at their `ForecastPoint` defaults (`None`) -
+    this isn't a forecast, so none of those fields are meaningful here.
+    """
+    zone = validate_zone(zone)
+    now = now if now is not None else datetime.now(timezone.utc)
+    hour_anchor = now.replace(minute=0, second=0, microsecond=0)
+    return store.record_forecast_points(zone, GENERATED_POWER_HORIZON, now, [ForecastPoint(timestamp=hour_anchor, pred=float(ac_kw))])
+
+
+def generated_power_history(zone: str, store: RealDataStore, since: datetime) -> list[ForecastPoint]:
+    """Persisted actual/generated power readings for `zone`, `target_time >=
+    since`, oldest first - the read side of `record_generated_power()`/
+    `backfill_generated_power_history()`. Only `timestamp`/`pred` carry
+    meaning (see `record_generated_power()`'s own docstring for why the
+    rest stay `None`).
+    """
+    zone = validate_zone(zone)
+    rows = store.forecast_history_points(zone, GENERATED_POWER_HORIZON, since)
+    return [ForecastPoint(timestamp=datetime.fromisoformat(target_time), pred=pred) for target_time, pred, *_rest in rows]
+
+
+def backfill_generated_power_history(zone: str, store: RealDataStore, now: datetime | None = None) -> int:
+    """One-time cold-start seed for the actual/generated-power history,
+    same spirit and same honesty caveat as `backfill_forecast_history()`
+    above: computes a physics-baseline-only retrospective series (pvlib
+    clear-sky x the current most-recent cloud reading x the zone's PV
+    model, an honest approximation, not a claimed measurement - see that
+    function's own docstring for the full caveat) covering
+    `GENERATED_POWER_BACKFILL_HOURS` and persists it, so a freshly-booted
+    process doesn't show a blank "not today" actual-power history until
+    enough real polling time (`record_generated_power()` calls from live
+    `/performance` traffic) has passed to build it up organically. A later
+    live poll for the current hour naturally overwrites its own backfilled
+    row (same `INSERT OR REPLACE` upsert every other horizon already uses),
+    so live data supersedes this estimate the moment it exists.
+    """
+    zone = validate_zone(zone)
+    now = now if now is not None else datetime.now(timezone.utc)
+    end = _ceil_to(now, timedelta(hours=1)) - timedelta(hours=1)
+    timestamps = pd.date_range(end=end, periods=GENERATED_POWER_BACKFILL_HOURS, freq="h", tz="UTC")
+    baseline = real_data.physics_baseline_series(zone, timestamps, store)
+    points = [ForecastPoint(timestamp=ts.to_pydatetime(), pred=float(row.pred)) for ts, row in baseline.iterrows()]
+    return store.record_forecast_points(zone, GENERATED_POWER_HORIZON, now, points)
 
 
 def get_latest_forecast(zone: str, horizon: str, store: RealDataStore | None = None) -> ForecastResult:

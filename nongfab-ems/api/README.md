@@ -238,6 +238,14 @@ management, config writes) has somewhere to plug in without a schema change.
   total. Also returns `latitude`/`longitude` (the zone's own centroid) and
   `cloud_factor` (this zone's own value right now, via `nongfab_features.
   irradiance_map.cloud_factor_at()`) - Feature A's per-zone info panel.
+  **(2026-07-18)** also returns `history: [{timestamp, ac_kw}]` - persisted
+  actual/generated power for *previous* days (`hourly` above is always
+  "today" only), covering the last 72h. This same call also *writes* one
+  row into that same persisted history (`nongfab_forecast.serving.
+  record_generated_power()`, the current hour's own `ac_kw` from `hourly`)
+  before reading it back - see `forecast/README.md`'s "Actual/generated
+  power history" entry for the full mechanism (backfill, upsert semantics,
+  startup wiring).
 - **`GET /ws/live`** → WebSocket. Pushes `{"zones": [{"zone", "current_ac_kw",
   "forecast_hour_ahead_kw"}, ...]}` every `API_LIVE_PUSH_INTERVAL_SECONDS`
   (default 5s) for all 3 zones. `forecast_hour_ahead_kw` is `null` until an

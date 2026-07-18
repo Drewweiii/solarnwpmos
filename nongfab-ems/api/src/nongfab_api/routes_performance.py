@@ -23,11 +23,12 @@ was, which was the other reason the KPI looked stuck.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from nongfab_features.irradiance_map import cloud_factor_at
 from nongfab_forecast.pv_conversion import nong_fab_zone_capacities_kwp
+from nongfab_forecast.serving import GENERATED_POWER_BACKFILL_HOURS, generated_power_history, record_generated_power
 from nongfab_simulation.dev_data import live_efficiency_factor, synthetic_day_irradiance_temp
 from nongfab_simulation.loss_model import performance_ratio
 from nongfab_simulation.pipeline import simulate_zone_baseline
@@ -45,6 +46,11 @@ class HourlyPoint(BaseModel):
     temp_c: float
 
 
+class GeneratedPowerPoint(BaseModel):
+    timestamp: datetime
+    ac_kw: float
+
+
 class PerformanceResponse(BaseModel):
     zone: str
     simulated_zone: bool
@@ -59,6 +65,18 @@ class PerformanceResponse(BaseModel):
     # "generated power" over the day rather than just today's running total
     # (see /forecast/{zone}/{horizon} for the model's own predicted series).
     hourly: list[HourlyPoint]
+    # Persisted actual/generated power for *previous* days (2026-07-18) -
+    # `hourly` above is always "today" only (synthetic-per-request, no
+    # persistence, see this route's own docstring), so there was previously
+    # no way to show "what was this zone producing 2 days ago" on the
+    # dashboard at all. Backed by `nongfab_forecast.serving.
+    # record_generated_power()`/`generated_power_history()` - a genuine,
+    # incrementally-accumulated log of this route's own `ac_power_kw_live`
+    # reading at each poll, backfilled on cold start with a physics-baseline
+    # estimate (see `backfill_generated_power_history()`'s own docstring for
+    # the honesty caveat - same spirit as the forecast side's own backfill).
+    # Covers the last `GENERATED_POWER_BACKFILL_HOURS` (72h/3 days).
+    history: list[GeneratedPowerPoint]
     # This zone's own cloud factor right now (0..1) - Module 7 Feature A's
     # per-zone info panel. Reuses nongfab_features.irradiance_map's
     # documented synthetic cloud-factor model (see that module's own
@@ -75,7 +93,7 @@ def _validate_zone(zone: str) -> str:
 
 
 @router.get("/performance/{zone}", response_model=PerformanceResponse)
-async def get_performance(zone: str, _user=Depends(require_role("viewer"))) -> PerformanceResponse:
+async def get_performance(zone: str, request: Request, _user=Depends(require_role("viewer"))) -> PerformanceResponse:
     zone = _validate_zone(zone)
     idx, ssrd, temp = synthetic_day_irradiance_temp()
     baseline = simulate_zone_baseline(zone, ssrd, temp, idx)
@@ -117,9 +135,22 @@ async def get_performance(zone: str, _user=Depends(require_role("viewer"))) -> P
     centroid = baseline.zone.centroid
     cloud_factor = cloud_factor_at(centroid.lat, centroid.lon, now.timestamp())
 
+    store = request.app.state.real_data_store
+    # Persists *this* poll's own live reading (the current hour's
+    # ac_power_kw_live, the same number reported in `hourly` for "now") into
+    # the actual/generated-power history - see record_generated_power()'s
+    # own docstring for why this route is the natural place to do it (it
+    # already computes the exact value each poll). Bounded to the frontend's
+    # own ~60s poll interval, so this is a cheap upsert, not a hot loop.
+    record_generated_power(zone, store, float(ac_power_kw_live.iloc[now.hour]), now)
+    history = [
+        GeneratedPowerPoint(timestamp=p.timestamp, ac_kw=p.pred)
+        for p in generated_power_history(zone, store, now - timedelta(hours=GENERATED_POWER_BACKFILL_HOURS))
+    ]
+
     return PerformanceResponse(
         zone=zone, simulated_zone=baseline.zone.simulated, latitude=centroid.lat, longitude=centroid.lon,
         ac_energy_kwh_today=ac_energy_kwh, poa_irradiance_kwh_per_m2_today=poa_irradiance_kwh_per_m2,
         performance_ratio=pr, specific_yield_kwh_per_kwp_today=ac_energy_kwh / baseline.zone.dc_capacity_kwp,
-        loss_breakdown=baseline.loss_breakdown, hourly=hourly, cloud_factor=cloud_factor,
+        loss_breakdown=baseline.loss_breakdown, hourly=hourly, history=history, cloud_factor=cloud_factor,
     )

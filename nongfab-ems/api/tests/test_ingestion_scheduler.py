@@ -13,9 +13,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from nongfab_api.ingestion_scheduler import ZONES, _backfill_forecast_history
+from nongfab_api.ingestion_scheduler import ZONES, _backfill_forecast_history, _backfill_generated_power_history
 from nongfab_forecast.local_store import RealDataStore
-from nongfab_forecast.serving import FORECAST_HISTORY_LOOKBACK_HOURS
+from nongfab_forecast.serving import FORECAST_HISTORY_LOOKBACK_HOURS, GENERATED_POWER_BACKFILL_HOURS, GENERATED_POWER_HORIZON
 
 
 async def test_backfill_forecast_history_seeds_every_zone_and_horizon():
@@ -51,3 +51,37 @@ async def test_backfill_forecast_history_skips_a_pair_that_already_has_data():
     # more physics-baseline rows on top of a pair that already had data.
     assert len(rows) == 1
     assert rows[0][1] == 12.3
+
+
+async def test_backfill_generated_power_history_seeds_every_zone():
+    store = RealDataStore()
+    await _backfill_generated_power_history(store)
+
+    now = datetime.now(timezone.utc)
+    for zone in ZONES:
+        rows = store.forecast_history_points(zone, GENERATED_POWER_HORIZON, since=now - timedelta(hours=GENERATED_POWER_BACKFILL_HOURS))
+        assert len(rows) > 0, f"expected seeded generated-power history for {zone}"
+
+
+async def test_backfill_generated_power_history_skips_a_zone_that_already_has_data():
+    store = RealDataStore()
+    now = datetime.now(timezone.utc)
+
+    class _FakePoint:
+        def __init__(self, timestamp):
+            self.timestamp = timestamp
+            self.pred = 55.0
+            self.lower = None
+            self.upper = None
+            self.algorithm = None
+            self.error = None
+
+    store.record_forecast_points("GIS", GENERATED_POWER_HORIZON, now, [_FakePoint(now)])
+
+    await _backfill_generated_power_history(store)
+
+    rows = store.forecast_history_points("GIS", GENERATED_POWER_HORIZON, since=now - timedelta(hours=GENERATED_POWER_BACKFILL_HOURS))
+    # Only the one manually-seeded row - the backfill must not have piled
+    # more physics-baseline rows on top of a zone that already had data.
+    assert len(rows) == 1
+    assert rows[0][1] == 55.0

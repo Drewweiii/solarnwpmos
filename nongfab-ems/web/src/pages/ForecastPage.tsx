@@ -20,13 +20,15 @@ import { WeatherStrip } from '../components/WeatherStrip'
 import {
   buildCompetitionRows,
   exactTimeKey,
+  filterToRecentPast,
   mergeGeneratedAndForecast,
   nearestToNow,
   sumForecastAcrossZones,
+  sumGeneratedPowerHistoryAcrossZones,
   sumHourlyAcrossZones,
   truncateGeneratedToNow,
 } from '../lib/chartData'
-import type { CompetitionRow } from '../lib/chartData'
+import type { ChartRow, CompetitionRow } from '../lib/chartData'
 import {
   ALL_ZONES_ID,
   useAllZonesForecast,
@@ -38,7 +40,7 @@ import {
 } from '../lib/queries'
 import { useForecastHistory } from '../lib/forecastHistory'
 import { formatDateHourIct, formatHourIct as formatHour } from '../lib/timeScrub'
-import type { ForecastHorizon, ForecastPoint, HourlyPoint } from '../lib/types'
+import type { ForecastHorizon, ForecastPoint, GeneratedPowerPoint, HourlyPoint } from '../lib/types'
 import './ForecastPage.css'
 
 type HorizonToggle = 'day' | 'hour'
@@ -105,6 +107,14 @@ export function ForecastPage() {
     return singlePerformance.data?.hourly ?? []
   }, [isAllZones, allPerformance, singlePerformance.data])
 
+  // Persisted actual/generated power for *previous* days (2026-07-18) -
+  // `hourly` above is always "today" only, see /performance's own docstring.
+  // Same isAllZones aggregation pattern as `hourly` just above.
+  const generatedHistory: GeneratedPowerPoint[] = useMemo(() => {
+    if (isAllZones) return sumGeneratedPowerHistoryAcrossZones(allPerformance.map((q) => q.data?.history ?? []))
+    return singlePerformance.data?.history ?? []
+  }, [isAllZones, allPerformance, singlePerformance.data])
+
   const latestForecastPoints: ForecastPoint[] = useMemo(() => {
     if (isAllZones) return sumForecastAcrossZones(allForecast.map((q) => q.data?.points ?? []))
     return singleForecast.data?.points ?? []
@@ -117,8 +127,8 @@ export function ForecastPage() {
   const forecastPoints = useForecastHistory(latestForecastPoints, `${zoneId}:${horizon}`)
 
   const chartRows = useMemo(
-    () => truncateGeneratedToNow(mergeGeneratedAndForecast(hourly, forecastPoints)),
-    [hourly, forecastPoints],
+    () => truncateGeneratedToNow(mergeGeneratedAndForecast(hourly, forecastPoints, generatedHistory)),
+    [hourly, forecastPoints, generatedHistory],
   )
   const current = useMemo(() => nearestToNow(hourly), [hourly])
 
@@ -153,13 +163,46 @@ export function ForecastPage() {
   // the green/orange dot legend caption.
   const showsAlgorithmDots = horizonToggle === 'hour' && chartRows.some((r) => r.algorithm != null)
 
-  const minutePoints: ForecastPoint[] = useMemo(() => {
+  const latestMinutePoints: ForecastPoint[] = useMemo(() => {
     // exactTimeKey, not the default hourKey - minute-ahead's 10-minute-
     // resolution points routinely share an hour, which hourKey would wrongly
     // collapse (see chartData.ts's own docstring on this bug, found live 2026-07-17).
     if (isAllZones) return sumForecastAcrossZones(allMinuteForecast.map((q) => q.data?.points ?? []), exactTimeKey)
     return singleMinuteForecast.data?.points ?? []
   }, [isAllZones, allMinuteForecast, singleMinuteForecast.data])
+
+  // Client-side accumulation (same hook as the main Day-ahead/Intra-day
+  // chart, see forecastHistory.ts's own docstring) so the Minute-ahead
+  // panel can also show its own forecast line looking ~30 min backward, not
+  // just forward - minute-ahead has no server-side persistence (see
+  // forecast/serving.py's FORECAST_HISTORY_LOOKBACK_HOURS, which excludes
+  // "minute" on purpose), so this client-side accumulator is the only
+  // source for that - per the user's own 2026-07-18 request.
+  const accumulatedMinutePoints = useForecastHistory(latestMinutePoints, `minute:${zoneId}`)
+  const minutePoints = useMemo(
+    () => filterToRecentPast(accumulatedMinutePoints, new Date().toISOString(), 30),
+    [accumulatedMinutePoints],
+  )
+
+  // Actual/generated power to overlay on the Minute-ahead panel too (the
+  // user's own request) - reuses the exact same hourly-resolution 3-tier
+  // rows already computed for the main chart (`chartRows`), just narrowed
+  // to a window around "now" wide enough to always include the current and
+  // previous hour's reading even though the Minute-ahead panel's own x-axis
+  // only spans ~90 minutes. There is no minute-resolution actual-power data
+  // source anywhere in this system (see forecast/README.md's "Actual/
+  // generated power history" entry) - hourly is the finest granularity
+  // available, so a handful of sparse points is the honest result here, not
+  // a smoothed-over approximation.
+  const minuteWindowActualRows = useMemo(() => {
+    const nowMs = Date.now()
+    // 90 min either side - roughly matches the Minute-ahead panel's own
+    // visible span (30 min back, 60 min forward), wide enough to reliably
+    // catch at least one hourly actual-power reading without stretching the
+    // shared x-axis much further than the panel's own forecast points do.
+    const windowMs = 90 * 60 * 1000
+    return chartRows.filter((r) => Math.abs(new Date(r.timestamp).getTime() - nowMs) <= windowMs)
+  }, [chartRows])
 
   const minuteLoading = isAllZones
     ? allMinuteForecast.some((q) => q.isLoading)
@@ -250,8 +293,8 @@ export function ForecastPage() {
                 <span className="model-info-note">(เส้นสีแดงด้านล่างกราฟหลัก)</span>
               </td>
               <td>CNN-LSTM</td>
-              <td>ล่วงหน้า 10-60 นาที</td>
-              <td>พยากรณ์ระยะสั้นมากแบบเกือบเรียลไทม์</td>
+              <td>ล่วงหน้า 10-60 นาที (และย้อนหลังได้ราว 30 นาที)</td>
+              <td>พยากรณ์ระยะสั้นมากแบบเกือบเรียลไทม์ พร้อมเทียบกับกำลังไฟฟ้าที่ผลิตได้จริง</td>
             </tr>
           </tbody>
         </table>
@@ -303,7 +346,30 @@ export function ForecastPage() {
                   formatter={(value) => (typeof value === 'number' ? value.toFixed(1) : String(value))}
                 />
                 <Legend />
-                <Bar dataKey="generated" name="Generated power" fill="var(--accent)" fillOpacity={0.55} barSize={18} />
+                <Line
+                  dataKey="actualPast"
+                  name="Actual power (before today)"
+                  stroke="var(--chart-actual-past)"
+                  strokeWidth={2}
+                  dot={{ r: 2 }}
+                  connectNulls
+                />
+                <Line
+                  dataKey="actualToday"
+                  name="Actual power (earlier today)"
+                  stroke="var(--chart-actual-today)"
+                  strokeWidth={2}
+                  dot={{ r: 2 }}
+                  connectNulls
+                />
+                <Line
+                  dataKey="actualNow"
+                  name="Actual power (now)"
+                  stroke="var(--accent)"
+                  strokeWidth={2}
+                  dot={{ r: 4 }}
+                  connectNulls
+                />
                 <Area dataKey="lower" name="lower" stackId="pi" stroke="none" fill="transparent" legendType="none" />
                 <Area
                   dataKey="band"
@@ -355,6 +421,12 @@ export function ForecastPage() {
               </ComposedChart>
             </ResponsiveContainer>
           )}
+          {!isLoading && !forecastError && chartRows.some((r) => r.actualPast != null || r.actualToday != null || r.actualNow != null) && (
+            <p className="forecast-status forecast-status-caption">
+              🟣 กำลังไฟฟ้าที่ผลิตได้จริง (ล่าสุด/ปัจจุบัน) &nbsp; 🩷 วันนี้ (ช่วงที่ผ่านไปแล้ว) &nbsp; 🟦 ก่อนวันนี้ — แยกสีตามความใหม่ของข้อมูล
+              เพื่อให้เทียบกับเส้น Forecast สีน้ำเงินได้ง่ายขึ้น
+            </p>
+          )}
           {!isLoading && !forecastError && isPhysicsBaseline && chartRows.some((r) => r.band != null) && (
             <p className="forecast-status forecast-status-caption">
               Prediction interval shown is an approximate ±20% band (no trained ML model yet, see day-ahead pipeline) - not a
@@ -374,6 +446,7 @@ export function ForecastPage() {
 
       <MinuteAheadPanel
         points={minutePoints}
+        actualRows={minuteWindowActualRows}
         isLoading={minuteLoading}
         hasError={Boolean(minuteError)}
         isPhysicsBaseline={minuteIsPhysicsBaseline}
@@ -458,12 +531,18 @@ function ViewerGuidePanel() {
             <strong>แกนตั้ง (Y):</strong> กำลังไฟฟ้า หน่วยกิโลวัตต์ (kW) - ยิ่งสูงยิ่งผลิตไฟได้มาก
           </li>
           <li>
-            <strong>แท่งสีม่วง "Generated power":</strong> ไฟฟ้าที่ผลิตได้จริงแล้วเท่านั้น - แสดงเฉพาะช่วงเวลาที่ผ่านไปแล้ว
-            ไม่แสดงล่วงหน้า เพื่อไม่ให้สับสนกับเส้นพยากรณ์
+            <strong>เส้น "กำลังไฟฟ้าที่ผลิตได้จริง" (Actual power) 3 สี:</strong> ไฟฟ้าที่ผลิตได้จริงแล้วเท่านั้น (ไม่แสดงล่วงหน้า
+            เพื่อไม่ให้สับสนกับเส้นพยากรณ์) แยกสีตามความใหม่ของข้อมูลเพื่อให้ดูง่ายขึ้นเมื่อเทียบกับเส้น Forecast สีน้ำเงิน (เดิมเป็นแท่งสีม่วง
+            อันเดียว ผู้ใช้แจ้งว่าเทียบกับเส้นพยากรณ์ยาก - ปรับเป็นเส้น 3 สีแทน 2026-07-18):
+            <ul>
+              <li>🟣 <strong>สีม่วง (เดิม):</strong> ค่าล่าสุด/ปัจจุบัน - จุดที่ใหม่ที่สุดที่มีข้อมูลจริงแล้ว</li>
+              <li>🩷 <strong>สีชมพู:</strong> วันนี้ แต่เป็นช่วงเวลาที่ผ่านไปแล้ว (ไม่ใช่ค่าล่าสุด)</li>
+              <li>🟦 <strong>สีน้ำเงินเข้ม (indigo):</strong> ก่อนวันนี้ (วันก่อน ๆ ย้อนหลัง)</li>
+            </ul>
           </li>
           <li>
             <strong>เส้นสีน้ำเงิน "Forecast":</strong> ค่าพยากรณ์กำลังการผลิตไฟฟ้า - ยังคงแสดงไว้แม้เวลานั้นจะผ่านไปแล้ว
-            เพื่อให้เทียบกับแท่งสีม่วง (ค่าจริง) ที่เกิดขึ้นในชั่วโมงเดียวกันได้
+            เพื่อให้เทียบกับเส้นกำลังไฟฟ้าที่ผลิตได้จริง (3 สีด้านบน) ที่เกิดขึ้นในชั่วโมงเดียวกันได้
           </li>
           <li>
             <strong>แถบสีเขียวโปร่งใส "Prediction interval":</strong> ช่วงความไม่แน่นอนของค่าพยากรณ์ - ค่าจริงมีโอกาสสูงที่จะอยู่ในช่วงนี้
@@ -574,6 +653,11 @@ function ViewerGuidePanel() {
 
 interface MinuteAheadPanelProps {
   points: ForecastPoint[]
+  // Actual/generated power to overlay, hourly resolution (see
+  // ForecastPage's own minuteWindowActualRows docstring for why this is
+  // ChartRow[] - the same 3-tier rows the main chart uses - rather than a
+  // dedicated minute-resolution source, which doesn't exist).
+  actualRows: ChartRow[]
   isLoading: boolean
   hasError: boolean
   isPhysicsBaseline: boolean
@@ -584,11 +668,14 @@ interface MinuteAheadPanelProps {
 // timescale is too fine to share that chart's hourly-bucketed x-axis without
 // squashing every other hour. A dedicated small red-line chart instead, per
 // the user's 2026-07-16 request to see it directly on the dashboard rather
-// than only mentioned in the model-info panel.
-function MinuteAheadPanel({ points, isLoading, hasError, isPhysicsBaseline }: MinuteAheadPanelProps) {
+// than only mentioned in the model-info panel. Also shows ~30 min of its own
+// backward history (client-side accumulated, see ForecastPage's own
+// `minutePoints`) and an hourly-resolution actual-power overlay
+// (`actualRows`), both added 2026-07-18 per the user's request.
+function MinuteAheadPanel({ points, actualRows, isLoading, hasError, isPhysicsBaseline }: MinuteAheadPanelProps) {
   return (
     <section className="forecast-minute-panel" aria-label="Minute-ahead power forecast chart">
-      <h3 className="forecast-minute-title">Minute-ahead forecast (CNN-LSTM, next 60 min)</h3>
+      <h3 className="forecast-minute-title">Minute-ahead forecast (CNN-LSTM, ~30 min back to 60 min ahead)</h3>
       {isLoading && <p className="forecast-status">Loading…</p>}
       {!isLoading && hasError && (
         <p className="forecast-status forecast-status-warn">No minute-ahead forecast model has been trained for this zone yet.</p>
@@ -598,13 +685,40 @@ function MinuteAheadPanel({ points, isLoading, hasError, isPhysicsBaseline }: Mi
         <ResponsiveContainer width="100%" height={140}>
           <LineChart data={points} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-            <XAxis dataKey="timestamp" tickFormatter={formatHour} minTickGap={30} />
+            <XAxis dataKey="timestamp" tickFormatter={formatHour} minTickGap={30} allowDuplicatedCategory={false} />
             <YAxis unit=" kW" width={80} />
             <Tooltip
               labelFormatter={(label) => (typeof label === 'string' ? formatHour(label) : String(label))}
               formatter={(value) => (typeof value === 'number' ? value.toFixed(1) : String(value))}
             />
             <Line dataKey="pred" name="Minute-ahead forecast" stroke="var(--chart-minute)" strokeWidth={2} dot={{ r: 2 }} connectNulls />
+            <Line
+              data={actualRows}
+              dataKey="actualPast"
+              name="Actual power (before today)"
+              stroke="var(--chart-actual-past)"
+              strokeWidth={2}
+              dot={{ r: 3 }}
+              connectNulls
+            />
+            <Line
+              data={actualRows}
+              dataKey="actualToday"
+              name="Actual power (earlier today)"
+              stroke="var(--chart-actual-today)"
+              strokeWidth={2}
+              dot={{ r: 3 }}
+              connectNulls
+            />
+            <Line
+              data={actualRows}
+              dataKey="actualNow"
+              name="Actual power (now)"
+              stroke="var(--accent)"
+              strokeWidth={2}
+              dot={{ r: 4 }}
+              connectNulls
+            />
           </LineChart>
         </ResponsiveContainer>
       )}

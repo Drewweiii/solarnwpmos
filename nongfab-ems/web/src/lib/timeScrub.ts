@@ -6,6 +6,18 @@ export function todayIso(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+/** YYYY-MM-DD calendar date in Thai local time (ICT = UTC+7) - the "en-CA"
+ * locale happens to format as ISO (YYYY-MM-DD) directly, avoiding a manual
+ * component-by-component reassembly. Used to decide whether a timestamp
+ * falls on "today" (ICT) vs an earlier day, per this project's Thailand-
+ * first display convention (see root CLAUDE.md) - a plain UTC calendar-day
+ * slice (`iso.slice(0, 10)`) would misclassify ICT's early morning hours
+ * (00:00-06:59 ICT = UTC+7, so still the *previous* UTC calendar day) as
+ * "yesterday" even though a Thai viewer reads them as today. */
+export function ictDateKey(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
+}
+
 export function minutesToHhMm(minutes: number): string {
   const h = Math.floor(minutes / 60)
     .toString()

@@ -91,6 +91,7 @@ function makePerformance(zone: string): PerformanceResponse {
     specific_yield_kwh_per_kwp_today: 5,
     loss_breakdown: { soiling_pct: 2.5 },
     hourly: [{ timestamp: '2026-07-14T10:00:00Z', ac_kw: 38.1, ssrd_w_m2: 700, temp_c: 31 }],
+    history: [],
     cloud_factor: 0.8,
   }
 }

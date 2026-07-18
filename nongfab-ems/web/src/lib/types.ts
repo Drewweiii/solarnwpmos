@@ -113,6 +113,18 @@ export interface HourlyPoint {
   temp_c: number
 }
 
+// Persisted actual/generated power for *previous* days (2026-07-18) -
+// `hourly` above is always "today" only (synthetic-per-request, no
+// persistence - see api/routes_performance.py's own docstring). Backed by
+// a genuine, incrementally-accumulated log of this route's own live
+// reading at each poll, backfilled on cold start with a physics-baseline
+// estimate - see forecast/README.md's "Actual/generated power history"
+// entry. Only timestamp/ac_kw - no ssrd/temp breakdown for history.
+export interface GeneratedPowerPoint {
+  timestamp: string
+  ac_kw: number
+}
+
 export interface PerformanceResponse {
   zone: string
   simulated_zone: boolean
@@ -124,6 +136,7 @@ export interface PerformanceResponse {
   specific_yield_kwh_per_kwp_today: number
   loss_breakdown: Record<string, number>
   hourly: HourlyPoint[]
+  history: GeneratedPowerPoint[]
   cloud_factor: number
 }
 
