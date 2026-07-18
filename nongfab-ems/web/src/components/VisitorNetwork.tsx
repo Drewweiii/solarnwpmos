@@ -1,7 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useAuth } from '../lib/auth'
+import { AVATAR_OPTIONS, adminProfile, avatarById, loadChatProfile, saveChatProfile, type ChatProfile } from '../lib/chatProfile'
 import { useSubmitFeedback } from '../lib/queries'
 import { useChatSocket, type ChatSocketState } from '../lib/useChatSocket'
+import type { ChatMessage } from '../lib/types'
 import './VisitorNetwork.css'
 
 type Tab = 'chat' | 'feedback'
@@ -21,10 +23,25 @@ type Tab = 'chat' | 'feedback'
  * tab, because it was listening on a different connection).
  */
 export function VisitorNetwork() {
+  const { role } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('chat')
-  const chat = useChatSocket()
-  const { onlineCount } = chat
+  // The viewer/operator demo logins are shared credentials (auth.py's
+  // DEMO_USERS) - admin always gets a fixed identity and never sees the
+  // picker; everyone else needs a profile saved once per browser before
+  // ChatTab is usable (see chatProfile.ts's module docstring for why).
+  //
+  // `role` is read from the JWT via an effect in AuthProvider, so right
+  // after login it's briefly `null` for one render before settling to
+  // 'admin'/'viewer'/'operator' - computing the admin case here (every
+  // render) rather than baking it into a `useState` lazy initializer keeps
+  // that transient `null` from ever getting locked in as "not admin" (found
+  // live: admin was briefly shown the profile picker it should never see).
+  const [savedProfile, setSavedProfile] = useState<ChatProfile | null>(() => loadChatProfile())
+  const profile = role === 'admin' ? adminProfile() : savedProfile
+  const isActiveView = isOpen && tab === 'chat'
+  const chat = useChatSocket(profile ?? adminProfile(), isActiveView && profile != null)
+  const { onlineCount, unreadCount } = chat
   const titleId = useId()
 
   return (
@@ -36,9 +53,9 @@ export function VisitorNetwork() {
         aria-label={isOpen ? 'ปิดหน้าต่างเครือข่ายผู้ชม' : 'เปิดหน้าต่างเครือข่ายผู้ชม'}
       >
         <ChatBubbleIcon />
-        {onlineCount > 0 && (
-          <span className="visitor-online-badge" aria-hidden="true">
-            {onlineCount}
+        {unreadCount > 0 && (
+          <span className="visitor-unread-badge" aria-hidden="true">
+            {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
       </button>
@@ -49,7 +66,7 @@ export function VisitorNetwork() {
             <span id={titleId} className="visitor-panel-title">
               เครือข่ายผู้ชม 💬
             </span>
-            <button type="button" className="visitor-panel-close" onClick={() => setIsOpen(false)} aria-label="ปิดหน้าต่างเครือข่ายผู้ชม">
+            <button type="button" className="visitor-panel-close" onClick={() => setIsOpen(false)} aria-label="ปิดกล่องเครือข่ายผู้ชม">
               ×
             </button>
           </header>
@@ -69,34 +86,113 @@ export function VisitorNetwork() {
             </button>
           </div>
 
-          {tab === 'chat' ? <ChatTab chat={chat} /> : <FeedbackTab />}
+          {tab === 'chat' ? (
+            profile ? (
+              <ChatTab chat={chat} profile={profile} onEditProfile={role === 'admin' ? undefined : () => setSavedProfile(null)} />
+            ) : (
+              <ProfileSetup onSaved={setSavedProfile} />
+            )
+          ) : (
+            <FeedbackTab />
+          )}
         </section>
       )}
     </>
   )
 }
 
-function ChatTab({ chat }: { chat: ChatSocketState }) {
-  const { username } = useAuth()
-  const { messages, sendMessage, connected } = chat
+function ProfileSetup({ onSaved }: { onSaved: (profile: ChatProfile) => void }) {
+  const [name, setName] = useState('')
+  const [avatarId, setAvatarId] = useState(AVATAR_OPTIONS[0].id)
+
+  return (
+    <form
+      className="visitor-profile-setup"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (!name.trim()) return
+        onSaved(saveChatProfile(name, avatarId))
+      }}
+    >
+      <p className="visitor-profile-note">ตั้งชื่อและเลือก avatar ที่จะแสดงในแชท (เหมือน LINE) ก่อนเริ่มคุยกันค่ะ</p>
+      <label className="visitor-profile-name-label" htmlFor="visitor-profile-name">
+        ชื่อที่แสดง
+      </label>
+      <input
+        id="visitor-profile-name"
+        type="text"
+        className="visitor-input"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="ชื่อของคุณ"
+        maxLength={30}
+      />
+      <div className="visitor-avatar-grid" role="radiogroup" aria-label="เลือก avatar">
+        {AVATAR_OPTIONS.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            role="radio"
+            aria-checked={avatarId === a.id}
+            aria-label={`avatar ${a.id}`}
+            className={avatarId === a.id ? 'visitor-avatar-option selected' : 'visitor-avatar-option'}
+            style={{ background: a.color }}
+            onClick={() => setAvatarId(a.id)}
+          >
+            {a.emoji}
+          </button>
+        ))}
+      </div>
+      <button type="submit" className="visitor-send" disabled={!name.trim()}>
+        เริ่มแชท
+      </button>
+    </form>
+  )
+}
+
+function ChatTab({ chat, profile, onEditProfile }: { chat: ChatSocketState; profile: ChatProfile; onEditProfile?: () => void }) {
+  const { messages, sendMessage, connected, hasMoreOlder, loadingOlder, loadOlder } = chat
   const [input, setInput] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
+  const prevScrollHeightRef = useRef(0)
+  const wasNearBottomRef = useRef(true)
 
   useEffect(() => {
-    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight
+    const el = listRef.current
+    if (!el) return
+    if (wasNearBottomRef.current) {
+      el.scrollTop = el.scrollHeight
+    } else {
+      // A page of older messages was just prepended - keep the viewport
+      // anchored to the same messages instead of jumping to the top.
+      el.scrollTop = el.scrollHeight - prevScrollHeightRef.current
+    }
   }, [messages])
+
+  function handleScroll() {
+    const el = listRef.current
+    if (!el) return
+    wasNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    if (el.scrollTop < 40 && hasMoreOlder && !loadingOlder) {
+      prevScrollHeightRef.current = el.scrollHeight
+      loadOlder()
+    }
+  }
 
   return (
     <>
-      <div className="visitor-messages" ref={listRef}>
+      <div className="visitor-messages" ref={listRef} onScroll={handleScroll}>
+        {loadingOlder && <p className="visitor-loading-older">กำลังโหลดข้อความเก่า...</p>}
         {messages.length === 0 && <p className="visitor-empty">ยังไม่มีข้อความ - ทักทายผู้ชมคนอื่นได้เลยค่ะ</p>}
         {messages.map((m) => (
-          <div key={m.id} className={m.username === username ? 'visitor-bubble visitor-bubble-own' : 'visitor-bubble'}>
-            <span className="visitor-bubble-author">{m.username}</span>
-            <span className="visitor-bubble-text">{m.text}</span>
-          </div>
+          <ChatBubble key={m.id} message={m} isOwn={m.client_id != null && m.client_id === profile.clientId} />
         ))}
       </div>
+      {onEditProfile && (
+        <button type="button" className="visitor-edit-profile" onClick={onEditProfile}>
+          ✏️ {profile.displayName}
+        </button>
+      )}
       <form
         className="visitor-input-row"
         onSubmit={(e) => {
@@ -119,6 +215,23 @@ function ChatTab({ chat }: { chat: ChatSocketState }) {
         </button>
       </form>
     </>
+  )
+}
+
+function ChatBubble({ message, isOwn }: { message: ChatMessage; isOwn: boolean }) {
+  const avatar = avatarById(message.avatar)
+  return (
+    <div className={isOwn ? 'visitor-bubble-row own' : 'visitor-bubble-row'}>
+      {!isOwn && (
+        <span className="visitor-avatar-circle" style={{ background: avatar.color }} aria-hidden="true">
+          {avatar.emoji}
+        </span>
+      )}
+      <div className={isOwn ? 'visitor-bubble visitor-bubble-own' : 'visitor-bubble'}>
+        {!isOwn && <span className="visitor-bubble-author">{message.display_name}</span>}
+        <span className="visitor-bubble-text">{message.text}</span>
+      </div>
+    </div>
   )
 }
 

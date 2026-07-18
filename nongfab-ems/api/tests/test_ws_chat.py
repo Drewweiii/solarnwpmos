@@ -84,3 +84,59 @@ def test_ws_chat_replays_recent_history_to_a_new_connection(app, token_factory):
             history = ws2.receive_json()
     assert history["type"] == "history"
     assert [m["text"] for m in history["messages"]] == ["first message"]
+
+
+def test_ws_chat_carries_the_client_supplied_display_name_avatar_and_client_id(app, token_factory):
+    token = token_factory("viewer", username="pttlng")
+    with TestClient(app) as client, client.websocket_connect(f"/ws/chat?token={token}") as ws:
+        ws.receive_json()  # history
+        ws.receive_json()  # presence
+        ws.send_json({"text": "hi", "display_name": "น้องแมว", "avatar": "cat", "client_id": "browser-123"})
+        message = ws.receive_json()
+    assert message["display_name"] == "น้องแมว"
+    assert message["avatar"] == "cat"
+    assert message["client_id"] == "browser-123"
+
+
+def test_ws_chat_falls_back_to_username_when_no_display_name_given(app, token_factory):
+    token = token_factory("viewer", username="pttlng")
+    with TestClient(app) as client, client.websocket_connect(f"/ws/chat?token={token}") as ws:
+        ws.receive_json()  # history
+        ws.receive_json()  # presence
+        ws.send_json({"text": "hi"})
+        message = ws.receive_json()
+    assert message["display_name"] == "pttlng"
+    assert message["avatar"] is None
+
+
+def test_ws_chat_forces_the_admin_identity_regardless_of_client_input(app, token_factory):
+    token = token_factory("admin", username="boss")
+    with TestClient(app) as client, client.websocket_connect(f"/ws/chat?token={token}") as ws:
+        ws.receive_json()  # history
+        ws.receive_json()  # presence
+        ws.send_json({"text": "hi", "display_name": "not admin", "avatar": "cat"})
+        message = ws.receive_json()
+    assert message["display_name"] == "admin"
+    assert message["avatar"] == "crown"
+
+
+def test_get_chat_history_pages_older_messages(app, token_factory):
+    token = token_factory("viewer", username="pttlng")
+    with TestClient(app) as client:
+        with client.websocket_connect(f"/ws/chat?token={token}") as ws:
+            ws.receive_json()  # history
+            ws.receive_json()  # presence
+            for text in ("one", "two", "three"):
+                ws.send_json({"text": text})
+                last = ws.receive_json()
+
+        resp = client.get(f"/chat/history?before_id={last['id']}", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    texts = [m["text"] for m in resp.json()["messages"]]
+    assert texts == ["one", "two"]
+
+
+def test_get_chat_history_requires_login(app):
+    with TestClient(app) as client:
+        resp = client.get("/chat/history?before_id=100")
+    assert resp.status_code == 401

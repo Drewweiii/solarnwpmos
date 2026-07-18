@@ -26,7 +26,7 @@
   outline-offset: 3px;
 }
 
-.visitor-online-badge {
+.visitor-unread-badge {
   position: absolute;
   top: -2px;
   right: -2px;
@@ -34,7 +34,7 @@
   height: 18px;
   padding: 0 4px;
   border-radius: 999px;
-  background: var(--accent);
+  background: var(--danger);
   color: #fff;
   font-size: 10.5px;
   font-weight: 700;
@@ -142,15 +142,37 @@
   opacity: 0.7;
 }
 
+.visitor-bubble-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 92%;
+  align-self: flex-start;
+}
+
+.visitor-bubble-row.own {
+  align-self: flex-end;
+}
+
+.visitor-avatar-circle {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+
 .visitor-bubble {
-  max-width: 88%;
+  max-width: 100%;
   padding: 6px 10px;
   border-radius: 12px;
   background: var(--border);
   color: var(--text-h);
   font-size: 13px;
   line-height: 1.4;
-  align-self: flex-start;
   border-bottom-left-radius: 4px;
   display: flex;
   flex-direction: column;
@@ -158,7 +180,6 @@
 }
 
 .visitor-bubble-own {
-  align-self: flex-end;
   background: var(--accent);
   color: #fff;
   border-bottom-left-radius: 12px;
@@ -169,6 +190,71 @@
   font-size: 10.5px;
   font-weight: 700;
   opacity: 0.75;
+}
+
+.visitor-loading-older {
+  margin: 0 0 4px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text);
+  opacity: 0.6;
+}
+
+.visitor-profile-setup {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.visitor-profile-note {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--text);
+  opacity: 0.85;
+}
+
+.visitor-profile-name-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.visitor-avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+
+.visitor-avatar-option {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  font-size: 17px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.visitor-avatar-option.selected {
+  border-color: var(--text-h);
+}
+
+.visitor-edit-profile {
+  align-self: flex-start;
+  margin: 0 14px 8px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--accent-bg);
+  color: var(--text-h);
+  font-size: 11.5px;
+  cursor: pointer;
 }
 
 .visitor-input-row {
