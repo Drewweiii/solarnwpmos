@@ -350,3 +350,56 @@ branch `claude/solar-optimization-forecasting-jryux7`)
    ก่อนหน้า ต้องรัน migration SQL เพิ่มคอลัมน์จริงๆ ไม่งั้น column ใหม่จะไม่มี)
 3. ถ้าผู้ใช้อยากได้ retention policy สำหรับ `chat_messages` หรือระบบ reply
    ให้ feedback ในอนาคต ยังไม่มีใครเริ่มทำไว้เลย
+
+## 2026-07-18 14:06 ICT
+
+**Track 2 — หน้าตา/Interface + AI assistant + ระบบเชื่อมต่อผู้ชม** (บัญชีนี้ /
+branch `claude/solar-optimization-forecasting-jryux7`)
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+ผู้ใช้ถามตามด้วย 2 คำถาม + 1 คำขอเพิ่มเติมเกี่ยวกับระบบ profile แชทที่เพิ่งทำ
+ไป (entry ก่อนหน้า) - ตอบ+ทำเสร็จแล้ว commit `b03fc06`:
+
+1. **ยืนยัน (ไม่ต้องแก้โค้ด)**: profile (ชื่อ+avatar) เก็บใน localStorage ของ
+   browser ไม่ผูกกับ session login - logout แล้ว login ใหม่ด้วยเครื่อง/
+   browser เดิม ไม่ต้องตั้งใหม่
+2. **เจอ + แก้บั๊กจริง**: ปุ่มแก้ไขโปรไฟล์ (✏️) ที่มีอยู่แล้วเปิดฟอร์มว่างเปล่า
+   ทุกครั้งแทนที่จะเติมชื่อ/avatar ปัจจุบันให้ - แก้ให้ prefill ค่าปัจจุบันแล้ว
+   พร้อมเพิ่มปุ่ม "ยกเลิก" (`ProfileSetup` รับ `initial: ChatProfile | null`
+   ใน `VisitorNetwork.tsx`)
+3. **ทำใหม่**: ผู้ใช้ขอให้ **admin เปลี่ยนชื่อ+avatar ได้เหมือน viewer/
+   operator ด้วย** แต่เวลาแสดงให้คนอื่นเห็นให้ขึ้นคำว่า "admin" นำหน้าชื่อ -
+   ลบ special-case เดิมที่ force admin เป็นชื่อ "admin"+avatar "crown" ตายตัว
+   ออกทั้งหมด (`chatProfile.ts`'s `adminProfile()`/`ADMIN_AVATAR` ลบทิ้ง,
+   `VisitorNetwork.tsx` ไม่เช็ค `role === 'admin'` อีกต่อไป - ทุก role ผ่าน
+   picker เดียวกันหมด) แล้วย้าย logic การ "บังคับ prefix" ไปทำที่ **backend**
+   แทน (`ws_chat.py`): เมื่อ role เป็น admin ระบบจะเติม `"admin "` นำหน้าชื่อที่
+   เลือกไว้เสมอ (`ADMIN_NAME_PREFIX`) ก่อนบันทึก/ส่งต่อ - **client ฝั่งไหนก็
+   เอาออกไม่ได้** เพราะบังคับที่ server ไม่ใช่ UI ส่วน avatar เลือกได้อิสระจาก
+   avatar catalog เดียวกับทุกคน ไม่ force เป็น crown อีกต่อไป
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- ผลลัพธ์ที่ผู้ชมคนอื่นเห็นตอนนี้: admin ตั้งชื่อ "สมชาย" + เลือก avatar
+  "lion" → คนอื่นเห็นเป็น "admin สมชาย" พร้อม avatar สิงโตในแชท (verify จริง
+  ด้วย Playwright แล้ว - ดู screenshot ที่อธิบายไว้ใน commit message)
+- `AVATAR_OPTIONS` (12 แบบ, `web/src/lib/chatProfile.ts`) เป็น catalog เดียว
+  ที่ทุก role เลือกได้ตอนนี้ - ไม่มี avatar สงวนไว้เฉพาะ role ใดแล้ว
+- ข้อความแชทเก่าที่เคยถูกบันทึกด้วย avatar "crown" (จาก entry ก่อนหน้าที่
+  admin ยัง force อยู่) จะ fallback ไป avatar ตัวแรกใน catalog เวลาแสดงผล
+  (`avatarById()` ไม่รู้จัก id "crown" อีกต่อไป) - เป็นแค่เรื่อง cosmetic ของ
+  ข้อความเก่า ไม่กระทบข้อมูลจริงหรือฟังก์ชันอื่น
+- ทดสอบครบ: backend suite เต็ม 139 ตัวผ่าน (รวม test ใหม่ที่ตรวจ prefix
+  บังคับ + client ปลอม prefix ไม่ได้), frontend suite เต็ม 172 ตัวผ่าน `tsc`
+  ผ่าน verify จริงด้วย Playwright (admin + viewer คนละ browser context)
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **งานที่ผู้ใช้ขอไว้ล่าสุดเสร็จครบแล้ว** - รอฟีดแบ็กหรือคำสั่งเพิ่มเติม
+2. **ต้องกด Deploy บน Railway ด้วยตัวเอง** อีกครั้ง (ยังไม่ยืนยันว่ากดแล้ว
+   ตั้งแต่ entry ก่อนหน้าด้วยซ้ำ) - รอบนี้ไม่มี schema เปลี่ยนเพิ่ม (ใช้
+   column เดิมจาก `0006_chat_profile_and_history.sql`) แค่ logic การ prefix
+   เปลี่ยนที่ backend เท่านั้น
+3. ยังไม่มี retention policy สำหรับ `chat_messages` เหมือนที่เตือนไว้ใน entry
+   ก่อนหน้า
