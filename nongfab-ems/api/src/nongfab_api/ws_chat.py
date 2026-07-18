@@ -1,27 +1,34 @@
-"""WebSocket /ws/chat - one shared site-wide chat room for visitors, plus a
-presence count of currently-connected clients. Auth: JWT via `?token=`, same
-pattern as ws_live.py (browser WebSocket clients can't set a handshake
-Authorization header).
+"""WebSocket /ws/chat - private 1:1 messaging between visitors, plus an
+online-visitor list so a client can actually pick who to talk to. Auth: JWT
+via `?token=`, same pattern as ws_live.py (browser WebSocket clients can't
+set a handshake Authorization header).
 
-Every accepted message is persisted (ChatStore) so a newly-connecting client
-can be replayed recent history (and page further back via `GET
-/chat/history`), then broadcast live to every other connected client via
-`ConnectionManager` - an in-memory set scoped to this one API process.
-There's no cross-process pub-sub layer: this deployment runs a single API
-process, so a second process's connections existing somewhere else isn't a
-real scenario yet. If that changes, this needs a shared broadcast layer
-(e.g. Redis pub/sub) instead of the plain in-memory dict here.
+**Not a public/open chat room** (changed 2026-07-18, at the user's explicit
+request - the previous version broadcast every message to every connected
+client, "openchat" style, which they flagged as a real privacy problem, not
+just a UX one). Every message now names a `recipient_client_id` and is only
+ever delivered - both the live WebSocket push and the persisted row - to the
+two participants' own sockets. There is no server code path left that fans a
+message out to everyone; `ConnectionManager.send_to_client()` is the only
+delivery primitive, used twice per message (once for the sender's own other
+tabs, once for the recipient).
 
 Per-browser identity (display_name/avatar/client_id): the viewer/operator
 demo logins are shared credentials (auth.py's DEMO_USERS), so `username`
 alone doesn't distinguish two different real people chatting at once. The
-client picks a display name/avatar for itself (chatProfile.ts) and sends
-them along with every message. Admin picks a name/avatar the same way as
-everyone else, but whatever name they choose always gets ADMIN_NAME_PREFIX
-prepended server-side (never trusted from the client to add it themselves)
-before it's persisted/broadcast - so every other visitor can tell an admin
-message apart from a regular one at a glance, even though the admin's own
-account can still personalize the rest of the name.
+client picks a display name/avatar for itself (chatProfile.ts) and sends it
+at connect time (as WS query params - not a header, for the same reason the
+JWT itself is a query param: browsers can't set custom headers on a WS
+upgrade request) plus optionally per-message to reflect a same-session edit
+before `update_profile` round-trips. Admin picks a name/avatar the same way
+as everyone else, but whatever name they choose always gets
+ADMIN_NAME_PREFIX prepended server-side (never trusted from the client to
+add it themselves) - both in chat messages and in the online-users list -
+so every other visitor can tell an admin apart at a glance.
+
+Everything here is in-memory, scoped to this one API process (no cross-
+process pub-sub layer - see the original module's own note on this; still
+true, this deployment only ever runs one API process).
 """
 
 from __future__ import annotations
@@ -32,7 +39,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from .auth import AuthenticatedUser, decode_access_token, require_role
@@ -45,9 +52,22 @@ router = APIRouter(tags=["chat"])
 
 HISTORY_LIMIT = 50
 MAX_MESSAGE_LENGTH = 1000  # guards against a pathological payload bloating the DB/broadcast
-MAX_PROFILE_FIELD_LENGTH = 40  # display_name/avatar id - generous but bounded
+MAX_PROFILE_FIELD_LENGTH = 40  # display_name/avatar id/client_id - generous but bounded
 
 ADMIN_NAME_PREFIX = "admin "
+
+
+def _resolve_display_name(user: AuthenticatedUser, raw_display_name: object) -> str:
+    display_name = str(raw_display_name or user.username).strip()[:MAX_PROFILE_FIELD_LENGTH] or user.username
+    if user.role == "admin":
+        # Never trusted from the client to add/strip this itself - always
+        # applied here, both for chat messages and the online-users list.
+        display_name = f"{ADMIN_NAME_PREFIX}{display_name}"[:MAX_PROFILE_FIELD_LENGTH]
+    return display_name
+
+
+def _clean_field(raw: object) -> str | None:
+    return str(raw).strip()[:MAX_PROFILE_FIELD_LENGTH] if raw else None
 
 
 @dataclass(frozen=True)
@@ -60,6 +80,7 @@ class ChatMessage:
     display_name: str
     avatar: str | None
     client_id: str | None
+    recipient_client_id: str | None
 
     def to_dict(self) -> dict:
         return {
@@ -72,6 +93,7 @@ class ChatMessage:
             "display_name": self.display_name,
             "avatar": self.avatar,
             "client_id": self.client_id,
+            "recipient_client_id": self.recipient_client_id,
         }
 
 
@@ -85,6 +107,7 @@ def _row_to_message(row: ChatMessageORM) -> ChatMessage:
         display_name=row.display_name or row.username,  # pre-migration rows have no display_name
         avatar=row.avatar,
         client_id=row.client_id,
+        recipient_client_id=row.recipient_client_id,
     )
 
 
@@ -93,7 +116,14 @@ class ChatStore:
         self._session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async def add_message(
-        self, username: str, role: str, text: str, display_name: str, avatar: str | None, client_id: str | None
+        self,
+        username: str,
+        role: str,
+        text: str,
+        display_name: str,
+        avatar: str | None,
+        client_id: str | None,
+        recipient_client_id: str | None,
     ) -> ChatMessage:
         async with self._session_factory() as session:
             row = ChatMessageORM(
@@ -104,64 +134,106 @@ class ChatStore:
                 display_name=display_name,
                 avatar=avatar,
                 client_id=client_id,
+                recipient_client_id=recipient_client_id,
             )
             session.add(row)
             await session.commit()
             await session.refresh(row)
             return _row_to_message(row)
 
-    async def recent_messages(self, limit: int = HISTORY_LIMIT) -> list[ChatMessage]:
+    async def conversation_messages(
+        self, client_id_a: str, client_id_b: str, before_id: int | None = None, limit: int = HISTORY_LIMIT
+    ) -> list[ChatMessage]:
+        """The `limit` most recent messages exchanged between these two
+        client_ids (in either direction), oldest-first - `before_id` turns
+        this into a scroll-back page (strictly older than that id) instead
+        of "most recent". Used by `GET /chat/history` for both the initial
+        thread load (no `before_id`) and "load older messages".
+        """
         async with self._session_factory() as session:
-            stmt = select(ChatMessageORM).order_by(ChatMessageORM.id.desc()).limit(limit)
+            between_this_pair = or_(
+                and_(ChatMessageORM.client_id == client_id_a, ChatMessageORM.recipient_client_id == client_id_b),
+                and_(ChatMessageORM.client_id == client_id_b, ChatMessageORM.recipient_client_id == client_id_a),
+            )
+            stmt = select(ChatMessageORM).where(between_this_pair)
+            if before_id is not None:
+                stmt = stmt.where(ChatMessageORM.id < before_id)
+            stmt = stmt.order_by(ChatMessageORM.id.desc()).limit(limit)
             rows = (await session.execute(stmt)).scalars().all()
         return [_row_to_message(row) for row in reversed(rows)]
 
-    async def messages_before(self, before_id: int, limit: int = HISTORY_LIMIT) -> list[ChatMessage]:
-        """Scroll-back page: the `limit` messages immediately preceding
-        `before_id`, oldest-first - used by `GET /chat/history` to feed the
-        chat panel's "load older messages" infinite scroll.
-        """
-        async with self._session_factory() as session:
-            stmt = select(ChatMessageORM).where(ChatMessageORM.id < before_id).order_by(ChatMessageORM.id.desc()).limit(limit)
-            rows = (await session.execute(stmt)).scalars().all()
-        return [_row_to_message(row) for row in reversed(rows)]
+
+@dataclass
+class ClientInfo:
+    username: str
+    role: str
+    client_id: str
+    display_name: str
+    avatar: str | None
 
 
 class ConnectionManager:
-    """This process's set of live /ws/chat sockets - the "room" the chat and
-    presence count are scoped to.
+    """This process's set of live /ws/chat sockets, keyed by the raw
+    WebSocket connection (one browser can have several - each tab is its own
+    socket) - `online_users` dedupes those down to one entry per `client_id`
+    for display, while `send_to_client` fans a payload out to *every* socket
+    sharing that client_id (so a message shows up in every open tab of the
+    same browser, not just the one that happened to send/receive it first).
     """
 
     def __init__(self) -> None:
-        self._connections: dict[WebSocket, str] = {}
+        self._connections: dict[WebSocket, ClientInfo] = {}
 
-    async def connect(self, websocket: WebSocket, username: str) -> None:
+    async def connect(self, websocket: WebSocket, info: ClientInfo) -> None:
         await websocket.accept()
-        self._connections[websocket] = username
+        self._connections[websocket] = info
 
     def disconnect(self, websocket: WebSocket) -> None:
         self._connections.pop(websocket, None)
 
-    @property
-    def online_count(self) -> int:
-        return len(self._connections)
+    def get_identity(self, websocket: WebSocket) -> ClientInfo | None:
+        return self._connections.get(websocket)
+
+    def update_identity(self, websocket: WebSocket, display_name: str, avatar: str | None) -> None:
+        info = self._connections.get(websocket)
+        if info is None:
+            return
+        info.display_name = display_name
+        info.avatar = avatar
 
     @property
-    def online_usernames(self) -> list[str]:
-        return sorted(set(self._connections.values()))
+    def online_users(self) -> list[dict]:
+        by_client_id: dict[str, ClientInfo] = {}
+        for info in self._connections.values():
+            by_client_id[info.client_id] = info  # last-registered tab wins if the same browser has several
+        return [
+            {"client_id": info.client_id, "display_name": info.display_name, "avatar": info.avatar, "role": info.role}
+            for info in sorted(by_client_id.values(), key=lambda i: i.display_name.lower())
+        ]
 
-    async def broadcast(self, payload: dict) -> None:
+    def _sockets_for_client(self, client_id: str) -> list[WebSocket]:
+        return [ws for ws, info in self._connections.items() if info.client_id == client_id]
+
+    async def send_to_client(self, client_id: str, payload: dict) -> None:
         dead: list[WebSocket] = []
-        for ws in list(self._connections):
+        for ws in self._sockets_for_client(client_id):
             try:
                 await ws.send_json(payload)
-            except Exception:  # noqa: BLE001 - a broken/closing socket shouldn't stop the fan-out to everyone else
+            except Exception:  # noqa: BLE001 - a broken/closing socket for one recipient shouldn't affect the other
                 dead.append(ws)
         for ws in dead:
             self.disconnect(ws)
 
-    async def broadcast_presence(self) -> None:
-        await self.broadcast({"type": "presence", "count": self.online_count, "usernames": self.online_usernames})
+    async def broadcast_online_users(self) -> None:
+        payload = {"type": "online_users", "users": self.online_users}
+        dead: list[WebSocket] = []
+        for ws in list(self._connections):
+            try:
+                await ws.send_json(payload)
+            except Exception:  # noqa: BLE001 - a broken/closing socket shouldn't stop the update reaching everyone else
+                dead.append(ws)
+        for ws in dead:
+            self.disconnect(ws)
 
 
 @router.websocket("/ws/chat")
@@ -178,14 +250,21 @@ async def ws_chat(websocket: WebSocket) -> None:
         await websocket.close(code=1008, reason="invalid or expired token")
         return
 
+    client_id = _clean_field(websocket.query_params.get("client_id"))
+    if not client_id:
+        await websocket.close(code=1008, reason="missing client_id")
+        return
+
     store: ChatStore = websocket.app.state.chat_store
     manager: ConnectionManager = websocket.app.state.chat_manager
 
-    await manager.connect(websocket, user.username)
+    display_name = _resolve_display_name(user, websocket.query_params.get("display_name"))
+    avatar = _clean_field(websocket.query_params.get("avatar"))
+
+    info = ClientInfo(username=user.username, role=user.role, client_id=client_id, display_name=display_name, avatar=avatar)
+    await manager.connect(websocket, info)
     try:
-        history = await store.recent_messages()
-        await websocket.send_json({"type": "history", "messages": [m.to_dict() for m in history]})
-        await manager.broadcast_presence()
+        await manager.broadcast_online_users()
         while True:
             # Parsed as raw text + json.loads (not receive_json) so a
             # malformed payload from a visitor's browser tab - the one real
@@ -198,37 +277,51 @@ async def ws_chat(websocket: WebSocket) -> None:
                 continue
             if not isinstance(data, dict):
                 continue
+
+            if data.get("type") == "update_profile":
+                new_display_name = _resolve_display_name(user, data.get("display_name"))
+                new_avatar = _clean_field(data.get("avatar"))
+                manager.update_identity(websocket, new_display_name, new_avatar)
+                await manager.broadcast_online_users()
+                continue
+
             text = str(data.get("text", "")).strip()
             if not text:
                 continue
+            recipient_client_id = _clean_field(data.get("recipient_client_id"))
+            if not recipient_client_id:
+                continue  # every message must be addressed to somebody - no public broadcast anymore
 
-            display_name = str(data.get("display_name") or user.username).strip()[:MAX_PROFILE_FIELD_LENGTH] or user.username
-            if user.role == "admin":
-                # The admin picks their own name/avatar same as everyone
-                # else, but the "admin " prefix is never trusted from the
-                # client - always applied here so it can't be stripped or
-                # spoofed, and so every other visitor can tell an admin
-                # message apart from a regular one at a glance.
-                display_name = f"{ADMIN_NAME_PREFIX}{display_name}"[:MAX_PROFILE_FIELD_LENGTH]
-            raw_avatar = data.get("avatar")
-            avatar = str(raw_avatar).strip()[:MAX_PROFILE_FIELD_LENGTH] if raw_avatar else None
-            raw_client_id = data.get("client_id")
-            client_id = str(raw_client_id).strip()[:MAX_PROFILE_FIELD_LENGTH] if raw_client_id else None
+            current = manager.get_identity(websocket)
+            msg_display_name = _resolve_display_name(user, data["display_name"]) if data.get("display_name") else display_name
+            if current is not None and not data.get("display_name"):
+                msg_display_name = current.display_name
+            msg_avatar = _clean_field(data.get("avatar")) if data.get("avatar") else (current.avatar if current else avatar)
 
-            message = await store.add_message(user.username, user.role, text[:MAX_MESSAGE_LENGTH], display_name, avatar, client_id)
-            await manager.broadcast(message.to_dict())
+            message = await store.add_message(
+                user.username, user.role, text[:MAX_MESSAGE_LENGTH], msg_display_name, msg_avatar, client_id, recipient_client_id
+            )
+            payload = message.to_dict()
+            await manager.send_to_client(client_id, payload)
+            if recipient_client_id != client_id:
+                await manager.send_to_client(recipient_client_id, payload)
     except WebSocketDisconnect:
         logger.debug("ws/chat client disconnected")
     finally:
         manager.disconnect(websocket)
-        await manager.broadcast_presence()
+        await manager.broadcast_online_users()
 
 
 @router.get("/chat/history")
 async def get_chat_history(
-    before_id: int, request: Request, limit: int = HISTORY_LIMIT, _user: AuthenticatedUser = Depends(require_role("viewer"))
+    my_client_id: str,
+    peer_client_id: str,
+    request: Request,
+    before_id: int | None = None,
+    limit: int = HISTORY_LIMIT,
+    _user: AuthenticatedUser = Depends(require_role("viewer")),
 ) -> dict:
     store: ChatStore = request.app.state.chat_store
     capped_limit = max(1, min(limit, HISTORY_LIMIT))
-    messages = await store.messages_before(before_id, capped_limit)
+    messages = await store.conversation_messages(my_client_id, peer_client_id, before_id, capped_limit)
     return {"messages": [m.to_dict() for m in messages]}

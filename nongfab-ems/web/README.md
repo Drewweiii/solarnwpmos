@@ -1718,6 +1718,62 @@ love/surprised), found and fixed the speech-bubble width bug above, then
 proved the no-stack behavior with real elapsed-time measurements (6 rapid
 clicks, bubble confirmed gone ~5.3s after the last one).
 
+### Fixed - visitor chat rebuilt as private 1:1 messaging, not a public room (2026-07-18, Track 2)
+
+The user flagged, in strong terms, that the previous chat was a real
+privacy bug: it broadcast every message to every connected visitor
+("openchat" style) with no way to pick who you were talking to -
+"ต้องทำเพราะมันจำเป็น" (must fix, it's necessary), twice, across two
+separate messages. Client-side filtering would not have actually fixed
+this (every browser would still receive every message over the wire), so
+this is a genuine server-side routing change - see `ws_chat.py`'s module
+docstring on the API side.
+
+- **`lib/useChatSocket.ts`** (rewritten): no more single flat `messages`/
+  `onlineCount`. Now exposes `contacts` (who you can start/resume a
+  conversation with - online visitors from the server's `online_users`
+  push, plus previously-chatted people who've since gone offline,
+  remembered locally so a conversation doesn't vanish from the list just
+  because the other person closed their tab) and `conversations` (messages/
+  unread/pagination keyed by peer `client_id`). `openConversation(peerId)`
+  fetches that pair's history via `GET /chat/history?my_client_id=&peer_
+  client_id=`; `sendMessage(peerId, text)` addresses the WS payload with
+  `recipient_client_id`. There is no more bulk `history` WS push on connect
+  - only `online_users` and per-recipient `message` events.
+- **`components/VisitorNetwork.tsx`**: the chat tab now defaults to a
+  contact list (`ContactRow` per visitor, 🟢ออนไลน์/ออฟไลน์ status, per-
+  contact unread badge) - clicking someone opens a `ThreadView` (back
+  button, scoped message list/input/stickers, `key={peerClientId}` so
+  switching threads resets scroll state cleanly). The toggle button's
+  unread badge is now a sum across every open conversation.
+- **`types.ts`**/**`api.ts`**: `ChatMessage` gained `recipient_client_id`;
+  `ChatPresence`/`ChatHistory` replaced by `OnlineUser`/`ChatOnlineUsers`;
+  `chatSocketUrl()` now sends `client_id`/`display_name`/`avatar` as
+  connect-time query params (the server needs identity before any message
+  is ever sent, to populate the online list); `getChatHistory()` now takes
+  both ends of the pair.
+
+Also answers the user's other two questions this same message raised: (1)
+avatar/name persistence across a re-login on the same browser was already
+true before this change (`chatProfile.ts`'s `localStorage`-based profile is
+independent of the JWT/login state) and still is - verified live below,
+along with the existing "✏️ edit profile" flow still working, now synced
+live to what other people see via a `type: "update_profile"` WS message
+instead of requiring a reconnect.
+
+**Tested**: `useChatSocket.test.tsx` and `VisitorNetwork.test.tsx` fully
+rewritten (12 + 15 tests) for the new contact-list/thread model, including
+a component-level proof that a message from one peer never renders inside
+a different peer's thread. Full suite 284/284, `tsc` clean. **Live-
+verified via Playwright** with three real signed-in visitors (viewer/
+operator/admin, each through the real login + post-login profile gate):
+the contact list showed the other two online (admin's name correctly
+prefixed "admin "); a private message from one to another arrived only for
+its recipient - the third visitor's page never showed it, live-proving the
+same privacy property the old public room violated; a reply flowed back;
+and reloading the sender's page kept its saved name/avatar with no
+re-prompt, with the edit-profile button still present and working.
+
 ## Run locally
 
 ```bash

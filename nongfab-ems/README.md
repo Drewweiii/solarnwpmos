@@ -74,6 +74,16 @@ Deployment notes:
   ABI-inconsistent numpy that crashed at import on first deploy (caught by
   the Railway runtime logs, fixed and re-verified by reproducing the exact
   install in a throwaway venv and importing `nongfab_api.main`).
+- **(2026-07-18) `/ws/chat`'s private-messaging rework needs a manual DB
+  migration on Railway's production Postgres, on top of the manual
+  "Deploy" click above** - `Base.metadata.create_all` only creates
+  brand-new tables, never adds a column to one that already exists, and
+  `chat_messages` already exists in production. Someone has to run
+  `psql "$TIMESCALE_DSN" -f db/migrations/0007_chat_direct_messages.sql`
+  against the real Railway Postgres, or private chat messages will
+  silently fail to persist their `recipient_client_id` in production even
+  though every test and local run is green - see `api/README.md`'s
+  matching dated entry for the full story.
 - End-to-end verified through the live public URLs (frontend serves, the
   deployed bundle points at the Railway API, login returns a real JWT with
   correct CORS for the Cloudflare origin, every read route 200s, RBAC

@@ -386,20 +386,26 @@ export interface ChatMessage {
   display_name: string
   avatar: string | null
   client_id: string | null
+  recipient_client_id: string | null
 }
 
-export interface ChatPresence {
-  type: 'presence'
-  count: number
-  usernames: string[]
+// One entry per currently-connected visitor (deduped by client_id - a
+// browser with several tabs open only appears once). Not a public roster of
+// "everyone who's ever visited" - only who is online right now, which is
+// exactly what lets a client pick a private chat partner (ws_chat.py).
+export interface OnlineUser {
+  client_id: string
+  display_name: string
+  avatar: string | null
+  role: string
 }
 
-export interface ChatHistory {
-  type: 'history'
-  messages: ChatMessage[]
+export interface ChatOnlineUsers {
+  type: 'online_users'
+  users: OnlineUser[]
 }
 
-export type ChatEvent = ChatMessage | ChatPresence | ChatHistory
+export type ChatEvent = ChatMessage | ChatOnlineUsers
 
 export interface FeedbackItem {
   id: number

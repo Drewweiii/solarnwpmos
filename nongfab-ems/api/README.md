@@ -761,3 +761,61 @@ file-backed store, confirmed the endpoint 500'd (the mixed-precision bug
 above) before the `local_store.py` fix and returned the seeded reading
 correctly after it - see `web/README.md`'s entry for the rendered cloud
 layer itself.
+
+### Rewritten - `/ws/chat` is private 1:1 messaging, not a public broadcast room (2026-07-18)
+
+⚠ **Needs a manual DB migration on Railway's production Postgres, in
+addition to the usual manual "Deploy" click** (see root `README.md`'s
+"Deployment notes" - Railway has no working auto-deploy). `create_tables_
+on_startup`/`Base.metadata.create_all` only creates tables that don't exist
+yet; it never adds a column to an already-existing table. `chat_messages`
+already exists in production (from `0005`/`0006`), so the new
+`recipient_client_id` column will silently be missing unless someone runs:
+
+```
+psql "$TIMESCALE_DSN" -f db/migrations/0007_chat_direct_messages.sql
+```
+
+against the real Railway Postgres before (or right after) clicking Deploy.
+Skipping this doesn't crash the API - SQLAlchemy will just fail to insert/
+read the new column, so private messages would silently break in
+production while every test and local run stayed green.
+
+The user reported the previous `/ws/chat` (site-wide single room + a
+public message broadcast to everyone connected) as a real privacy bug -
+"ต้องทำเพราะมันจำเป็น" (must fix, it's necessary) - not a UX nice-to-have.
+Rewrote `ws_chat.py` so every message is addressed to exactly one
+`recipient_client_id` and is only ever delivered - both the live WS push
+and the persisted row - to the two participants' own sockets;
+`ConnectionManager.send_to_client()` is now the only delivery primitive
+(the old `broadcast()` fan-out-to-everyone method is gone entirely).
+
+- **`ws_chat.py`**: connect now requires `?client_id=` (not just `?token=`)
+  so the server knows identity immediately, before any message is ever
+  sent - this is what populates the new `online_users` broadcast (replaces
+  the old `presence` count-only event) with `{client_id, display_name,
+  avatar, role}` per connected visitor, deduped per browser (several tabs
+  = one entry). No more bulk `history` push on connect - a client only
+  gets a conversation's history once it picks a specific peer (`GET /chat/
+  history?my_client_id=&peer_client_id=`, `ChatStore.conversation_
+  messages()` replacing the old separate `recent_messages()`/`messages_
+  before()` methods with one `before_id`-optional method). A new `type:
+  "update_profile"` WS message syncs a live name/avatar edit into the
+  online list without requiring a reconnect.
+- **`models.py`**: `ChatMessageORM` gained `recipient_client_id` (nullable
+  only because pre-2026-07-18 rows predate the column and were public
+  broadcasts with no single intended recipient - every row written from
+  this date on always has one).
+- **`db/migrations/0007_chat_direct_messages.sql`** (new): the column plus
+  two indexes on `(client_id, recipient_client_id)` and its reverse, for
+  the conversation-scoped lookup `GET /chat/history` now does.
+
+**Tested**: `test_ws_chat.py` fully rewritten (16 tests) - the load-bearing
+one proves a message sent to one recipient is never delivered to a third
+connected client, only to sender+recipient (the actual privacy property,
+not just a UI filter) - plus online-list broadcast/dedup, admin-prefix
+enforcement, multi-tab delivery, live profile sync, and peer-scoped history
+pagination/isolation. Full backend suite 148 passed. See `web/README.md`'s
+matching dated entry for the frontend contact-list/thread rework and its
+live 3-visitor Playwright verification (including the same privacy
+property proven end-to-end through real browsers, not just the WS layer).
