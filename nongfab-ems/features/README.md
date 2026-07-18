@@ -146,6 +146,54 @@ everything else in this file.
   follow-up once Module 1 has a live raster store, not a redesign of this
   module's shape.
 
+## Lunar position (Module 7's 3D view Moon marker, 2026-07-18)
+
+`moon.py`'s `moon_position(when, latitude, longitude) -> (azimuth_deg,
+elevation_deg)` - added for Solar3DPage's "Moon rises to replace the Sun
+after sunset" feature (user request: "ตรง 3D ให้ทำดวงจันทร์เพิ่ม...มาขึ้นแทน
+ดวงอาทิตย์ เมื่อดวงอาทิตย์ตกดินไปเเล้ว"). `clearsky.py` (this module's own
+solar-position source) only computes solar position - there's no lunar
+equivalent anywhere already installed in this project (checked: no
+`ephem`/`skyfield`/`astropy` dependency exists). Rather than add a new
+heavyweight ephemeris dependency for a decorative visual (`skyfield` needs
+a downloaded JPL kernel file; `pyephem` is a C extension), this implements
+Paul Schlyter's well-known compact algorithm ("How to Compute Planetary
+Positions") directly in pure Python - geocentric ecliptic orbital
+elements, the dominant ~13 solar-perturbation correction terms, then the
+standard ecliptic → equatorial → topocentric-horizontal rotation chain
+(the same final rotation step `clearsky.py` relies on pvlib for, on the
+Sun's side).
+
+**Honesty caveat, stated plainly in the module's own docstring**: this is
+a low/medium-precision approximation (typically within roughly one degree
+for the terms used here), not the same precision-audited pipeline pvlib
+provides for the Sun. Sufficient for this scene's own decorative purpose
+(a moon that visibly rises, arcs, and sets in roughly the right place) -
+NOT meant to support anything needing arcminute-grade lunar accuracy
+(eclipse/occultation timing, etc.). A real ephemeris library should
+replace this, not extend it, if such a need ever arises.
+
+Same `(azimuth_deg, elevation_deg)` convention as `clearsky.
+compute_clearsky_and_position`'s solar position (azimuth clockwise from
+North, elevation positive above horizon), so `api/routes_solar3d.py` and
+the frontend can treat sun and moon positions identically. See
+`api/README.md`'s and `web/README.md`'s matching dated entries for the
+`/moon-path/{zone}` endpoint and the animated `MoonMarker` this feeds.
+
+**Tested**: 5 invariant-based tests in `test_moon.py` (not
+golden-value tests, since there's no independent reference ephemeris
+available in this environment to compare against) - valid azimuth/
+elevation ranges, naive-datetime-treated-as-UTC, smooth motion over 24h of
+10-minute steps (catches a sign-flip/wraparound bug in the topocentric
+rotation math), crosses the horizon within a 30h window from a
+below-horizon start (proves it isn't returning a static reading), and
+differs across a 7-day span (proves `when` isn't silently ignored). Manual
+sanity check: a 48-hour print at Nong Fab's own coordinates showed
+physically plausible moonrise (~03:00-04:00 UTC), a near-zenith transit
+(~79-80° elevation around 09:00 UTC), moonset (~15:00-16:00 UTC), and the
+correct ~1-hour daily lag shift on day 2 - consistent with real lunar
+motion.
+
 ## Layout
 
 ```
@@ -159,6 +207,7 @@ src/nongfab_features/
   shading.py              row_shaded_fraction(), zone_solar_access() - analytical row self-shading
   sld.py                    build_sld() - real-equipment-derived SLD topology (Module 7 Feature D)
   irradiance_map.py        grid_points(), irradiance_grid() - plant-wide irradiance grid (Module 7 Feature E)
+  moon.py                   moon_position() - lunar azimuth/elevation for the 3D view's Moon marker
 tests/                pytest suite, no external services or network needed
 ```
 

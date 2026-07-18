@@ -8,6 +8,7 @@ from nongfab_forecast.serving import (
     FALLBACK_PI_HALF_WIDTH_PCT,
     FORECAST_HISTORY_LOOKBACK_HOURS,
     GENERATED_POWER_BACKFILL_HOURS,
+    GENERATED_POWER_ESTIMATED_MARKER,
     GENERATED_POWER_HORIZON,
     ModelNotTrainedError,
     UnknownHorizonError,
@@ -308,6 +309,11 @@ def test_backfill_generated_power_history_seeds_the_full_lookback_window():
     assert len(points) == GENERATED_POWER_BACKFILL_HOURS
     for point in points:
         assert point.timestamp < now
+        # Every backfilled row is a physics-baseline estimate, not a real
+        # reading - see GENERATED_POWER_ESTIMATED_MARKER's own docstring for
+        # why this matters (it's the same estimate backfill_forecast_history()
+        # computes for "Forecast" over the same cold-start window).
+        assert point.algorithm == GENERATED_POWER_ESTIMATED_MARKER
 
 
 def test_a_live_poll_overwrites_its_own_backfilled_hour():
@@ -325,3 +331,6 @@ def test_a_live_poll_overwrites_its_own_backfilled_hour():
     points = generated_power_history("GIS", store, since=now - timedelta(hours=GENERATED_POWER_BACKFILL_HOURS))
     matched = next(p for p in points if p.timestamp == current_hour)
     assert matched.pred == pytest.approx(999.0)
+    # The live poll's overwrite must also clear the estimated-provenance
+    # marker, not just the value - a live reading is not an estimate.
+    assert matched.algorithm is None

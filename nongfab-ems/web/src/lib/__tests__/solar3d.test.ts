@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compassLabel, interpolateSunPosition, solarAccessColor, sunPositionVector, zenithAngleDeg } from '../solar3d'
+import { advanceSimClockMs, angleArcPoints, compassLabel, interpolateSunPosition, solarAccessColor, sunPositionVector, zenithAngleDeg } from '../solar3d'
 
 describe('compassLabel', () => {
   it('maps the 8 cardinal/intercardinal directions', () => {
@@ -101,5 +101,79 @@ describe('interpolateSunPosition', () => {
 
   it('returns the single point directly when only one sample exists', () => {
     expect(interpolateSunPosition([points[1]], '2026-07-18T00:15:00Z')).toEqual({ azimuthDeg: 90, elevationDeg: 10 })
+  })
+})
+
+describe('advanceSimClockMs', () => {
+  const start = Date.parse('2026-07-18T00:00:00Z')
+  const end = Date.parse('2026-07-19T00:00:00Z') // a full 24h wrap window
+
+  it('advances by delta * sim-minutes-per-real-second, unwrapped', () => {
+    // 1 real second at 15 sim-min/real-sec = 15 sim-minutes forward
+    const next = advanceSimClockMs(start, 1, 15, start, end)
+    expect(next).toBe(start + 15 * 60 * 1000)
+  })
+
+  it('wraps back to wrapStartMs once it passes wrapEndMs, carrying the overshoot', () => {
+    const justBeforeEnd = end - 5 * 60 * 1000 // 5 minutes before the wrap boundary
+    // 1 real second advances 15 sim-minutes, overshooting the boundary by 10
+    const next = advanceSimClockMs(justBeforeEnd, 1, 15, start, end)
+    expect(next).toBe(start + 10 * 60 * 1000)
+  })
+
+  it('lands exactly on wrapEndMs without wrapping (boundary is inclusive)', () => {
+    const next = advanceSimClockMs(end, 0, 15, start, end)
+    expect(next).toBe(end)
+  })
+
+  it('two markers fed identical inputs each frame stay in lockstep', () => {
+    let sunMs = start
+    let moonMs = start
+    for (const delta of [0.5, 0.7, 1.2, 0.3]) {
+      sunMs = advanceSimClockMs(sunMs, delta, 15, start, end)
+      moonMs = advanceSimClockMs(moonMs, delta, 15, start, end)
+    }
+    expect(sunMs).toBe(moonMs)
+  })
+
+  it('advances unwrapped when the wrap window is null (no path data loaded yet)', () => {
+    const next = advanceSimClockMs(start, 2, 15, null, null)
+    expect(next).toBe(start + 30 * 60 * 1000)
+  })
+
+  it('advances unwrapped when the wrap window is empty/invalid', () => {
+    const next = advanceSimClockMs(start, 2, 15, end, start) // end before start
+    expect(next).toBe(start + 30 * 60 * 1000)
+  })
+})
+
+describe('angleArcPoints', () => {
+  it('starts and ends exactly at the from/to azimuth+elevation', () => {
+    const points = angleArcPoints(0, 90, 0, 45, 10, 4)
+    expect(points[0]).toEqual(sunPositionVector(0, 0, 10))
+    expect(points[points.length - 1]).toEqual(sunPositionVector(90, 45, 10))
+  })
+
+  it('returns segments + 1 points', () => {
+    expect(angleArcPoints(0, 90, 0, 0, 10, 8)).toHaveLength(9)
+  })
+
+  it('sweeps azimuth only when elevation is held constant (the azimuth arc case)', () => {
+    const points = angleArcPoints(0, 40, 0, 0, 10, 4)
+    for (const [x, y, z] of points) {
+      expect(y).toBeCloseTo(0) // elevation 0 the whole way -> stays at y=0
+      expect(x * x + z * z).toBeCloseTo(100) // stays on the radius-10 circle
+    }
+  })
+
+  it('sweeps elevation only when azimuth is held constant (the altitude/zenith arc case)', () => {
+    const points = angleArcPoints(90, 90, 0, 90, 10, 2)
+    expect(points[0]).toEqual(sunPositionVector(90, 0, 10))
+    expect(points[1]).toEqual(sunPositionVector(90, 45, 10))
+    expect(points[2]).toEqual(sunPositionVector(90, 90, 10))
+  })
+
+  it('defaults to 32 segments (33 points) when not specified', () => {
+    expect(angleArcPoints(0, 10, 0, 10, 10)).toHaveLength(33)
   })
 })

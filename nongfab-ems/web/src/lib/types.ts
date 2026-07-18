@@ -150,9 +150,16 @@ export interface HourlyPoint {
 // reading at each poll, backfilled on cold start with a physics-baseline
 // estimate - see forecast/README.md's "Actual/generated power history"
 // entry. Only timestamp/ac_kw - no ssrd/temp breakdown for history.
+// `estimated` (2026-07-18): true for a cold-start-backfilled physics
+// estimate rather than a genuinely live-polled reading - see
+// api/routes_performance.py's GeneratedPowerPoint docstring for why this
+// matters (an estimated row can be the literal same number as a
+// physics-baseline "Forecast" for that same hour, which looked like two
+// independent signals agreeing perfectly).
 export interface GeneratedPowerPoint {
   timestamp: string
   ac_kw: number
+  estimated: boolean
 }
 
 export interface PerformanceResponse {
@@ -276,6 +283,10 @@ export interface GeometryResponse {
   azimuth_deg: number
   row_pitch_m: number
   sun: SolarPosition
+  // Decorative only (2026-07-18) - low/medium-precision approximation, see
+  // features/src/nongfab_features/moon.py's docstring. Always populated;
+  // visibility (show only after sunset) is decided on the frontend.
+  moon: SolarPosition
   average_solar_access_pct: number
   panels: Panel[]
   string_balance: StringBalance[]
@@ -291,6 +302,18 @@ export interface SunPathResponse {
   zone: string
   date: string
   points: SunPathPoint[]
+}
+
+export interface MoonPathPoint {
+  time: string
+  azimuth_deg: number
+  elevation_deg: number
+}
+
+export interface MoonPathResponse {
+  zone: string
+  date: string
+  points: MoonPathPoint[]
 }
 
 export interface SystemSummary {

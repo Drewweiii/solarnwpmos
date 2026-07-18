@@ -4,15 +4,15 @@
 // logic (color scale, compass math, sun position) lives in lib/solar3d.ts,
 // which this component just calls into.
 
-import { Grid, Line, OrbitControls } from '@react-three/drei'
+import { Grid, Html, Line, OrbitControls } from '@react-three/drei'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { Ref } from 'react'
 import type { DirectionalLight, Group } from 'three'
 import { TextureLoader, type Texture } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
-import { interpolateSunPosition, solarAccessColor, sunPositionVector } from '../lib/solar3d'
-import type { Panel, PrecipitationIntensity, SunPathPoint } from '../lib/types'
+import { advanceSimClockMs, angleArcPoints, interpolateSunPosition, solarAccessColor, sunPositionVector, zenithAngleDeg } from '../lib/solar3d'
+import type { MoonPathPoint, Panel, PrecipitationIntensity, SunPathPoint } from '../lib/types'
 
 // Exposed to Solar3DPage's icon rail "reset camera" button - React 19 takes
 // `ref` as a plain prop (no forwardRef wrapper needed), see this component's
@@ -35,6 +35,18 @@ const SUN_MARKER_RADIUS_FLOOR_M = 40
 // read as reasonable at the one scale it was tuned against.
 const SUN_RADIUS_FRACTION = 0.09
 const SUN_GLOW_RADIUS_FRACTION = 0.16
+// Smaller than the sun's own fractions - conventionally the moon reads as
+// the visually smaller body of the two, and keeping it modest avoids it
+// competing with the sun for attention on the (much rarer) instants both
+// might render at once (twilight, one clock tick before/after the other's
+// visibility flips).
+const MOON_RADIUS_FRACTION = 0.065
+const MOON_GLOW_RADIUS_FRACTION = 0.1
+// Kept well inside the sun's own orbit radius so the angle-diagram
+// protractor (see SunAngleDiagram) reads as a small reference instrument
+// near the observer, not something competing with the sun/moon/panels for
+// visual attention.
+const ANGLE_DIAGRAM_RADIUS_FRACTION = 0.3
 
 // Simulated sim-minutes advanced per real second while the icon-rail play
 // button is on - tuned so a typical Thailand daylight span (~12-13h) glides
@@ -242,6 +254,12 @@ interface SunMarkerProps {
   orbitRadius: number
   sunRadius: number
   glowRadius: number
+  // The shared full-24h clock-wrap window (see `advanceSimClockMs`'s own
+  // docstring) - both SunMarker and MoonMarker wrap at the same instants so
+  // they stay in lockstep, rather than the Sun looping only its own
+  // daylight-only span the way it did before the Moon existed.
+  wrapStartMs: number | null
+  wrapEndMs: number | null
   onAnimatedTimeChange?: (atIso: string) => void
 }
 
@@ -265,6 +283,8 @@ function SunMarker({
   orbitRadius,
   sunRadius,
   glowRadius,
+  wrapStartMs,
+  wrapEndMs,
   onAnimatedTimeChange,
 }: SunMarkerProps) {
   const groupRef = useRef<Group>(null)
@@ -282,16 +302,8 @@ function SunMarker({
   }, [atIso])
 
   useFrame((_, delta) => {
-    if (isPlaying && sunPathPoints.length > 1) {
-      const firstMs = new Date(sunPathPoints[0].time).getTime()
-      const lastMs = new Date(sunPathPoints[sunPathPoints.length - 1].time).getTime()
-      const spanMs = lastMs - firstMs
-      if (spanMs > 0) {
-        animatedMsRef.current += delta * PLAY_SIM_MINUTES_PER_REAL_SECOND * 60 * 1000
-        if (animatedMsRef.current > lastMs) {
-          animatedMsRef.current = firstMs + ((animatedMsRef.current - firstMs) % spanMs)
-        }
-      }
+    if (isPlaying) {
+      animatedMsRef.current = advanceSimClockMs(animatedMsRef.current, delta, PLAY_SIM_MINUTES_PER_REAL_SECOND, wrapStartMs, wrapEndMs)
     }
 
     const atIsoNow = new Date(animatedMsRef.current).toISOString()
@@ -337,6 +349,184 @@ function SunMarker({
         </mesh>
       </group>
     </>
+  )
+}
+
+interface MoonMarkerProps {
+  moonPathPoints: MoonPathPoint[]
+  sunPathPoints: SunPathPoint[]
+  atIso: string
+  isPlaying: boolean
+  fallbackMoonAzimuthDeg: number
+  fallbackMoonElevationDeg: number
+  fallbackSunElevationDeg: number
+  orbitRadius: number
+  moonRadius: number
+  glowRadius: number
+  wrapStartMs: number | null
+  wrapEndMs: number | null
+}
+
+// Mirrors SunMarker's own "own imperative clock, no React re-render per
+// frame" structure (see that component's docstring) - added 2026-07-18 per
+// the user's own request that the Moon "rise to replace the Sun" once it
+// sets, moving just as smoothly. Deliberately does NOT call
+// `onAnimatedTimeChange` itself: SunMarker already owns that bridge back to
+// the parent page, and both markers are fed the exact same `wrapStartMs`/
+// `wrapEndMs`/`atIso`/`isPlaying` inputs and the same per-frame `delta`
+// (see `advanceSimClockMs`), so their internal clocks stay in lockstep
+// without a second callback duplicating the same update.
+//
+// Unlike the Sun, `moonPathPoints` is NOT daylight-filtered (see
+// routes_solar3d.py's own `/moon-path` docstring for why) - it's a
+// continuous 24h arc, so `interpolateSunPosition` (generic over any
+// {time, azimuth_deg, elevation_deg}[] - reused here rather than writing a
+// near-identical "interpolateMoonPosition") never returns null for it.
+// Visibility instead requires two real conditions at once: the Moon's own
+// elevation is genuinely above its horizon, AND the Sun is currently below
+// its own horizon (`interpolateSunPosition(sunPathPoints, ...)` returning
+// null - sunPathPoints only covers daylight, so null there already means
+// "sun is down"). This is a deliberate "one or the other, not both" scene
+// convention (the request was literally "replace the sun"), not a claim
+// that the real sun and moon are never in the sky at once.
+function MoonMarker({
+  moonPathPoints,
+  sunPathPoints,
+  atIso,
+  isPlaying,
+  fallbackMoonAzimuthDeg,
+  fallbackMoonElevationDeg,
+  fallbackSunElevationDeg,
+  orbitRadius,
+  moonRadius,
+  glowRadius,
+  wrapStartMs,
+  wrapEndMs,
+}: MoonMarkerProps) {
+  const groupRef = useRef<Group>(null)
+  const animatedMsRef = useRef(new Date(atIso).getTime())
+
+  useEffect(() => {
+    animatedMsRef.current = new Date(atIso).getTime()
+  }, [atIso])
+
+  useFrame((_, delta) => {
+    if (isPlaying) {
+      animatedMsRef.current = advanceSimClockMs(animatedMsRef.current, delta, PLAY_SIM_MINUTES_PER_REAL_SECOND, wrapStartMs, wrapEndMs)
+    }
+
+    const atIsoNow = new Date(animatedMsRef.current).toISOString()
+    const interpolatedMoon = interpolateSunPosition(moonPathPoints, atIsoNow)
+    const azimuthDeg = interpolatedMoon?.azimuthDeg ?? fallbackMoonAzimuthDeg
+    const elevationDeg = interpolatedMoon?.elevationDeg ?? fallbackMoonElevationDeg
+    const [x, y, z] = sunPositionVector(azimuthDeg, elevationDeg, orbitRadius)
+
+    const interpolatedSun = interpolateSunPosition(sunPathPoints, atIsoNow)
+    const sunIsDown = interpolatedSun ? interpolatedSun.elevationDeg <= 0 : fallbackSunElevationDeg <= 0
+
+    if (groupRef.current) {
+      groupRef.current.position.set(x, y, z)
+      groupRef.current.visible = sunIsDown && elevationDeg > 0
+    }
+  })
+
+  return (
+    <group ref={groupRef}>
+      {/* Same soft-glow-plus-core convention as SunMarker's own mesh pair,
+          just pale blue-white instead of yellow. */}
+      <mesh>
+        <sphereGeometry args={[glowRadius, 16, 16]} />
+        <meshBasicMaterial color="#e2e8f0" transparent opacity={0.2} depthWrite={false} />
+      </mesh>
+      <mesh>
+        <sphereGeometry args={[moonRadius, 24, 24]} />
+        <meshBasicMaterial color="#f1f5f9" />
+      </mesh>
+    </group>
+  )
+}
+
+// Small helper so the 3 <Html> labels below share one look without
+// repeating the inline style object 3 times.
+const ANGLE_LABEL_STYLE: Record<'azimuth' | 'altitude' | 'zenith', string> = {
+  azimuth: '#38bdf8',
+  altitude: '#34d399',
+  zenith: '#a78bfa',
+}
+
+interface SunAngleDiagramProps {
+  azimuthDeg: number
+  elevationDeg: number
+  radius: number
+}
+
+// In-scene azimuth/altitude/zenith-angle protractor for the Sun only - per
+// the user's own 2026-07-18 request ("(สำคัญมาก)ตรงเส้น3Dให้แสดงการวัดมุม
+// เข้าไปด้วย...ทำเฉพาะดวงอาิตย์ ดวงจันทน์ไม่ต้องทำ มีมุม azimuth, altitude,
+// zenith angle"), matching the standard solar-position diagram convention
+// (e.g. Duffie & Beckman's "Solar Engineering of Thermal Processes"):
+//  - Azimuth (cyan): the ground-plane arc from North to the sun's compass
+//    bearing.
+//  - Altitude (green): the vertical-plane arc from the horizon up to the
+//    sun, in the sun's own azimuth direction.
+//  - Zenith angle (violet): the vertical-plane arc from directly overhead
+//    down to the sun - complementary to altitude (they always sum to 90deg
+//    and share the sun as one endpoint), matching `zenithAngleDeg`'s own
+//    convention.
+// Deliberately prop-driven, NOT a `useFrame` clock like SunMarker/
+// MoonMarker: it re-renders whenever `azimuthDeg`/`elevationDeg` (the same
+// `geometry.data.sun` value Solar3DPage's own Compass/Zenith text readouts
+// already use) changes - the same update cadence as every other
+// non-animated element in this scene (panels, buildings). Hidden entirely
+// below the horizon - an angle-to-the-sun diagram for a sun that isn't up
+// doesn't mean anything.
+function SunAngleDiagram({ azimuthDeg, elevationDeg, radius }: SunAngleDiagramProps) {
+  const azimuthArc = useMemo(() => angleArcPoints(0, azimuthDeg, 0, 0, radius), [azimuthDeg, radius])
+  const altitudeArc = useMemo(() => angleArcPoints(azimuthDeg, azimuthDeg, 0, elevationDeg, radius), [azimuthDeg, elevationDeg, radius])
+  const zenithArc = useMemo(() => angleArcPoints(azimuthDeg, azimuthDeg, 90, elevationDeg, radius), [azimuthDeg, elevationDeg, radius])
+
+  if (elevationDeg <= 0) return null
+
+  const origin: [number, number, number] = [0, 0, 0]
+  const northPoint = sunPositionVector(0, 0, radius)
+  const zenithPoint = sunPositionVector(azimuthDeg, 90, radius)
+  const sunPoint = sunPositionVector(azimuthDeg, elevationDeg, radius)
+  const groundProjectionPoint = sunPositionVector(azimuthDeg, 0, radius)
+
+  const azimuthLabelPos = sunPositionVector(azimuthDeg / 2, 0, radius * 1.2)
+  const altitudeLabelPos = sunPositionVector(azimuthDeg, elevationDeg / 2, radius * 1.2)
+  const zenithLabelPos = sunPositionVector(azimuthDeg, (elevationDeg + 90) / 2, radius * 1.2)
+
+  return (
+    <group>
+      {/* Reference rays - subtle, just anchoring the arcs to real
+          directions (North, straight up, the sun's ground projection, and
+          the sun itself). */}
+      <Line points={[origin, northPoint]} color="#94a3b8" lineWidth={1} transparent opacity={0.5} />
+      <Line points={[origin, zenithPoint]} color="#94a3b8" lineWidth={1} transparent opacity={0.5} />
+      <Line points={[origin, groundProjectionPoint]} color="#94a3b8" lineWidth={1} transparent opacity={0.35} />
+      <Line points={[origin, sunPoint]} color="#fde047" lineWidth={1.5} transparent opacity={0.7} />
+
+      <Line points={azimuthArc} color={ANGLE_LABEL_STYLE.azimuth} lineWidth={2.5} />
+      <Line points={altitudeArc} color={ANGLE_LABEL_STYLE.altitude} lineWidth={2.5} />
+      <Line points={zenithArc} color={ANGLE_LABEL_STYLE.zenith} lineWidth={2.5} />
+
+      <Html position={azimuthLabelPos} center>
+        <span className="solar3d-angle-label" style={{ color: ANGLE_LABEL_STYLE.azimuth }}>
+          Azimuth {Math.round(azimuthDeg)}&deg;
+        </span>
+      </Html>
+      <Html position={altitudeLabelPos} center>
+        <span className="solar3d-angle-label" style={{ color: ANGLE_LABEL_STYLE.altitude }}>
+          Altitude {Math.round(elevationDeg)}&deg;
+        </span>
+      </Html>
+      <Html position={zenithLabelPos} center>
+        <span className="solar3d-angle-label" style={{ color: ANGLE_LABEL_STYLE.zenith }}>
+          Zenith {Math.round(zenithAngleDeg(elevationDeg))}&deg;
+        </span>
+      </Html>
+    </group>
   )
 }
 
@@ -534,6 +724,15 @@ interface Solar3DSceneProps {
   sunAzimuthDeg: number
   sunElevationDeg: number
   sunPathPoints: SunPathPoint[]
+  // Decorative Moon (2026-07-18) - see MoonMarker's own docstring for the
+  // visibility rule (only shown once the Sun is down) and moon.py's for the
+  // low/medium-precision caveat behind these numbers. `moonPathPoints`
+  // covers the full 24h day (NOT daylight-filtered, unlike sunPathPoints)
+  // and doubles as the shared clock's wrap-around window - see
+  // `advanceSimClockMs`.
+  moonAzimuthDeg: number
+  moonElevationDeg: number
+  moonPathPoints: MoonPathPoint[]
   // The instant currently being shown - the authoritative source SunMarker
   // re-anchors its own smooth animated clock to whenever it isn't actively
   // playing (paused, or a manual scrub). See SunMarker's own docstring.
@@ -592,6 +791,9 @@ export function Solar3DScene({
   sunAzimuthDeg,
   sunElevationDeg,
   sunPathPoints,
+  moonAzimuthDeg,
+  moonElevationDeg,
+  moonPathPoints,
   atIso,
   isPlaying,
   onAnimatedTimeChange,
@@ -668,11 +870,33 @@ export function Solar3DScene({
   const sunOrbitRadius = Math.max(SUN_MARKER_RADIUS_FLOOR_M, bounds.focus.span * 1.8)
   const sunRadius = sunOrbitRadius * SUN_RADIUS_FRACTION
   const sunGlowRadius = sunOrbitRadius * SUN_GLOW_RADIUS_FRACTION
+  const moonRadius = sunOrbitRadius * MOON_RADIUS_FRACTION
+  const moonGlowRadius = sunOrbitRadius * MOON_GLOW_RADIUS_FRACTION
+  const angleDiagramRadius = sunOrbitRadius * ANGLE_DIAGRAM_RADIUS_FRACTION
 
   const sunPathLine = useMemo(
     () => sunPathPoints.map((p) => sunPositionVector(p.azimuth_deg, p.elevation_deg, sunOrbitRadius)),
     [sunPathPoints, sunOrbitRadius],
   )
+  // Only the above-horizon stretch is drawn as a guide line (matching the
+  // sun's own line, whose source data is daylight-pre-filtered) - the full
+  // `moonPathPoints` array itself (including its below-horizon points) is
+  // still what MoonMarker interpolates off, so a moonrise/moonset
+  // transition still glides smoothly even though the line vanishes at the
+  // horizon crossing.
+  const moonPathLine = useMemo(
+    () =>
+      moonPathPoints.filter((p) => p.elevation_deg > 0).map((p) => sunPositionVector(p.azimuth_deg, p.elevation_deg, sunOrbitRadius)),
+    [moonPathPoints, sunOrbitRadius],
+  )
+  // The shared "play" clock's wrap-around window - the Moon's own path
+  // already spans the full 24h day (unlike the Sun's daylight-only
+  // sunPathPoints), so it's the natural source for "when does one full lap
+  // end" for both markers. `null` before the Moon data has loaded, in which
+  // case both markers just advance unwrapped for that one frame (see
+  // `advanceSimClockMs`'s own docstring).
+  const wrapStartMs = moonPathPoints.length > 0 ? new Date(moonPathPoints[0].time).getTime() : null
+  const wrapEndMs = moonPathPoints.length > 0 ? new Date(moonPathPoints[moonPathPoints.length - 1].time).getTime() : null
 
   const focusCenterScene: [number, number] = [bounds.focus.center[0], -bounds.focus.center[1]]
   // Panels sit on top of the roof/deck (rooftop/pier), or just above grade on
@@ -746,6 +970,7 @@ export function Solar3DScene({
       ))}
 
       {sunPathLine.length > 1 && <Line points={sunPathLine} color="#f59e0b" lineWidth={1.5} />}
+      <SunAngleDiagram azimuthDeg={sunAzimuthDeg} elevationDeg={sunElevationDeg} radius={angleDiagramRadius} />
       <SunMarker
         sunPathPoints={sunPathPoints}
         atIso={atIso}
@@ -755,7 +980,24 @@ export function Solar3DScene({
         orbitRadius={sunOrbitRadius}
         sunRadius={sunRadius}
         glowRadius={sunGlowRadius}
+        wrapStartMs={wrapStartMs}
+        wrapEndMs={wrapEndMs}
         onAnimatedTimeChange={onAnimatedTimeChange}
+      />
+      {moonPathLine.length > 1 && <Line points={moonPathLine} color="#94a3b8" lineWidth={1} />}
+      <MoonMarker
+        moonPathPoints={moonPathPoints}
+        sunPathPoints={sunPathPoints}
+        atIso={atIso}
+        isPlaying={isPlaying}
+        fallbackMoonAzimuthDeg={moonAzimuthDeg}
+        fallbackMoonElevationDeg={moonElevationDeg}
+        fallbackSunElevationDeg={sunElevationDeg}
+        orbitRadius={sunOrbitRadius}
+        moonRadius={moonRadius}
+        glowRadius={moonGlowRadius}
+        wrapStartMs={wrapStartMs}
+        wrapEndMs={wrapEndMs}
       />
       <CloudLayer
         center={bounds.full.center}

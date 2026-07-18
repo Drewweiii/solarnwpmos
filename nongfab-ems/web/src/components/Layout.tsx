@@ -58,14 +58,15 @@ export function Layout() {
               </NavLink>
             </>
           )}
+          {/* Irradiance Map merged into 3D View (2026-07-18, per the user's
+              own request - "ดึง irradiance map มารวมกับ 3d view") - no
+              longer a separate nav entry, see Solar3DPage.tsx's own new
+              section. */}
           <NavLink to="/3d" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
             3D View
           </NavLink>
           <NavLink to="/energy-report" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
             Energy Report
-          </NavLink>
-          <NavLink to="/irradiance-map" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
-            Irradiance Map
           </NavLink>
           {role === 'admin' ? (
             <NavLink to="/admin/feedback" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>

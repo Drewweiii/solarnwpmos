@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Compass } from '../components/Compass'
+import { IrradianceMapView } from '../components/IrradianceMapView'
 import { SolarAccessGauge } from '../components/SolarAccessGauge'
 import type { Solar3DSceneHandle } from '../components/Solar3DScene'
 import { Solar3DScene } from '../components/Solar3DScene'
@@ -12,6 +13,7 @@ import {
   useForecast,
   useGeometry,
   useIrradianceMap,
+  useMoonPath,
   usePerformance,
   usePrecipitationConditions,
   useSunPath,
@@ -58,11 +60,24 @@ export function Solar3DPage() {
   const [timeOfDayMinutes, setTimeOfDayMinutes] = useState(5 * 60)
   const [isPlaying, setIsPlaying] = useState(false)
   const sceneRef = useRef<Solar3DSceneHandle>(null)
+  // Irradiance Map's own 3 layer toggles (same defaults that page used) -
+  // now live here since the two pages were merged into one (2026-07-18 per
+  // the user's own explicit request: "ดึง irradiance map มารวมกับ 3d view
+  // แล้วมาทำให้เด่น" - pull the irradiance map into 3D View and make it
+  // prominent, not just link the two). See the map section below for why
+  // this needs no new network request - it reuses the same `irradiance`
+  // query this page's own GHI readout card already fetches.
+  const [showIrradianceOverlay, setShowIrradianceOverlay] = useState(true)
+  const [showZonePins, setShowZonePins] = useState(true)
+  const [showZoneBoundary, setShowZoneBoundary] = useState(false)
 
   const atIso = useMemo(() => buildAtIso(date, timeOfDayMinutes), [date, timeOfDayMinutes])
 
   const geometry = useGeometry(zone, atIso)
   const sunPath = useSunPath(zone, date)
+  // Full 24h (unfiltered) lunar arc for the Moon marker - see MoonMarker's
+  // own docstring for why this, unlike sunPath, is NOT daylight-filtered.
+  const moonPath = useMoonPath(zone, date)
   const zones = useZones()
   const cloudConditions = useCloudConditions()
   const precipitationConditions = usePrecipitationConditions()
@@ -197,6 +212,21 @@ export function Solar3DPage() {
         {geometry.data && (
           <>
             <Compass azimuthDeg={geometry.data.sun.azimuth_deg} elevationDeg={geometry.data.sun.elevation_deg} />
+            {/* Explicitly labeled azimuth/altitude/zenith readouts (2026-07-18
+                user request - the Compass above already carries the same
+                numbers, but only as a bare "288° W"/"Alt: -17°" without the
+                word "Azimuth" anywhere, which read as "missing" to the
+                user). Mirrors the in-scene angle-diagram protractor below
+                (Solar3DScene's SunAngleDiagram) so the 2D text and the 3D
+                visualization always agree. */}
+            <div className="solar3d-zenith-readout">
+              <span className="solar3d-zenith-label">Azimuth</span>
+              <span className="solar3d-zenith-value">{Math.round(geometry.data.sun.azimuth_deg)}&deg;</span>
+            </div>
+            <div className="solar3d-zenith-readout">
+              <span className="solar3d-zenith-label">Altitude</span>
+              <span className="solar3d-zenith-value">{Math.round(geometry.data.sun.elevation_deg)}&deg;</span>
+            </div>
             <div className="solar3d-zenith-readout">
               <span className="solar3d-zenith-label">Zenith</span>
               <span className="solar3d-zenith-value">{Math.round(zenithAngleDeg(geometry.data.sun.elevation_deg))}&deg;</span>
@@ -277,6 +307,9 @@ export function Solar3DPage() {
               sunAzimuthDeg={geometry.data.sun.azimuth_deg}
               sunElevationDeg={geometry.data.sun.elevation_deg}
               sunPathPoints={sunPath.data?.points ?? []}
+              moonAzimuthDeg={geometry.data.moon.azimuth_deg}
+              moonElevationDeg={geometry.data.moon.elevation_deg}
+              moonPathPoints={moonPath.data?.points ?? []}
               atIso={atIso}
               isPlaying={isPlaying}
               onAnimatedTimeChange={handleAnimatedTimeChange}
@@ -294,6 +327,49 @@ export function Solar3DPage() {
           </>
         )}
       </div>
+
+      {/* Merged in from the former standalone Irradiance Map page
+          (2026-07-18, per the user's own request - see this file's earlier
+          comment on showIrradianceOverlay). Drives the same MapLibre view
+          that page used, from the exact same `irradiance` query this page's
+          GHI readout card above already fetches at the current scrubbed
+          `atIso` - no separate time-scrubber, no second network call, both
+          views of "right now" (3D scene, 2D heatmap) genuinely agree
+          because they share one query. */}
+      <section className="solar3d-irradiance-map-section" aria-label="Irradiance map">
+        <h3 className="solar3d-irradiance-map-title">Irradiance Map</h3>
+        <div className="solar3d-irradiance-map-layer-toggles" role="group" aria-label="Map layers">
+          <label>
+            <input type="checkbox" checked={showIrradianceOverlay} onChange={(e) => setShowIrradianceOverlay(e.target.checked)} />
+            Irradiance overlay
+          </label>
+          <label>
+            <input type="checkbox" checked={showZonePins} onChange={(e) => setShowZonePins(e.target.checked)} />
+            Zone pins
+          </label>
+          <label>
+            <input type="checkbox" checked={showZoneBoundary} onChange={(e) => setShowZoneBoundary(e.target.checked)} />
+            Zone boundary
+          </label>
+        </div>
+        <div className="solar3d-irradiance-map-wrapper">
+          {irradiance.isLoading && <p className="forecast-status">Loading irradiance map…</p>}
+          {irradiance.data && (
+            <IrradianceMapView
+              grid={irradiance.data.grid}
+              zones={irradiance.data.zones}
+              showIrradiance={showIrradianceOverlay}
+              showZones={showZonePins}
+              showBoundary={showZoneBoundary}
+            />
+          )}
+        </div>
+        <div className="solar3d-irradiance-map-legend" aria-label="Irradiance color scale">
+          <span>0 W/m²</span>
+          <div className="solar3d-irradiance-map-legend-bar" />
+          <span>1000 W/m²</span>
+        </div>
+      </section>
     </div>
   )
 }

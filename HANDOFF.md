@@ -1141,3 +1141,142 @@ User ถามสองเรื่องพร้อมกัน: (1) เช็
    ยังรอ user เหมือนเดิม
 6. Next steps อื่นจาก entry ก่อนหน้าๆ ยังค้างเหมือนเดิม (prompt รวม
    Irradiance Map+3D View ให้ Track 2 - ส่งไปแล้ว รอ Track 2 ทำ)
+
+## 2026-07-18 23:40 ICT
+
+**Track 1 - เนื้อหาเชิงวิชาการ (Content/Engineering)**
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+User ส่ง bug report ยาว 9 ข้อพร้อม screenshot 4 รูปในข้อความเดียว
+("แก้ตรงนี้มี bug เยอะมาก"). ข้อ 7/8 ดูขัดกัน (7 บอกว่า Minute-ahead/Model
+Competition ยังไม่มีเส้น Actual power, 8 บอกว่าไม่ต้องโชว์ใน tab Intra-day) -
+ถาม user ผ่าน `AskUserQuestion` ก่อนเริ่ม แล้วได้คำตอบ: **แก้บั๊กแล้วโชว์ตลอด
+เหมือนเดิม ไม่ย้าย/ไม่ซ่อน**. ทำครบทั้ง 9 ข้อในรอบเดียว:
+
+**ข้อ 1 + 7 (Model Competition ว่างเปล่า + Actual power หายจาก Minute-ahead/
+Model Competition)** - root cause เดียวกัน: `chartData.ts`'s
+`sumForecastAcrossZones`/`sumHourlyAcrossZones`/
+`sumGeneratedPowerHistoryAcrossZones` เดิมบังคับ `entry.n === perZone.length`
+(ทุกโซนต้องรายงานชั่วโมงเดียวกันเป๊ะ) ก่อนจะโชว์แถวนั้น - แต่แต่ละโซนยิง
+`/forecast/{zone}/hour` แยกกัน คำนวณ "ceil ไปชั่วโมงถัดไป" เองฝั่ง server
+(`forecast/serving.py`'s `_ceil_to`) ทำให้ request ที่ตกคนละฝั่งของ hour
+boundary ทำให้ทั้งกราฟว่างเปล่า ไม่ใช่แค่โซนนั้น. แก้โดยเอาเงื่อนไข
+`n === perZone.length` ออก - รวมข้อมูลบางส่วนที่มีจริงแทนที่จะซ่อนทั้งแถว.
+อีกครึ่งของข้อ 7 (x-axis เรียงมั่ว 20:00→20:50→19:00) เป็น Recharts bug -
+`<XAxis>` แบบ categorical สร้าง tick domain จากลำดับที่เจอ ไม่ได้ sort ตามค่า
+จริง - แก้ด้วย `mergeMinuteAheadRows()` ใหม่ที่ merge ข้อมูลเป็น array เดียว
+เรียงตามเวลาก่อน render
+
+**ข้อ 2 (scroll ซ้าย-ขวาดูอดีต/อนาคต)** - ไม่ทำ windowing/pagination ใหม่ แต่
+render กราฟที่ width จริงตามจำนวนจุดข้อมูล (`scrollableChartWidthPx`) ใน
+wrapper `overflow-x: auto` - Model Competition ใช้ `pxPerPoint` สูงกว่า
+(เพราะ cap 6 บาร์ (+1h..+6h) คือขีดจำกัดจริงของโมเดล ไม่ใช่บั๊ก)
+
+**ข้อ 3 (รวม Irradiance Map เข้ากับ 3D View)** - พบว่า item นี้เคยติดป้าย
+"รอ Track 2" ใน entry ก่อนหน้า แต่จริงๆ เป็นงาน Track 1 เอง (root
+`CLAUDE.md` ระบุ 3D View เป็นของ Track 1 ชัดเจน + "หน้าที่แสดงข้อมูลของ
+เนื้อหา Track 1" ก็เป็นของ Track 1 ด้วย) - เลยทำเองรอบนี้แทนที่จะส่งต่ออีก
+รอบ. ลบ `IrradianceMapPage.tsx`/`.css`/test ทิ้ง, ย้าย MapLibre heatmap +
+layer toggle 3 อัน (irradiance overlay/zone pins/zone boundary) เข้าไปใน
+`Solar3DPage.tsx` ใช้ query เดียวกับ GHI readout card ที่มีอยู่แล้ว (ไม่ยิง
+network เพิ่ม) `/irradiance-map` URL เก่า redirect ไป `/3d`
+
+**ข้อ 4 (เพิ่มดวงจันทร์ ขยับ ultra-smooth ขึ้นแทนดวงอาทิตย์ตอนตกดิน)** -
+ไม่มี library คำนวณตำแหน่งดวงจันทร์ในโปรเจกต์เลย (เช็คแล้ว: ไม่มี
+`ephem`/`skyfield`/`astropy`) เลยเขียน `features/moon.py` ใหม่ทั้งฟังก์ชัน
+ด้วยสูตร Paul Schlyter (pure Python ไม่เพิ่ม dependency) - **มี honesty
+caveat ชัดเจนในไฟล์**: แม่นยำระดับ ~1 องศา พอสำหรับ visual ไม่ใช่ระดับที่ใช้
+คำนวณ eclipse ได้. เพิ่ม `GET /moon-path/{zone}` (ไม่ filter elevation>0
+เหมือน `/sun-path` เพราะต้องโชว์ตอนพระจันทร์อยู่ใต้ขอบฟ้าด้วย) และ `moon`
+field บน `GET /geometry/{zone}`. Frontend: `MoonMarker` component ใหม่
+เลียนแบบโครงสร้าง `SunMarker` เป๊ะ (useFrame clock ของตัวเอง) แต่**เจอ design
+gap จริงระหว่างทำ**: clock เดิมของ `SunMarker` วนอยู่แค่ช่วงกลางวัน
+(sunPathPoints) เท่านั้น - ถ้าปล่อยไว้พระจันทร์จะไม่มีวันโผล่ตอน Play เลย -
+แก้โดยดึง wrap-around logic ออกมาเป็นฟังก์ชัน pure `advanceSimClockMs()`
+ใหม่ (unit test ได้) แล้วขยาย wrap window ของทั้ง Sun/Moon marker ให้ครอบคลุม
+เต็ม 24 ชม.ของ moonPathPoints - สองอันเดินนาฬิกาพร้อมกันเป๊ะ (พิสูจน์ด้วย
+unit test)
+
+**ข้อ 5 (มุม azimuth/altitude/zenith - เฉพาะดวงอาทิตย์)** - เพิ่ม text
+readout "Azimuth"/"Altitude"/"Zenith" ที่มีป้ายชื่อชัดเจน (ของเดิมมีแค่ตัวเลข
+ใน Compass ไม่มีคำว่า "Azimuth" กำกับ เลยดูเหมือนหายไปทั้งที่จริงมีตัวเลข
+อยู่แล้ว) และสร้าง**diagram มุมแบบ 3D ในฉาก** (`SunAngleDiagram` component
+ใหม่) ตามรูปแบบมาตรฐานตำราฟิสิกส์พลังงานแสงอาทิตย์ - เส้นโค้งสีฟ้า (azimuth,
+บนพื้น จากทิศเหนือไปทิศดวงอาทิตย์), สีเขียว (altitude, แนวตั้งจากขอบฟ้าขึ้น),
+สีม่วง (zenith angle, แนวตั้งจากจุดตรงหัวลงมา - เติมเต็มกันกับ altitude
+รวมกันได้ 90 องศาเสมอ) พร้อม label ตัวเลขจริงลอยอยู่ข้างเส้นโค้งแต่ละเส้น
+(ผ่าน drei's `<Html>`) ซ่อนทั้งหมดเมื่อดวงอาทิตย์ตกดิน
+
+**ข้อ 6 ("Actual power (before today)" เหมือน Forecast เป๊ะ)** - เจอ root
+cause จริง: `backfill_generated_power_history()` กับ
+`backfill_forecast_history()` เรียก `physics_baseline_series()` ตัวเดียวกัน
+ด้วย argument ชุดเดียวกันสำหรับช่วง cold-start เดียวกัน - ตัวเลขเลยเหมือนกัน
+เป๊ะโดยธรรมชาติทางคณิตศาสตร์ ไม่ใช่ความบังเอิญ. ไม่ได้เปลี่ยนตัวเลข (ไม่มี
+ข้อมูล cloud cover ย้อนหลังจริงให้คำนวณดีกว่านี้) แต่เพิ่ม provenance flag
+ใหม่ (`GENERATED_POWER_ESTIMATED_MARKER`, ใช้ column `algorithm` ที่มีอยู่
+แล้วแต่ไม่เคยใช้ - ไม่เพิ่ม column/migration ใหม่) แล้วโชว์ "(estimated)" ต่อ
+ท้ายชื่อเส้นใน tooltip เมื่อเป็นค่าประมาณ ไม่ใช่ค่าจริงที่ poll มา
+
+**ข้อ 9 (แยก error line 3 เส้นออกเป็นกราฟใหม่)** - สร้าง `ErrorChartPanel`
+component ใหม่ (gate เงื่อนไขเดียวกับเส้นเดิม - เฉพาะ tab Intra-day) เอาเส้น
+error ทั้ง 3 ออกจากกราฟหลักเลย ไม่ใช่ซ้ำสอง
+
+**ผลลัพธ์**: Backend test ทั้งหมด (`api` 21 passed, `features` moon 5
+passed, `forecast` 25 passed) + Frontend 294/294, `tsc -p tsconfig.app.json`
+clean. **Live-verify จริงผ่าน Playwright**: Model Competition จาก 0 บาร์
+เป็น 18 บาร์จริง, Minute-ahead โชว์เส้น actual power จริงพร้อม tooltip
+"Actual power (earlier today): 83.4", หน้า `/3d` ที่รวม Irradiance Map แล้ว
+render ครบ (MapLibre canvas, zone pins, layer toggle ทำงาน), scrub ไปเวลา
+กลางคืนจริง (`2026-07-18` ~13:00 UTC, เช็คจาก `/sun-path`+`/moon-path` curl
+ก่อนแล้ว) เห็นพระจันทร์ขึ้นจริงพร้อม glow และเส้น path ระหว่าง Sun แสดง
+"Alt: -17°/Night", scrub ไปกลางวันเห็น Azimuth/Altitude/Zenith
+readout ตรงกับ diagram 3D ในฉาก (query DOM ตรงๆ เจอ label ทั้ง 3 ครบ) -
+zero console error ทุกภาพ. Commit + push ไปที่
+`claude/solar-optimization-forecasting-jryux7` แล้ว
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- ไฟล์หลักที่แก้/เพิ่มรอบนี้: `web/src/lib/{chartData,solar3d}.ts` (helper
+  ใหม่: `mergeMinuteAheadRows`, `advanceSimClockMs`, `angleArcPoints`),
+  `web/src/components/Solar3DScene.tsx` (`MoonMarker`, `SunAngleDiagram`
+  ใหม่), `web/src/pages/{Solar3DPage,ForecastPage}.tsx`, ลบ
+  `IrradianceMapPage.*` ทิ้ง, `features/src/nongfab_features/moon.py`
+  (ไฟล์ใหม่), `api/src/nongfab_api/routes_solar3d.py` (`/moon-path`
+  endpoint ใหม่ + `moon` field), `api/src/nongfab_api/
+  routes_performance.py` (`estimated` field ใหม่), `forecast/src/
+  nongfab_forecast/serving.py` (`GENERATED_POWER_ESTIMATED_MARKER`) -
+  README ทั้ง 4 module (`web`, `api`, `forecast`, `features`) มี entry
+  วันที่ 2026-07-18 อธิบายครบ
+- **SunMarker/MoonMarker share clock เดียวกันแล้ว** - ถ้า session หน้าจะแก้
+  animation ของ Sun หรือ Moon ต้องรู้ว่าทั้งคู่ผูก wrap window เดียวกัน
+  (มาจาก `moonPathPoints` เต็ม 24 ชม. ไม่ใช่ `sunPathPoints` ที่ filter
+  เฉพาะกลางวัน) - แก้ฝั่งเดียวโดยไม่ดู `advanceSimClockMs`/wrap bounds จะ
+  ทำให้สอง marker เดินไม่ตรงกัน
+- **Moon เป็นแค่ decorative, ความแม่นยำ ~1 องศา** - ห้ามเอาไปใช้คำนวณอะไรที่
+  ต้องแม่นจริง (eclipse ฯลฯ) ถ้า user ขอความแม่นยำสูงกว่านี้ ต้องเพิ่ม
+  ephemeris library จริง (skyfield/pyephem) ไม่ใช่ขยาย `moon.py` เดิม
+- `SunAngleDiagram` ทำเฉพาะดวงอาทิตย์ตามที่ user สั่งชัดเจน - **ห้ามทำ
+  diagram มุมให้ดวงจันทร์** เว้นแต่ user ขอเพิ่มเอง
+- **เตือนซ้ำเรื่อง Financial module placeholder** (จาก CLAUDE.md standing
+  reminder) - ยังไม่มีตัวเลขจริงจาก user (CAPEX/PEA tariff/WACC/BOI) -
+  ถามถ้า session หน้าคุยเรื่อง `/financial`
+- **FusionSolar ปิดถาวรแล้ว** (ตั้งแต่ entry ก่อนหน้า) - อย่าเสนอ/รออีก
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **⚠️ Reminder: รอบนี้แตะ `api/` (routes_solar3d.py,
+   routes_performance.py) และ dependency ของมัน (`forecast/serving.py`,
+   `features/moon.py`)** - ต้องกด Deploy เองที่ Railway dashboard ถ้าอยาก
+   ให้ `/moon-path`, `moon` field, และ `estimated` flag ไปโผล่บน
+   production (auto deploy ยังใช้ไม่ได้ตามเดิม)
+2. Track 2 heads-up: หน้า `/irradiance-map` แยกถูกลบไปรวมกับ `/3d` แล้ว -
+   ถ้า Track 2 เคยแก้/อ้างอิงไฟล์ `IrradianceMapPage.tsx`/`.css`/nav link
+   "Irradiance Map" ไว้ที่ไหน ต้องรู้ว่าไฟล์พวกนั้นถูกลบไปแล้วรอบนี้ (ย้าย
+   logic เข้า `Solar3DPage.tsx` แทน)
+3. รอ user ตอบเรื่องกล้อง 3D auto-follow ดวงอาทิตย์ (ค้างจาก entry ก่อนหน้า)
+4. รอ user ตอบเรื่อง Day-ahead hybrid real+synthetic (ค้างจาก entry ก่อนหน้า)
+5. Financial module placeholder (ตัวเลขจริง CAPEX/PEA tariff/WACC/BOI) -
+   ยังรอ user เหมือนเดิม
+6. ถ้า user อยากได้ mm/hr rate ที่แม่นกว่านี้สำหรับฝน (ค้างจาก entry
+   ก่อนหน้า) - ยังไม่ได้ประเมิน scope

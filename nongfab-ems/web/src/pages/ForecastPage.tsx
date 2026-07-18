@@ -23,13 +23,14 @@ import {
   exactTimeKey,
   filterToRecentPast,
   mergeGeneratedAndForecast,
+  mergeMinuteAheadRows,
   nearestToNow,
   sumForecastAcrossZones,
   sumGeneratedPowerHistoryAcrossZones,
   sumHourlyAcrossZones,
   truncateGeneratedToNow,
 } from '../lib/chartData'
-import type { ChartRow, CompetitionRow } from '../lib/chartData'
+import type { ChartRow, CompetitionRow, MinuteChartRow } from '../lib/chartData'
 import {
   ALL_ZONES_ID,
   useAllZonesForecast,
@@ -68,6 +69,45 @@ function forecastDot(props: DotItemDotProps) {
   if (cx == null || cy == null) return null
   const color = (payload?.algorithm && ALGORITHM_DOT_COLOR[payload.algorithm]) || 'var(--chart-forecast)'
   return <circle key={`forecast-dot-${index}`} cx={cx} cy={cy} r={3} fill={color} stroke={color} />
+}
+
+const ACTUAL_POWER_SERIES_NAMES = new Set(['Actual power (before today)', 'Actual power (earlier today)', 'Actual power (now)'])
+
+// Appends "(estimated)" to one of the 3 actual-power series' tooltip name
+// when the hovered row's own reading was a cold-start-backfilled physics
+// estimate, not a genuinely live-polled one (`ChartRow.actualEstimated` -
+// see that field's own docstring). Added 2026-07-18 after the user found a
+// backfilled "actual" and a physics-baseline-fallback "forecast" showing
+// the literal same number for the same hour with no indication either was
+// anything but an independent live measurement - see forecast/serving.py's
+// GENERATED_POWER_ESTIMATED_MARKER for the full root-cause story.
+function actualPowerTooltipName(name: string, row: ChartRow | undefined): string {
+  if (row?.actualEstimated && ACTUAL_POWER_SERIES_NAMES.has(name)) return `${name} (estimated)`
+  return name
+}
+
+// Below this width a chart never needs to scroll - matches roughly what the
+// old fixed-percentage-width charts already rendered at on a typical
+// desktop viewport, so a short series (few points) still looks the same as
+// before this change, no scrollbar appears until there's genuinely more
+// than fits.
+const CHART_MIN_WIDTH_PX = 600
+
+// Drives each of the 3 charts' own horizontal-scroll width (2026-07-18 per
+// the user's own request - "เลื่อนได้พอประมาณเพื่อไปดูอดีตที่ผ่านมา และอนาคต
+// นิดหน่อยตามความสามารถโมเดลนั้นๆ", scroll enough to see past history and a
+// bit of future per that model's own real range): rather than building
+// separate windowing/pagination logic, each chart's already-fetched data
+// (chartRows already carries `useForecastHistory`'s accumulated past plus
+// the model's own forward window - see that hook's own docstring) is
+// rendered at a real pixel width proportional to point count, inside a
+// `overflow-x: auto` wrapper, so panning is just native horizontal scroll
+// over content that's honestly there rather than a fabricated "infinite"
+// range. `pxPerPoint` is deliberately different per chart (minute-ahead's
+// 10-min-resolution points need much less width per point than the main
+// chart's hourly/daily ones to stay legible without excessive scrolling).
+function scrollableChartWidthPx(pointCount: number, pxPerPoint: number): number {
+  return Math.max(CHART_MIN_WIDTH_PX, pointCount * pxPerPoint)
 }
 
 export function ForecastPage() {
@@ -205,6 +245,12 @@ export function ForecastPage() {
     return chartRows.filter((r) => Math.abs(new Date(r.timestamp).getTime() - nowMs) <= windowMs)
   }, [chartRows])
 
+  // One shared, time-sorted array for the whole panel - see
+  // mergeMinuteAheadRows's own docstring for why handing Recharts `points`
+  // and `actualRows` as two separately-shaped arrays (the panel's old
+  // approach) produced an out-of-order x-axis tick.
+  const minuteChartRows = useMemo(() => mergeMinuteAheadRows(minutePoints, minuteWindowActualRows), [minutePoints, minuteWindowActualRows])
+
   const minuteLoading = isAllZones
     ? allMinuteForecast.some((q) => q.isLoading)
     : singleMinuteForecast.isLoading
@@ -339,14 +385,19 @@ export function ForecastPage() {
           )}
           {!isLoading && chartRows.length === 0 && <p className="forecast-status">No data yet.</p>}
           {chartRows.length > 0 && (
-            <ResponsiveContainer width="100%" height={320}>
-              <ComposedChart data={chartRows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+            <div className="forecast-chart-scroll">
+              <div style={{ width: scrollableChartWidthPx(chartRows.length, 28), height: 320 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={chartRows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
                 <XAxis dataKey="timestamp" tickFormatter={formatDateHourIct} minTickGap={60} />
                 <YAxis unit=" kW" width={80} />
                 <Tooltip
                   labelFormatter={(label) => (typeof label === 'string' ? formatDateHourIct(label) : String(label))}
-                  formatter={(value) => (typeof value === 'number' ? value.toFixed(1) : String(value))}
+                  formatter={(value, name, item) => [
+                    typeof value === 'number' ? value.toFixed(1) : String(value),
+                    actualPowerTooltipName(String(name), item?.payload as ChartRow | undefined),
+                  ]}
                 />
                 <Legend />
                 <Line
@@ -390,39 +441,10 @@ export function ForecastPage() {
                   dot={horizonToggle === 'hour' ? forecastDot : { r: 2 }}
                   connectNulls
                 />
-                {horizonToggle === 'hour' && (
-                  <>
-                    <Line
-                      dataKey="errorLightgbm"
-                      name="Error - LightGBM (RMSE)"
-                      stroke="var(--chart-lgbm)"
-                      strokeWidth={1.5}
-                      strokeDasharray="4 4"
-                      dot={false}
-                      connectNulls
-                    />
-                    <Line
-                      dataKey="errorRandomForest"
-                      name="Error - Random Forest (RMSE)"
-                      stroke="var(--chart-rf)"
-                      strokeWidth={1.5}
-                      strokeDasharray="4 4"
-                      dot={false}
-                      connectNulls
-                    />
-                    <Line
-                      dataKey="errorSumKLstm"
-                      name="Error - Sum-k LSTM (RMSE)"
-                      stroke="var(--chart-sumk)"
-                      strokeWidth={1.5}
-                      strokeDasharray="4 4"
-                      dot={false}
-                      connectNulls
-                    />
-                  </>
-                )}
-              </ComposedChart>
-            </ResponsiveContainer>
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
           )}
           {!isLoading && !forecastError && chartRows.some((r) => r.actualPast != null || r.actualToday != null || r.actualNow != null) && (
             <p className="forecast-status forecast-status-caption">
@@ -439,8 +461,8 @@ export function ForecastPage() {
           {!isLoading && !forecastError && showsAlgorithmDots && (
             <p className="forecast-status forecast-status-caption">
               🟢 LightGBM &nbsp; 🟠 Random Forest &nbsp; 🔵 Sum-k LSTM — ระบบเลือกโมเดลที่แม่นยำกว่าโดยอัตโนมัติในแต่ละชั่วโมง (ดูสีจุดบนกราฟ)
-              | เส้นประสีเดียวกันคือค่าความคลาดเคลื่อน (RMSE) ของโมเดลแต่ละตัว เทียบกับค่าจริงจากชุดข้อมูล validation — ไม่ใช่แค่โมเดลที่ชนะ
-              เท่านั้น ดูรายละเอียดเพิ่มเติมได้ที่แถบ "การแข่งขันของโมเดล" ด้านล่าง
+              | ค่าความคลาดเคลื่อน (RMSE) ของโมเดลแต่ละตัวเทียบกับค่าจริงจากชุดข้อมูล validation แยกไปเป็นกราฟของตัวเองด้านล่าง
+              (ไม่รวมในกราฟนี้แล้ว เพื่อไม่ให้รก) ดูรายละเอียดเพิ่มเติมได้ที่แถบ "การแข่งขันของโมเดล" ด้านล่างด้วย
             </p>
           )}
         </section>
@@ -448,12 +470,13 @@ export function ForecastPage() {
       </div>
 
       <MinuteAheadPanel
-        points={minutePoints}
-        actualRows={minuteWindowActualRows}
+        rows={minuteChartRows}
         isLoading={minuteLoading}
         hasError={Boolean(minuteError)}
         isPhysicsBaseline={minuteIsPhysicsBaseline}
       />
+
+      {horizonToggle === 'hour' && <ErrorChartPanel rows={chartRows} />}
 
       <ModelCompetitionPanel rows={competitionRows} isLoading={competitionLoading} hasError={Boolean(competitionError)} />
 
@@ -655,12 +678,11 @@ function ViewerGuidePanel() {
 }
 
 interface MinuteAheadPanelProps {
-  points: ForecastPoint[]
-  // Actual/generated power to overlay, hourly resolution (see
-  // ForecastPage's own minuteWindowActualRows docstring for why this is
-  // ChartRow[] - the same 3-tier rows the main chart uses - rather than a
-  // dedicated minute-resolution source, which doesn't exist).
-  actualRows: ChartRow[]
+  // One shared, time-sorted array carrying both the forecast line and the
+  // actual-power overlay's 3 tiers per row - see mergeMinuteAheadRows's own
+  // docstring for why this replaced two separately-shaped arrays (a real
+  // Recharts x-axis-ordering bug, not just a style choice).
+  rows: MinuteChartRow[]
   isLoading: boolean
   hasError: boolean
   isPhysicsBaseline: boolean
@@ -673,9 +695,9 @@ interface MinuteAheadPanelProps {
 // the user's 2026-07-16 request to see it directly on the dashboard rather
 // than only mentioned in the model-info panel. Also shows ~30 min of its own
 // backward history (client-side accumulated, see ForecastPage's own
-// `minutePoints`) and an hourly-resolution actual-power overlay
-// (`actualRows`), both added 2026-07-18 per the user's request.
-function MinuteAheadPanel({ points, actualRows, isLoading, hasError, isPhysicsBaseline }: MinuteAheadPanelProps) {
+// `minutePoints`) and an hourly-resolution actual-power overlay, both added
+// 2026-07-18 per the user's request.
+function MinuteAheadPanel({ rows, isLoading, hasError, isPhysicsBaseline }: MinuteAheadPanelProps) {
   return (
     <section className="forecast-minute-panel" aria-label="Minute-ahead power forecast chart">
       <h3 className="forecast-minute-title">Minute-ahead forecast (CNN-LSTM, ~30 min back to 60 min ahead)</h3>
@@ -683,50 +705,115 @@ function MinuteAheadPanel({ points, actualRows, isLoading, hasError, isPhysicsBa
       {!isLoading && hasError && (
         <p className="forecast-status forecast-status-warn">No minute-ahead forecast model has been trained for this zone yet.</p>
       )}
-      {!isLoading && !hasError && points.length === 0 && <p className="forecast-status">No data yet.</p>}
-      {points.length > 0 && (
-        <ResponsiveContainer width="100%" height={140}>
-          <LineChart data={points} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+      {!isLoading && !hasError && rows.length === 0 && <p className="forecast-status">No data yet.</p>}
+      {rows.length > 0 && (
+        <div className="forecast-chart-scroll">
+          <div style={{ width: scrollableChartWidthPx(rows.length, 20), height: 140 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={rows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <XAxis dataKey="timestamp" tickFormatter={formatHour} minTickGap={30} allowDuplicatedCategory={false} />
+                <YAxis unit=" kW" width={80} />
+                <Tooltip
+                  labelFormatter={(label) => (typeof label === 'string' ? formatHour(label) : String(label))}
+                  formatter={(value) => (typeof value === 'number' ? value.toFixed(1) : String(value))}
+                />
+                <Line dataKey="pred" name="Minute-ahead forecast" stroke="var(--chart-minute)" strokeWidth={2} dot={{ r: 2 }} connectNulls />
+                <Line
+                  dataKey="actualPast"
+                  name="Actual power (before today)"
+                  stroke="var(--chart-actual-past)"
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                  connectNulls
+                />
+                <Line
+                  dataKey="actualToday"
+                  name="Actual power (earlier today)"
+                  stroke="var(--chart-actual-today)"
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                  connectNulls
+                />
+                <Line
+                  dataKey="actualNow"
+                  name="Actual power (now)"
+                  stroke="var(--accent)"
+                  strokeWidth={2}
+                  dot={{ r: 4 }}
+                  connectNulls
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+      {!isLoading && !hasError && isPhysicsBaseline && rows.length > 0 && (
+        <p className="forecast-status forecast-status-caption">Physics-baseline fallback shown (no trained CNN-LSTM model yet).</p>
+      )}
+    </section>
+  )
+}
+
+// Intra-day's 3 per-model RMSE-over-time lines used to overlay directly on
+// the main power chart (dashed, same colors as the algorithm-dot legend) -
+// split into this dedicated chart per the user's own 2026-07-18 request
+// ("ทำเป็นกราฟรูปใหม่ ไม่เช่นนั้นจะรกเกิด" - make it a new chart, otherwise it
+// clutters), which also removed the 3 dashed lines from the main chart
+// entirely rather than duplicating them in both places. Shares `chartRows`
+// with the main chart (same errorLightgbm/errorRandomForest/errorSumKLstm
+// fields already computed there) - no new data plumbing needed, purely a
+// presentation split. Only rendered for the Intra-day (hour) horizon, same
+// as the lines it replaces.
+function ErrorChartPanel({ rows }: { rows: ChartRow[] }) {
+  const hasData = rows.some((r) => r.errorLightgbm != null || r.errorRandomForest != null || r.errorSumKLstm != null)
+  return (
+    <section className="forecast-error-panel" aria-label="Model error over time chart">
+      <h3 className="forecast-error-title">ความคลาดเคลื่อนของโมเดล (Error) ตามเวลา — RMSE</h3>
+      <p className="forecast-error-subtitle">
+        ค่าความคลาดเคลื่อน (RMSE) ของแต่ละโมเดลเทียบกับค่าจริงจากชุดข้อมูล validation ในแต่ละช่วงเวลา — ยิ่งค่าต่ำยิ่งแม่นยำ
+      </p>
+      {!hasData && <p className="forecast-status">No data yet.</p>}
+      {hasData && (
+        <ResponsiveContainer width="100%" height={200}>
+          <LineChart data={rows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-            <XAxis dataKey="timestamp" tickFormatter={formatHour} minTickGap={30} allowDuplicatedCategory={false} />
+            <XAxis dataKey="timestamp" tickFormatter={formatDateHourIct} minTickGap={60} />
             <YAxis unit=" kW" width={80} />
             <Tooltip
-              labelFormatter={(label) => (typeof label === 'string' ? formatHour(label) : String(label))}
-              formatter={(value) => (typeof value === 'number' ? value.toFixed(1) : String(value))}
+              labelFormatter={(label) => (typeof label === 'string' ? formatDateHourIct(label) : String(label))}
+              formatter={(value) => (typeof value === 'number' ? value.toFixed(2) : String(value))}
             />
-            <Line dataKey="pred" name="Minute-ahead forecast" stroke="var(--chart-minute)" strokeWidth={2} dot={{ r: 2 }} connectNulls />
+            <Legend />
             <Line
-              data={actualRows}
-              dataKey="actualPast"
-              name="Actual power (before today)"
-              stroke="var(--chart-actual-past)"
-              strokeWidth={2}
-              dot={{ r: 3 }}
+              dataKey="errorLightgbm"
+              name="Error - LightGBM (RMSE)"
+              stroke="var(--chart-lgbm)"
+              strokeWidth={1.5}
+              strokeDasharray="4 4"
+              dot={false}
               connectNulls
             />
             <Line
-              data={actualRows}
-              dataKey="actualToday"
-              name="Actual power (earlier today)"
-              stroke="var(--chart-actual-today)"
-              strokeWidth={2}
-              dot={{ r: 3 }}
+              dataKey="errorRandomForest"
+              name="Error - Random Forest (RMSE)"
+              stroke="var(--chart-rf)"
+              strokeWidth={1.5}
+              strokeDasharray="4 4"
+              dot={false}
               connectNulls
             />
             <Line
-              data={actualRows}
-              dataKey="actualNow"
-              name="Actual power (now)"
-              stroke="var(--accent)"
-              strokeWidth={2}
-              dot={{ r: 4 }}
+              dataKey="errorSumKLstm"
+              name="Error - Sum-k LSTM (RMSE)"
+              stroke="var(--chart-sumk)"
+              strokeWidth={1.5}
+              strokeDasharray="4 4"
+              dot={false}
               connectNulls
             />
           </LineChart>
         </ResponsiveContainer>
-      )}
-      {!isLoading && !hasError && isPhysicsBaseline && points.length > 0 && (
-        <p className="forecast-status forecast-status-caption">Physics-baseline fallback shown (no trained CNN-LSTM model yet).</p>
       )}
     </section>
   )
@@ -762,8 +849,10 @@ function ModelCompetitionPanel({ rows, isLoading, hasError }: ModelCompetitionPa
       )}
       {!isLoading && !hasError && rows.length === 0 && <p className="forecast-status">No data yet.</p>}
       {rows.length > 0 && (
-        <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={rows} margin={{ top: 20, right: 16, left: 0, bottom: 28 }}>
+        <div className="forecast-chart-scroll">
+          <div style={{ width: scrollableChartWidthPx(rows.length, 100), height: 260 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={rows} margin={{ top: 20, right: 16, left: 0, bottom: 28 }}>
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             {/* Absolute reference time, not relative "+1h".."+6h" labels - the
                 lead-hour offset is still shown (in the tooltip, via `row.leadLabel`)
@@ -815,8 +904,10 @@ function ModelCompetitionPanel({ rows, isLoading, hasError }: ModelCompetitionPa
               ))}
               <LabelList dataKey="sumKLstm" position="top" fontSize={10} formatter={(v: unknown) => (typeof v === 'number' ? v.toFixed(1) : '')} />
             </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
       )}
       {rows.length > 0 && (
         <p className="forecast-status forecast-status-caption">

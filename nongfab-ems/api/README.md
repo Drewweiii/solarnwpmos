@@ -867,6 +867,70 @@ response inspected directly) and rendered as visible falling rain streaks
 over the panels with zero console errors - see `web/README.md`'s matching
 entry for the frontend half and screenshot.
 
+### Fixed - `GET /performance/{zone}` silently claimed backfilled estimates were real "actual power" (2026-07-18)
+
+The user reported that "Actual power (before today)" looked identical to
+"Forecast" for the same historical hour - not a coincidence: `forecast/
+serving.py`'s `backfill_generated_power_history()` and
+`backfill_forecast_history()` both call the *same* `real_data.
+physics_baseline_series(zone, timestamps, store)` for the same cold-start
+window, so a backfilled "actual" row and the forecast for that hour really
+were the identical number by construction. See `forecast/README.md`'s
+matching dated entry for the root cause and the new
+`GENERATED_POWER_ESTIMATED_MARKER` provenance flag (`serving.py` reuses the
+already-existing, previously-unused `algorithm` column on
+`forecast_history` rather than adding a new one).
+
+This route's own half: `GeneratedPowerPoint` gained an `estimated: bool`
+field (`estimated=p.algorithm == GENERATED_POWER_ESTIMATED_MARKER`), so the
+frontend can label physics-estimated backfill rows honestly instead of
+implying they're confirmed telemetry - see `web/README.md`'s matching entry
+for the "(estimated)" tooltip suffix this feeds.
+
+**Tested**: `test_routes_performance.py`'s main test now asserts
+`{"timestamp", "ac_kw", "estimated"} <= body["history"][0].keys()`, every
+backfilled row carries `estimated: true`, and the one row the test's own
+request live-polls carries `estimated: false` (a live poll's `INSERT OR
+REPLACE` naturally clears the marker) - full suite green.
+
+### Added - `moon` field on `GET /geometry/{zone}` + `GET /moon-path/{zone}` (2026-07-18)
+
+Backend half of Solar3DPage's new Moon feature - see `web/README.md`'s
+matching dated entry for the frontend (the animated marker, and why it
+took a wrap-window redesign to make the Moon actually appear during Play)
+and `features/README.md`'s for the lunar-position math itself
+(`nongfab_features.moon.moon_position()`, a pure-Python low/medium-
+precision algorithm - no new ephemeris dependency was added).
+
+- **`GeometryResponse.moon: SolarPositionOut`** - the Moon's azimuth/
+  elevation at the requested instant, computed the same way `sun` already
+  is, always populated (not gated on the sun being down) so the frontend
+  decides visibility itself.
+- **`GET /moon-path/{zone}`** - mirrors `/sun-path/{zone}` (same `date`
+  param, same 96-point/15-minute-resolution day sweep) but **deliberately
+  does NOT filter to `elevation_deg > 0`** the way `/sun-path` does - the
+  whole point of the feature is showing the Moon specifically while the
+  Sun is down, which has nothing to do with whether the Moon's own
+  elevation happens to be positive at that instant. Filtering here would
+  remove exactly the points the frontend's continuous-clock interpolation
+  needs to glide through a moonrise/moonset transition.
+
+**Tested**: `test_routes_solar3d.py` gained 6 tests -
+`test_get_geometry_includes_moon_position` (valid azimuth/elevation
+ranges), and 5 for `/moon-path` (auth-required, returns the full unfiltered
+96-point sweep with at least one below-horizon point present - proving it
+isn't silently daylight-filtered, defaults to today, rejects a malformed
+date, 404s on an unknown zone). Full suite 21 passed.
+
+**Live-verified**: booted the API, fetched `/geometry/GIS?at=2026-07-18T18:00:00Z`
+(a real night instant per `/sun-path`) and confirmed a real `moon` object
+came back (`{"azimuth_deg": 282.5, "elevation_deg": -42.2}` - below its own
+horizon at that particular instant, a real astronomical fact, not a bug);
+fetched `/moon-path/GIS?date=2026-07-18` and confirmed all 96 points came
+back with a genuine mix of 46 below-horizon and 50 above-horizon points
+(moonrise ~02:30Z, moonset ~15:00Z that day) - see `web/README.md`'s entry
+for the rendered scene.
+
 ### Fixed - feedback/chat timestamps silently wrong by a fixed offset (2026-07-18)
 
 The user reported admin feedback timestamps "don't match the real send time

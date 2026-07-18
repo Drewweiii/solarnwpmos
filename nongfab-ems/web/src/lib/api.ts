@@ -10,6 +10,7 @@ import type {
   ForecastResponse,
   GeometryResponse,
   IrradianceMapResponse,
+  MoonPathResponse,
   PerformanceResponse,
   PrecipitationConditionsResponse,
   SimulateRequest,
@@ -115,6 +116,9 @@ export const getGeometry = (zone: string, at: string | undefined, token: string)
 
 export const getSunPath = (zone: string, date: string | undefined, token: string): Promise<SunPathResponse> =>
   request(`/sun-path/${zone}${date ? `?date=${encodeURIComponent(date)}` : ''}`, token)
+
+export const getMoonPath = (zone: string, date: string | undefined, token: string): Promise<MoonPathResponse> =>
+  request(`/moon-path/${zone}${date ? `?date=${encodeURIComponent(date)}` : ''}`, token)
 
 export const getEnergyReport = (zone: string, token: string): Promise<EnergyReportResponse> =>
   request(`/energy-report/${zone}`, token)

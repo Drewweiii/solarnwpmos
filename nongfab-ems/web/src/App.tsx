@@ -19,7 +19,6 @@ import { SimulationPlaygroundPage } from './pages/SimulationPlaygroundPage'
 // dependency makes more sense than splitting incrementally.
 const Solar3DPage = lazy(() => import('./pages/Solar3DPage').then((m) => ({ default: m.Solar3DPage })))
 const EnergyReportPage = lazy(() => import('./pages/EnergyReportPage').then((m) => ({ default: m.EnergyReportPage })))
-const IrradianceMapPage = lazy(() => import('./pages/IrradianceMapPage').then((m) => ({ default: m.IrradianceMapPage })))
 const AdminFeedbackPage = lazy(() => import('./pages/AdminFeedbackPage').then((m) => ({ default: m.AdminFeedbackPage })))
 
 const queryClient = new QueryClient({
@@ -96,14 +95,11 @@ function RequireAuth() {
             </Suspense>
           }
         />
-        <Route
-          path="/irradiance-map"
-          element={
-            <Suspense fallback={<p className="forecast-status">Loading…</p>}>
-              <IrradianceMapPage />
-            </Suspense>
-          }
-        />
+        {/* Irradiance Map merged into /3d (2026-07-18, per the user's own
+            request) - redirect any old bookmark/link straight to the
+            merged page rather than falling through to the generic "unknown
+            route" catch-all below. */}
+        <Route path="/irradiance-map" element={<Navigate to="/3d" replace />} />
         <Route path="*" element={<Navigate to="/forecast" replace />} />
       </Route>
     </Routes>

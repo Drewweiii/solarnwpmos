@@ -96,6 +96,18 @@ def test_get_geometry_jetty_string_balance_flags_imbalance_at_low_sun(app, token
     assert any(b["exceeds_limit"] for b in balance)
 
 
+def test_get_geometry_includes_moon_position(app, token_factory):
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get(
+            "/geometry/GIS", params={"at": "2026-07-14T05:00:00Z"}, headers={"Authorization": f"Bearer {token}"}
+        )
+    assert resp.status_code == 200
+    moon = resp.json()["moon"]
+    assert 0.0 <= moon["azimuth_deg"] < 360.0
+    assert -90.0 <= moon["elevation_deg"] <= 90.0
+
+
 def test_get_geometry_unknown_zone_returns_404(app, token_factory):
     token = token_factory("viewer")
     with TestClient(app) as client:
@@ -154,3 +166,47 @@ def test_sun_path_is_identical_across_zones(app, token_factory):
             "/sun-path/Jetty", params={"date": "2026-07-14"}, headers={"Authorization": f"Bearer {token}"}
         ).json()
     assert gis["points"] == jetty["points"]
+
+
+def test_get_moon_path_requires_auth(app):
+    with TestClient(app) as client:
+        resp = client.get("/moon-path/GIS")
+    assert resp.status_code == 401
+
+
+def test_get_moon_path_returns_full_24h_sweep_unfiltered(app, token_factory):
+    """Unlike /sun-path, /moon-path is NOT filtered to elevation > 0 - see the
+    endpoint's own docstring for why (the frontend needs the moon's position
+    even while it's below the horizon, to know when to fade it in/out around
+    moonrise/moonset)."""
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get("/moon-path/GIS", params={"date": "2026-07-14"}, headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["date"] == "2026-07-14"
+    assert len(body["points"]) == 96  # 24h at 15-minute resolution, no daylight filter
+    assert any(p["elevation_deg"] <= 0 for p in body["points"])  # proves it isn't silently daylight-filtered
+    times = [p["time"] for p in body["points"]]
+    assert times == sorted(times)
+
+
+def test_get_moon_path_defaults_to_today(app, token_factory):
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get("/moon-path/GIS", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+
+
+def test_get_moon_path_rejects_malformed_date(app, token_factory):
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get("/moon-path/GIS", params={"date": "not-a-date"}, headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 422
+
+
+def test_get_moon_path_unknown_zone_returns_404(app, token_factory):
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get("/moon-path/Nowhere", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 404

@@ -768,6 +768,52 @@ See `web/README.md`'s matching dated entry for the frontend half (the
 3-tier recency coloring, the Minute-ahead panel's backward window, and a
 real color-choice bug found live-testing this).
 
+## Fixed - "Actual power (before today)" was silently identical to "Forecast" for the same hour (2026-07-18)
+
+The user reported this as a bug ("มันไม่ใช่" - "that's not right"), and the
+root cause is real, even though it was already caveated in this file's own
+"Actual/generated power history" entry just above: `backfill_generated_
+power_history()` and `backfill_forecast_history()` both call the *identical*
+`real_data.physics_baseline_series(zone, timestamps, store)` with the same
+`(zone, timestamps, store)` for the same cold-start backfill window - so a
+backfilled "actual" row and the forecast for that same historical hour
+really are the same floating-point number by mathematical construction, not
+a coincidence. Displaying them as two independently-agreeing signals was
+genuinely misleading, even though the underlying estimate itself was always
+honestly documented as an approximation, not a claimed measurement.
+
+Rather than changing the estimate (there is no real historical cloud-cover
+record to compute a better one from - see the entry above), this fix makes
+the estimate's provenance visible instead of silent:
+
+- **New `GENERATED_POWER_ESTIMATED_MARKER = "physics_estimate"`** -
+  reuses the already-existing-but-previously-unused `algorithm` TEXT
+  column on the shared `forecast_history` table as a provenance marker,
+  rather than adding a new column/migration. `backfill_generated_power_
+  history()` now tags every point it constructs with this marker;
+  `record_generated_power()` (the live-poll path) leaves `algorithm` as
+  `None`, a genuine live reading.
+- **`generated_power_history()`** now unpacks and passes `algorithm`
+  through on each returned `ForecastPoint`.
+- A live poll's `INSERT OR REPLACE` upsert on the same `(zone, horizon,
+  target_time)` key naturally clears the marker the moment a real reading
+  supersedes a backfilled estimate for that hour - no separate cleanup
+  logic needed.
+
+See `api/README.md`'s matching dated entry for the `GET /performance/{zone}`
+route half (`GeneratedPowerPoint.estimated: bool`) and `web/README.md`'s for
+the frontend half (an "(estimated)" tooltip suffix on the 3 actual-power
+lines, plus the same fix's other half - a race-condition zone-aggregation
+bug that was independently causing Model Competition and the Minute-ahead
+panel to show nothing at all).
+
+**Tested**: `test_serving.py` updated -
+`test_backfill_generated_power_history_seeds_the_full_lookback_window` now
+asserts every backfilled point carries `algorithm ==
+GENERATED_POWER_ESTIMATED_MARKER`; `test_a_live_poll_overwrites_its_own_
+backfilled_hour` asserts the live-polled row's `algorithm is None`. Full
+suite 25 passed.
+
 ## Fixed - `local_store.py`'s `nwp_history_df()`/`cloud_history_df()` crashed on mixed-precision timestamps (2026-07-18)
 
 Found live while building `GET /weather/clouds` (see `api/README.md`'s
