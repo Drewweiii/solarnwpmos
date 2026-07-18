@@ -179,6 +179,26 @@ this tag - not the branch - is the only reliable way to tell entries apart;
 if the user later wants the accounts on separate branches instead, that's
 their call to make, not something to switch to unprompted.
 
+## Standing policy: flag credit-risky work before starting (as of 2026-07-18)
+
+Because credit quota is limited and shared across shifts, and because
+**there is no way to programmatically check remaining credit** — it's
+account-level billing info from Anthropic, not exposed to anything running
+inside a session or to code in this repo, so no script or check can read a
+real number — this has to run on judgment instead of a measurement.
+
+Before starting a task that looks like it plausibly risks running out of
+credit partway through, stop and ask the user (during that same running
+session, not after the fact) whether to proceed, rather than diving in and
+hoping it finishes. Signals worth pausing on: a plan that's unusually long
+or many-stepped, a refactor spanning a large number of files, a
+long-running build/train/test loop, or anything that would leave the repo
+in a half-finished or broken state if the session got cut off mid-way.
+Ordinary-sized work (a bug fix, a focused feature, the usual test/build/
+verify loop) doesn't need this — it's for the minority of tasks big enough
+that starting them blind is a real risk, not a routine caution to repeat
+on every message.
+
 ## Run-code status updates — every time, not just at handoff
 
 Separately from the Handoff Report above: every time you actually run code
