@@ -131,6 +131,45 @@ etc.), **stop and ask the user for explicit approval before proceeding**
 plainly what the non-Thailand source would be and why it seemed necessary,
 and let the user decide.
 
+## Two-track division of labor between the two accounts (as of 2026-07-17)
+
+To stop the two accounts' Claude sessions from editing the same code at the
+same time, each account owns one track. **Identify your own track by which
+branch you're on** (check with `git branch --show-current` if unsure):
+
+- **Track 1 — เนื้อหาเชิงวิชาการ (domain/engineering content)**:
+  Forecast, Financial, 3D View, Simulation, and any other academic/
+  engineering feature - the site's substantive data-science/physics
+  content. Owns `api/`, `forecast/`, `financial/`, `simulation/`,
+  `ingestion/`, `libs/`, `features/`, and any backend or data-modeling
+  code. **Branch: `claude/solar-optimization-forecasting-jryux7`.**
+- **Track 2 — หน้าตา/Interface**: visual design, UI/UX polish, the AI
+  assistant popup that helps viewers use the site and answer questions, and
+  viewer-to-viewer networking/contact features. Mostly lives in `web/`, but
+  see the boundary note below - not everything under `web/` is Track 2.
+  **Branch: `claude/solar-website-modules-msyvv5`** (the other account's
+  branch, per this task's own branch-naming convention).
+
+**Boundary note on `web/`**: the frontend folder is physically shared, so
+the split is by *kind of change*, not strictly by directory. Track 1 owns
+building new pages/features that surface engineering content (a new chart,
+a new model's output, a new data field) even when the file lives under
+`web/src/pages/`. Track 2 owns pure visual/UX polish, the AI assistant
+components, styling systems, and any social/networking features - not the
+domain data those pages display.
+
+**If asked to do work that clearly belongs to the other track**, don't
+silently do it and don't refuse outright either - flag it in one line (e.g.
+"นี่ดูเหมือนงานของ Track 2 (อีกบัญชี) - จะให้ผมทำที่นี่เลยไหม หรือรอบัญชีนั้น")
+and let the user decide whether this session should cross over just this
+once or hand it to the other account's next shift.
+
+**Handoff Reports (both the chat message and the `HANDOFF.md` entry) should
+note which track produced them** - a one-line tag near the top (e.g. "Track
+1 - เนื้อหาเชิงวิชาการ") is enough, so the other account can tell at a glance
+whether an entry is its own track's history or the other track's, without
+re-reading the whole thing.
+
 ## Run-code status updates — every time, not just at handoff
 
 Separately from the Handoff Report above: every time you actually run code
