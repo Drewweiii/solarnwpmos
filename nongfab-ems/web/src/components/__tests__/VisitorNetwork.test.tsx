@@ -49,6 +49,19 @@ describe('VisitorNetwork', () => {
     vi.restoreAllMocks()
     MockWebSocket.instances.length = 0
     vi.stubGlobal('WebSocket', MockWebSocket)
+    // jsdom has no speechSynthesis - stub it so sticker-send tests (which
+    // exercise speakSticker()) don't crash on a missing global.
+    vi.stubGlobal('speechSynthesis', { speak: vi.fn() })
+    vi.stubGlobal(
+      'SpeechSynthesisUtterance',
+      class {
+        text: string
+        lang = ''
+        constructor(text: string) {
+          this.text = text
+        }
+      },
+    )
   })
 
   it('starts closed with just the toggle button visible', () => {
@@ -258,6 +271,80 @@ describe('VisitorNetwork', () => {
 
     await user.click(screen.getByRole('button', { name: /เปิดหน้าต่างเครือข่ายผู้ชม/ }))
     await waitFor(() => expect(screen.queryByText('1')).not.toBeInTheDocument())
+  })
+
+  it('sending a sticker goes out as an encoded text payload, not a plain message', async () => {
+    const user = userEvent.setup()
+    renderWidget()
+    await openWidget(user)
+    await setupProfile(user)
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    act(() => ws.emit({ type: 'history', messages: [] }))
+
+    await user.click(screen.getByRole('button', { name: 'เปิดแผงสติกเกอร์' }))
+    await user.click(screen.getByRole('button', { name: 'ส่งสติกเกอร์ สวัสดี' }))
+
+    const sent = JSON.parse(ws.sent[0]) as { text: string }
+    expect(sent.text).toBe('::sticker::hello')
+  })
+
+  it('renders a received sticker message as a big emoji + caption, not raw text, and speaks its caption aloud', async () => {
+    const user = userEvent.setup()
+    renderWidget()
+    await openWidget(user)
+    await setupProfile(user)
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    act(() => ws.emit({ type: 'history', messages: [] }))
+
+    act(() =>
+      ws.emit({
+        type: 'message',
+        id: 9,
+        username: 'someone',
+        role: 'viewer',
+        text: '::sticker::fight',
+        created_at: '2026-01-01T00:00:00Z',
+        display_name: 'someone',
+        avatar: 'dog',
+        client_id: 'a-different-browser',
+      }),
+    )
+
+    expect(await screen.findByLabelText('สติกเกอร์: สู้ๆ')).toBeInTheDocument()
+    expect(screen.queryByText('::sticker::fight')).not.toBeInTheDocument()
+    expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not speak stickers replayed from history, only ones that arrive live', async () => {
+    const user = userEvent.setup()
+    renderWidget()
+    await openWidget(user)
+    await setupProfile(user)
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    act(() =>
+      ws.emit({
+        type: 'history',
+        messages: [
+          {
+            type: 'message',
+            id: 1,
+            username: 'someone',
+            role: 'viewer',
+            text: '::sticker::love',
+            created_at: '2026-01-01T00:00:00Z',
+            display_name: 'someone',
+            avatar: 'dog',
+            client_id: 'a-different-browser',
+          },
+        ],
+      }),
+    )
+
+    expect(await screen.findByLabelText('สติกเกอร์: รักนะ')).toBeInTheDocument()
+    expect(window.speechSynthesis.speak).not.toHaveBeenCalled()
   })
 
   it('the feedback tab submits via POST /feedback and shows a success message', async () => {

@@ -7,8 +7,8 @@
      for the "could only ask once" bug this fixes). */
   bottom: calc(140px + var(--assistant-keyboard-inset, 0px));
   z-index: 41;
-  width: min(340px, calc(100vw - 40px));
-  max-height: min(480px, calc(100vh - 140px - var(--assistant-keyboard-inset, 0px)));
+  width: min(440px, calc(100vw - 40px));
+  max-height: min(640px, calc(100vh - 120px - var(--assistant-keyboard-inset, 0px)));
   display: flex;
   flex-direction: column;
   background: var(--card-bg);
@@ -82,7 +82,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 160px;
+  min-height: 280px;
 }
 
 .assistant-bubble {
@@ -185,5 +185,6 @@
   .assistant-panel {
     right: 12px;
     bottom: 112px;
+    max-height: min(580px, calc(100vh - 100px - var(--assistant-keyboard-inset, 0px)));
   }
 }

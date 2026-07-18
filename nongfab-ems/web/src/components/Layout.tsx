@@ -1,7 +1,10 @@
+import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { loadChatProfile, type ChatProfile } from '../lib/chatProfile'
 import { useAuth } from '../lib/auth'
 import { useDeployWatch } from '../lib/deployWatch'
 import { AIAssistant } from './AIAssistant'
+import { ChatProfileSetup } from './ChatProfileSetup'
 import { OrgLogos } from './OrgLogos'
 import { SiteCredit } from './SiteCredit'
 import { VisitorNetwork } from './VisitorNetwork'
@@ -11,6 +14,26 @@ export function Layout() {
   // Auto-logout whenever a new deploy goes live (backend on Railway or
   // frontend on Cloudflare) - see deployWatch.ts's own docstring for why.
   useDeployWatch(() => forceLogout('เว็บไซต์มีการอัปเดตใหม่ กรุณาเข้าสู่ระบบอีกครั้ง'))
+
+  // Per the user's explicit request (2026-07-18): set up the chat name/
+  // avatar right after login, before the dashboard is reachable at all -
+  // it used to only surface once someone happened to open the chat panel,
+  // which most visitors never did. This blocks the whole authenticated app
+  // (not just the chat widget) the very first time only; VisitorNetwork.tsx
+  // still has its own fallback for the (rare) case a profile disappears
+  // mid-session, e.g. localStorage cleared without logging out.
+  const [chatProfile, setChatProfile] = useState<ChatProfile | null>(() => loadChatProfile())
+
+  if (!chatProfile) {
+    return (
+      <div className="chat-profile-gate-screen">
+        <div className="chat-profile-gate-card">
+          <h1 className="chat-profile-gate-title">ก่อนเข้าเว็บ...</h1>
+          <ChatProfileSetup initial={null} onSaved={setChatProfile} />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="app-shell">

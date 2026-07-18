@@ -44,8 +44,14 @@ function loadLastReadId(): number {
  * at right now (panel open AND on the chat tab) - unread counting and
  * "mark read" both key off it, LINE/Messenger-style: a message that arrives
  * while the user is looking straight at the chat is never "unread".
+ *
+ * `onLiveMessage` (optional) fires only for messages that arrive via a live
+ * `message` WebSocket event - never for the bulk `history` replay on
+ * connect/scroll-back. This is what lets VisitorNetwork.tsx play a
+ * sticker's voice line exactly once, right when it actually arrives,
+ * instead of replaying every old sticker's sound on every history load.
  */
-export function useChatSocket(profile: ChatProfile, isActiveView: boolean): ChatSocketState {
+export function useChatSocket(profile: ChatProfile, isActiveView: boolean, onLiveMessage?: (message: ChatMessage) => void): ChatSocketState {
   const { token } = useAuth()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [onlineCount, setOnlineCount] = useState(0)
@@ -58,6 +64,8 @@ export function useChatSocket(profile: ChatProfile, isActiveView: boolean): Chat
   profileRef.current = profile
   const isActiveViewRef = useRef(isActiveView)
   isActiveViewRef.current = isActiveView
+  const onLiveMessageRef = useRef(onLiveMessage)
+  onLiveMessageRef.current = onLiveMessage
   const lastReadIdRef = useRef(loadLastReadId())
 
   const markRead = useCallback((upToId: number) => {
@@ -98,6 +106,7 @@ export function useChatSocket(profile: ChatProfile, isActiveView: boolean): Chat
           setHasMoreOlder(data.messages.length >= PAGE_SIZE)
         } else if (data.type === 'message') {
           setMessages((prev) => [...prev, data].slice(-MAX_MESSAGES_KEPT))
+          onLiveMessageRef.current?.(data)
           const isOwn = data.client_id != null && data.client_id === profileRef.current.clientId
           if (isActiveViewRef.current) {
             markRead(data.id)
