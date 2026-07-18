@@ -57,11 +57,12 @@ def moon_position(when: datetime, latitude: float, longitude: float) -> tuple[fl
     d = _days_since_epoch(when)
 
     # Sun's own orbital elements - needed both for the Moon's perturbation
-    # terms below and to derive Greenwich Mean Sidereal Time.
-    sun_N = 0.0  # Sun's ascending node is conventionally 0
-    sun_i = 0.0
+    # terms below and to derive Greenwich Mean Sidereal Time. Its ascending
+    # node and inclination are conventionally 0 (by definition of the
+    # ecliptic plane) and its semi-major axis is irrelevant here (only
+    # direction matters, not distance), so unlike the Moon's own elements
+    # below, those three are never assigned - only the ones actually used.
     sun_w = _norm_deg(282.9404 + 4.70935e-5 * d)
-    sun_a = 1.000000  # AU, unused (direction only)
     sun_e = 0.016709 - 1.151e-9 * d
     sun_M = _norm_deg(356.0470 + 0.9856002585 * d)
     sun_E = sun_M + (180.0 / math.pi) * sun_e * math.sin(math.radians(sun_M)) * (1 + sun_e * math.cos(math.radians(sun_M)))
