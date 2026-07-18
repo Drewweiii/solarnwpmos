@@ -1553,7 +1553,8 @@ Meteorological Department integration) - not started without checking with
 the user first, flagged as a live question instead of either silently
 faking a seasonal-probability rain effect (violates this project's real-
 data-or-honestly-labeled-estimate convention) or silently taking on a new
-multi-day ingestion module unprompted.
+multi-day ingestion module unprompted. **Built later the same day - see the
+next dated entry below.**
 
 **Tested**: `lib/solar3d.ts` - `interpolateSunPosition()` (exact-sample,
 midpoint interpolation, null before/after the covered range, empty/single-
@@ -1573,6 +1574,70 @@ GHI, the sun marker clearly visible with its glow, and the cloud layer -
 several soft gray puffs partially over the panel rows, visibly drifted
 between two screenshots taken a few seconds apart during Play) - zero
 browser console errors/warnings across the whole run.
+
+### Added - real rain animation for `/3d`, plus FusionSolar's priority-list status closed for good (2026-07-18, Track 1)
+
+The user came back later the same day and explicitly greenlit the rain
+feature the entry above had deliberately paused on ("เราจะเอาเรื่องฝนมาเป็น
+อีกหนึ่งลูกเล่นของเว็บด้วย"), in the same message that also declared
+FusionSolar access permanently unobtainable, not just pending ("ทิ้งไปเลย
+ขอไม่ได้เเล้วจริงๆ") - see `forecast/README.md`'s matching dated entry for
+that half (item 3 of the user's own priority list, real bias-correction
+validation, is now permanently closed rather than blocked-pending).
+
+Built the real path identified but not started in the entry above:
+`ingestion/nwp` now decodes GFS's APCP field into `NWPForecastPoint.precip_mm`
+(see `ingestion/nwp/README.md`'s matching entry for the full GRIB-decode
+story, including a real duplicate-idx-entry GFS quirk caught live), stored
+in a new `nwp_history.precip_mm` column (`forecast/README.md`'s entry), and
+exposed via a new `GET /weather/precipitation` (`api/README.md`'s entry) -
+the same "site-wide, near-term, `available: false` over a fabricated
+reading" pattern `/weather/clouds` already established.
+
+**Frontend**: new `RainLayer` component in `Solar3DScene.tsx`, same
+"individual meshes, not InstancedMesh" style `CloudLayer` already uses -
+falling particle count scales with the WMO intensity band from the API
+(`light`/`moderate`/`heavy`, 60/120/200 particles), animated via `useFrame`
+(each drop's own ref, y-position ticked down every frame and wrapped back
+to the top) rather than React state, matching this file's existing
+"animation lives inside r3f's own render loop" convention. Renders nothing
+at all - not an empty group - when there's no real reading or intensity is
+`"none"`, same honest-absence pattern as the cloud layer. **Deliberately
+no snow effect** - the user was explicit Thailand has none
+("ส่วนหิมะไทยไม่มีหิมะเเน่ๆไม่ต้องทำหิมะมานะ"), so this was never built, not an
+oversight.
+
+`Solar3DPage.tsx` gained `usePrecipitationConditions()` (new hook in
+`lib/queries.ts`, same polling cadence as `useCloudConditions`) and threads
+`precipMm`/`precipIntensity` down to the scene the same way cloud data
+already flows through. No new text readout was added (matching how the
+cloud layer also has none) - the 3D animation itself is the feature the
+user asked for.
+
+**Tested**: `nwp -v` 43 passed (5 skipped, live-network-gated, unrelated) -
+`var_APCP` in the filter URL, `precip_mm is None` on the real APCP-less
+fixture, the duplicate-idx-entry resolution, and both the success and
+defensive-failure paths through the S3 backfill decode. `forecast -v` -
+roundtrip, `None`-not-`0.0`, no-attribute tolerance, and the pre-existing-
+table migration scenario. `api`'s `test_routes_weather.py` gained 6 tests
+for `GET /weather/precipitation` (auth, empty store, no-row-carries-precip,
+near-term-wins-over-far-future, and a parametrized intensity-band sweep) -
+full suite green. `Solar3DPage.test.tsx` gained 2 tests (the live reading
+reaches the scene; an unavailable reading passes through as `null`/`null`,
+not a fabricated value) - full web suite green, `tsc` clean.
+
+**Live-verified**: booted `uvicorn` + `vite dev`, logged in via
+`/auth/token`, confirmed `GET /weather/precipitation` returned
+`{"available": false, ...}` against an empty store, seeded a real
+`precip_mm=6.2` row via `RealDataStore.insert_nwp_points`, confirmed the
+endpoint then returned `{"available": true, "precip_mm": 6.2, "intensity":
+"moderate"}`. Loaded `/3d` in a real browser (Playwright): the network
+response carried the real seeded value through to the frontend (inspected
+directly, not inferred), and the rendered scene showed clearly visible
+falling rain streaks scattered across the panel view - confirmed both by
+eye (screenshot) and by a pixel-diff between two frames 400ms apart during
+Play (~93k of ~1.87M pixels changed, consistent with the animation still
+running) - zero browser console errors/warnings.
 
 ### Added/Fixed - avatar picker bug, viewer-aware น้อง Solar content, Forecasting Q&A category (2026-07-18)
 

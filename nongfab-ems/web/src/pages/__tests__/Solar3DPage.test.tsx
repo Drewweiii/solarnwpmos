@@ -11,6 +11,7 @@ import type {
   GeometryResponse,
   IrradianceMapResponse,
   PerformanceResponse,
+  PrecipitationConditionsResponse,
   SunPathResponse,
   Zone,
 } from '../../lib/types'
@@ -24,9 +25,22 @@ import { Solar3DPage } from '../Solar3DPage'
 // text so tests can assert on what's actually being computed/passed
 // without needing a real WebGL context for them either.
 vi.mock('../../components/Solar3DScene', () => ({
-  Solar3DScene: ({ panels, zoneOutputRatio, cloudOpacityPct }: { panels: unknown[]; zoneOutputRatio?: number; cloudOpacityPct: number | null }) => (
+  Solar3DScene: ({
+    panels,
+    zoneOutputRatio,
+    cloudOpacityPct,
+    precipMm,
+    precipIntensity,
+  }: {
+    panels: unknown[]
+    zoneOutputRatio?: number
+    cloudOpacityPct: number | null
+    precipMm: number | null
+    precipIntensity: string | null
+  }) => (
     <div data-testid="mock-scene">
-      {panels.length} panels, ratio={zoneOutputRatio}, cloud={String(cloudOpacityPct)}
+      {panels.length} panels, ratio={zoneOutputRatio}, cloud={String(cloudOpacityPct)}, precip={String(precipMm)}, intensity=
+      {String(precipIntensity)}
     </div>
   ),
 }))
@@ -84,6 +98,13 @@ const cloudConditions: CloudConditionsResponse = {
   cloud_opacity_pct: 42,
   motion_speed_kmh: 12,
   motion_direction_deg: 180,
+}
+
+const precipitationConditions: PrecipitationConditionsResponse = {
+  available: true,
+  observed_at: '2026-07-14T05:00:00Z',
+  precip_mm: 4.0,
+  intensity: 'moderate',
 }
 
 function makeIrradianceMap(): IrradianceMapResponse {
@@ -148,6 +169,7 @@ describe('Solar3DPage', () => {
     vi.spyOn(api, 'getForecast').mockImplementation((zone) => Promise.resolve(makeForecast(zone)))
     vi.spyOn(api, 'getPerformance').mockImplementation((zone) => Promise.resolve(makePerformance(zone)))
     vi.spyOn(api, 'getCloudConditions').mockResolvedValue(cloudConditions)
+    vi.spyOn(api, 'getPrecipitationConditions').mockResolvedValue(precipitationConditions)
     vi.spyOn(api, 'getIrradianceMap').mockResolvedValue(makeIrradianceMap())
   })
 
@@ -246,6 +268,21 @@ describe('Solar3DPage', () => {
     // elevation 38deg -> zenith 90-38 = 52deg
     expect(await screen.findByText('52°')).toBeInTheDocument()
     expect(await screen.findByText(/12\.68000, 101\.12000/)).toBeInTheDocument()
+  })
+
+  it('passes the live precipitation reading down to the 3D scene for the rain layer', async () => {
+    renderPage()
+    expect(await screen.findByText(/precip=4/)).toBeInTheDocument()
+    expect(await screen.findByText(/intensity=moderate/)).toBeInTheDocument()
+  })
+
+  it('passes no rain data down when the precipitation reading is unavailable', async () => {
+    vi.spyOn(api, 'getPrecipitationConditions').mockResolvedValue({
+      available: false, observed_at: null, precip_mm: null, intensity: null,
+    })
+    renderPage()
+    expect(await screen.findByText(/precip=null/)).toBeInTheDocument()
+    expect(await screen.findByText(/intensity=null/)).toBeInTheDocument()
   })
 
   it('falls back to the forecast reading for panel-color output ratio when no actual reading exists', async () => {

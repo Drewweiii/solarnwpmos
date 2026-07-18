@@ -404,9 +404,12 @@ train-then-forecast cycle produces (`algorithm in ("lightgbm",
 ## Real historical weather from PVGIS seeds Day-ahead training (2026-07-16)
 
 The user's forecasting-optimization priority list ranked real plant
-telemetry (Huawei FusionSolar) as the top blocker for several items, but
-access is pending on credentials the user doesn't control yet. Rather than
-sit idle, the user asked for a substitute *weather* source usable
+telemetry (Huawei FusionSolar) as the top blocker for several items. As of
+2026-07-18 the user confirmed this access is **permanently unobtainable, not
+just pending** ("ทิ้งไปเลยขอไม่ได้เเล้วจริงๆ") - closed for good, not a status
+that will later flip back to "in progress." Rather than sit idle (back when
+it was still "pending"), the user asked for a substitute *weather* source
+usable
 immediately - explicitly ruling out anything that isn't genuinely
 pullable on demand (a one-time CSV download, e.g. Kaggle, didn't qualify)
 and anything that's real generation data from a *different* site (PVOutput/
@@ -522,8 +525,20 @@ set aside - see this file's PVGIS entry above and `ingestion/pvgis/
 README.md`'s "Data source & ToS" for why real generation data from a
 *different* site can't substitute for Nong Fab's own measured output) and
 real bias-correction validation (item 3 of the user's priority list) both
-still need Nong Fab's own telemetry (Huawei FusionSolar, access pending) -
-building Sum-k LSTM's architecture didn't need to wait on either.
+still need Nong Fab's own telemetry (Huawei FusionSolar) - building Sum-k
+LSTM's architecture didn't need to wait on either.
+
+**Update 2026-07-18: item 3 is now permanently closed, not blocked.** The
+user confirmed FusionSolar access is unobtainable for good (see this file's
+PVGIS entry above for the exact wording and date). Real bias-correction
+validation against Nong Fab's own measured output is therefore not
+buildable in this project, ever, on any timeline - not a task to keep
+re-proposing or waiting on. The bias-correction cascade already shipped
+(see "Add bias-correction cascade for hour-ahead and day-ahead" in this
+file's history) stays as-is, validated only indirectly (held-out RMSE
+against the same synthetic/PVGIS-seeded history everything else in this
+module trains against) - that's the permanent ceiling on how this module's
+accuracy claims can be verified, not a gap expected to close later.
 
 Verified end-to-end: `test_hour_ahead_train_then_forecast_round_trip`/
 `test_hour_ahead_retrain_bumps_version` (both `@pytest.mark.slow`, real
@@ -772,6 +787,29 @@ in shipped code, not just a test artifact - any caller storing a
 `datetime.now()`-derived timestamp next to a clock-aligned one (exactly
 what `record_generated_power()`'s `hour_anchor` vs. a raw `datetime.now()`
 insert would do too) could have hit this in production.
+
+## Added - `nwp_history.precip_mm` column, for Solar3DPage's rain animation (2026-07-18)
+
+Companion change to `ingestion/nwp/README.md`'s matching dated entry (the
+real GFS APCP decode - read that entry first for the full "why not a
+separate Thai Met Dept source" reasoning and the accumulated-mm honesty
+caveat). This module's own half: a new nullable `precip_mm REAL` column on
+`nwp_history`, added via `_SCHEMA`'s `CREATE TABLE IF NOT EXISTS` for fresh
+databases plus a new `_migrate()` step (`ALTER TABLE nwp_history ADD COLUMN
+precip_mm REAL`, wrapped in the same idempotent try/except
+`sqlite3.OperationalError` pattern `candidate_errors` already established)
+for any already-existing `NONGFAB_REAL_DATA_DB` file (e.g. Railway's
+persisted volume) that predates this column.
+
+`insert_nwp_points()` reads `precip_mm` via `getattr(p, "precip_mm", None)`,
+not a hard attribute access - not every `NWPForecastPoint`-shaped object a
+caller passes in is guaranteed to carry it (PVGIS's own historical points
+don't decode precipitation at all, and older test doubles predate the
+field entirely). New tests cover the roundtrip (including a `None` row
+staying `None`, not coerced to `0.0`), a caller object with no `precip_mm`
+attribute at all, and the same pre-existing-table migration scenario
+`test_migrates_pre_candidate_errors_forecast_history_table` already
+established for `forecast_history`. `forecast -v`: all passing.
 
 ## Known gaps / next steps
 

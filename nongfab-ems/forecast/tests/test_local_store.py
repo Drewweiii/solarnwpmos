@@ -16,6 +16,26 @@ class _FakeNWPPoint:
     wind10m_v_ms: float
     relative_humidity_pct: float
     source: str
+    precip_mm: float | None = None
+
+
+class _FakeNWPPointNoPrecipAttr:
+    """No precip_mm attribute at all - unlike _FakeNWPPoint's own default-None
+    field, this simulates a caller passing an older/simpler point object (e.g. a
+    hand-built test double elsewhere in the codebase) that predates precip_mm
+    existing - insert_nwp_points must tolerate this via getattr, not crash with
+    AttributeError.
+    """
+
+    def __init__(self, valid_time, issue_time, ssrd_w_m2, temp2m_c, wind10m_u_ms, wind10m_v_ms, relative_humidity_pct, source):
+        self.valid_time = valid_time
+        self.issue_time = issue_time
+        self.ssrd_w_m2 = ssrd_w_m2
+        self.temp2m_c = temp2m_c
+        self.wind10m_u_ms = wind10m_u_ms
+        self.wind10m_v_ms = wind10m_v_ms
+        self.relative_humidity_pct = relative_humidity_pct
+        self.source = source
 
 
 @dataclass
@@ -64,6 +84,40 @@ def test_insert_and_read_nwp_points_roundtrips():
     assert len(df) == 3
     assert list(df["ssrd_w_m2"]) == [100.0, 101.0, 102.0]
     assert df["valid_time"].is_monotonic_increasing
+
+
+def test_insert_and_read_nwp_points_carries_precip_mm():
+    store = RealDataStore()
+    points = [
+        _FakeNWPPoint(
+            valid_time=datetime(2026, 7, 14, 0, tzinfo=timezone.utc), issue_time=datetime(2026, 7, 14, 0, tzinfo=timezone.utc),
+            ssrd_w_m2=100.0, temp2m_c=28.0, wind10m_u_ms=1.0, wind10m_v_ms=1.0, relative_humidity_pct=80.0,
+            source="test", precip_mm=2.4,
+        ),
+        _FakeNWPPoint(
+            valid_time=datetime(2026, 7, 14, 1, tzinfo=timezone.utc), issue_time=datetime(2026, 7, 14, 0, tzinfo=timezone.utc),
+            ssrd_w_m2=100.0, temp2m_c=28.0, wind10m_u_ms=1.0, wind10m_v_ms=1.0, relative_humidity_pct=80.0,
+            source="test", precip_mm=None,
+        ),
+    ]
+    store.insert_nwp_points(points)
+
+    df = store.nwp_history_df()
+    assert df.iloc[0]["precip_mm"] == 2.4
+    assert pd.isna(df.iloc[1]["precip_mm"])
+
+
+def test_insert_nwp_points_tolerates_objects_without_precip_mm_attribute():
+    store = RealDataStore()
+    point = _FakeNWPPointNoPrecipAttr(
+        valid_time=datetime(2026, 7, 14, 0, tzinfo=timezone.utc), issue_time=datetime(2026, 7, 14, 0, tzinfo=timezone.utc),
+        ssrd_w_m2=100.0, temp2m_c=28.0, wind10m_u_ms=1.0, wind10m_v_ms=1.0, relative_humidity_pct=80.0, source="test",
+    )
+    inserted = store.insert_nwp_points([point])
+    assert inserted == 1
+
+    df = store.nwp_history_df()
+    assert pd.isna(df.iloc[0]["precip_mm"])
 
 
 def test_insert_nwp_points_upserts_on_valid_time_issue_time_source():
@@ -266,6 +320,41 @@ def test_migrates_pre_candidate_errors_forecast_history_table(tmp_path):
     )
     rows = store.forecast_history_points("GIS", "hour", since=now)
     assert rows[0][-1] == {"lightgbm": 1.0}
+
+
+def test_migrates_pre_precip_mm_nwp_history_table(tmp_path):
+    # Simulates an nwp_history table created before the 2026-07-18 precip_mm
+    # column existed (e.g. Railway's persisted NONGFAB_REAL_DATA_DB volume from
+    # an older deploy) - opening it with the current RealDataStore must add the
+    # column rather than raising "no such column: precip_mm" on the first
+    # insert_nwp_points call. Mirrors test_migrates_pre_candidate_errors_
+    # forecast_history_table above.
+    import sqlite3
+
+    db_path = str(tmp_path / "legacy_nwp.db")
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE nwp_history (
+            valid_time TEXT NOT NULL, issue_time TEXT NOT NULL, ssrd_w_m2 REAL NOT NULL, temp2m_c REAL NOT NULL,
+            wind10m_u_ms REAL, wind10m_v_ms REAL, relative_humidity_pct REAL, source TEXT NOT NULL,
+            PRIMARY KEY (valid_time, issue_time, source)
+        );
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    store = RealDataStore(db_path=db_path)
+    store.insert_nwp_points([
+        _FakeNWPPoint(
+            valid_time=datetime(2026, 7, 18, 0, tzinfo=timezone.utc), issue_time=datetime(2026, 7, 18, 0, tzinfo=timezone.utc),
+            ssrd_w_m2=1.0, temp2m_c=1.0, wind10m_u_ms=1.0, wind10m_v_ms=1.0, relative_humidity_pct=1.0,
+            source="test", precip_mm=3.1,
+        )
+    ])
+    df = store.nwp_history_df()
+    assert df.iloc[0]["precip_mm"] == 3.1
 
 
 def test_two_in_memory_stores_do_not_share_state():

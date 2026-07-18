@@ -47,6 +47,7 @@ def test_build_filter_url_contains_expected_gfs_filter_params():
     assert params["var_UGRD"] == ["on"]
     assert params["var_VGRD"] == ["on"]
     assert params["var_RH"] == ["on"]
+    assert params["var_APCP"] == ["on"]
     assert params["toplat"] == ["13.0"]
     assert params["bottomlat"] == ["12.3"]
     assert params["leftlon"] == ["100.8"]
@@ -86,6 +87,10 @@ def test_decode_grib_sync_extracts_expected_fields_from_real_sample():
     assert point.wind10m_v_ms == pytest.approx(1.95, abs=0.5)
     assert point.relative_humidity_pct == pytest.approx(84.3, abs=0.5)
     assert point.source == "test"
+    # This fixture was captured live before var_APCP was added to the filter
+    # request (see _build_filter_url) - it genuinely carries no "tp" GRIB message,
+    # so precip_mm must come back None (honest "no data"), not a fabricated 0.0.
+    assert point.precip_mm is None
 
 
 @pytest.mark.asyncio
@@ -175,8 +180,13 @@ async def test_s3_backfill_source_fetch_cycle_assembles_all_five_fields():
     # README) - patches asyncio.to_thread (the decode call) rather than re-decoding 5
     # real multi-hundred-KB fixtures per test run; _decode_single_field_grib_sync's
     # own correctness is covered by test_decode_single_field_grib_sync_extracts_dswrf_
-    # from_real_fixture above against real bytes.
-    fake_decoded = [36.34000015258789, 299.2613830566406, 80.80000305175781, 4.881699085235596, 3.0757031440734863]
+    # from_real_fixture above against real bytes. 6th value is the precip (APCP)
+    # decode added 2026-07-18 - AWS_IDX_FIXTURE_PATH genuinely carries an APCP
+    # message at f001 (see test_byte_range_for_field_resolves_duplicate_apcp_entries
+    # below), so this path is exercised for real, not skipped.
+    fake_decoded = [
+        36.34000015258789, 299.2613830566406, 80.80000305175781, 4.881699085235596, 3.0757031440734863, 0.42,
+    ]
     async with httpx.AsyncClient() as client:
         source = S3GfsBackfillDataSource(settings, client, RateLimiter(0.0), target_latitude=12.68337, target_longitude=101.11987)
         with patch("nwp_ingestion.datasource.asyncio.to_thread", new=AsyncMock(side_effect=fake_decoded)):
@@ -189,9 +199,50 @@ async def test_s3_backfill_source_fetch_cycle_assembles_all_five_fields():
     assert point.relative_humidity_pct == pytest.approx(80.8, abs=0.01)
     assert point.wind10m_u_ms == pytest.approx(4.8817, abs=0.001)
     assert point.wind10m_v_ms == pytest.approx(3.0757, abs=0.001)
+    assert point.precip_mm == pytest.approx(0.42, abs=0.001)
     assert point.source == S3GfsBackfillDataSource.SOURCE_NAME
     assert raw.forecast_hour == 1
-    assert len(raw.body) == 5 * len(b"fake-grib-bytes")  # concatenation of all 5 field responses
+    assert len(raw.body) == 6 * len(b"fake-grib-bytes")  # concatenation of all 5 required + 1 precip field responses
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_s3_backfill_source_fetch_cycle_tolerates_precip_decode_failure():
+    """Precipitation is optional (see _S3_BACKFILL_PRECIP_FIELD's own docstring) -
+    a decode failure on just that field must not fail the whole backfill row the
+    way a failure on one of the 5 required fields would.
+    """
+    respx.get(f"{AWS_BASE_URL}.idx").mock(return_value=httpx.Response(200, text=AWS_IDX_FIXTURE_PATH.read_text()))
+    respx.get(AWS_BASE_URL).mock(return_value=httpx.Response(206, content=b"fake-grib-bytes"))
+
+    settings = Settings(source_mode="http")
+    fake_decoded = [
+        36.34000015258789, 299.2613830566406, 80.80000305175781, 4.881699085235596, 3.0757031440734863,
+        RuntimeError("simulated precip decode failure"),
+    ]
+    async with httpx.AsyncClient() as client:
+        source = S3GfsBackfillDataSource(settings, client, RateLimiter(0.0), target_latitude=12.68337, target_longitude=101.11987)
+        with patch("nwp_ingestion.datasource.asyncio.to_thread", new=AsyncMock(side_effect=fake_decoded)):
+            raw, point = await source.fetch_cycle(datetime(2026, 7, 14, 0, tzinfo=timezone.utc), forecast_hour=1)
+
+    assert point.precip_mm is None
+    assert point.ssrd_w_m2 == pytest.approx(36.34, abs=0.01)  # the 5 required fields are unaffected
+
+
+def test_byte_range_for_field_resolves_duplicate_apcp_entries():
+    """Real quirk verified live 2026-07-18 against AWS_IDX_FIXTURE_PATH: GFS
+    publishes *two* idx lines reading exactly "APCP:surface:0-1 hour acc fcst" at
+    f001 (msg 596 and 597, different byte offsets) - not a parsing bug, an actual
+    GFS publishing duplicate. Exact (short_name, level) match takes the first one,
+    same resolution _byte_range_for_field already applies to any other collision.
+    """
+    idx = _parse_grib_idx(AWS_IDX_FIXTURE_PATH.read_text())
+    matches = [row for row in idx if row[2] == "APCP" and row[3] == "surface"]
+    assert len(matches) == 2
+
+    start, end = _byte_range_for_field(idx, "APCP", "surface")
+    assert start == matches[0][1]
+    assert end == matches[1][1] - 1
 
 
 @pytest.mark.asyncio
