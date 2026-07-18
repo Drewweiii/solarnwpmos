@@ -462,3 +462,73 @@ branch `claude/solar-optimization-forecasting-jryux7`)
 3. Backend ยัง pending การ deploy ค้างจาก entry ก่อนหน้า (schema
    `0006_chat_profile_and_history.sql` + logic prefix "admin ") - เตือนซ้ำ
    ไว้เผื่อลืม
+
+## 2026-07-18 14:44 ICT
+
+**Track 2 — หน้าตา/Interface + AI assistant + ระบบเชื่อมต่อผู้ชม** (บัญชีนี้ /
+branch `claude/solar-optimization-forecasting-jryux7`)
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+ผู้ใช้ส่งรูปโลโก้ 5 องค์กรมาให้ (PTT LNG, PE LNG, Electrical Engineering
+Chula, Chula Engineering ACTNOW, Chulalongkorn University) ขอให้ใส่เหนือ
+หน้า login และท้ายเว็บหลัก พร้อม favicon ของเว็บเอง - ทำเสร็จแล้ว commit
+`65b8737`:
+
+1. **ดึงรูปที่ผู้ใช้ส่งมาได้จริง** - รูปที่ส่งมาในแชทไม่ได้ถูกเซฟเป็นไฟล์ใน
+   `/root/.claude/uploads/` เหมือน attachment ทั่วไป (มีแต่ของเก่าตั้งแต่
+   14 ก.ค.) แต่หาเจอว่าถูกเก็บเป็น base64 อยู่ใน JSONL transcript ของ session
+   เอง (`/root/.claude/projects/.../*.jsonl`) - เขียนสคริปต์ python ดึง
+   base64 image blocks ออกมา decode เป็นไฟล์จริง แล้ว verify ด้วยการเปิดดูรูป
+   เทียบกับที่ผู้ใช้ส่งมาทีละรูปจนมั่นใจว่าตรงกัน 100% ก่อนเอาไปใช้ (เผื่อ
+   session ถัดไปเจอสถานการณ์คล้ายกัน - ผู้ใช้ส่งรูปมาแต่หาไฟล์ไม่เจอใน
+   uploads ปกติ ให้ลองเช็ค JSONL transcript แบบนี้)
+2. **ครอปรูปให้เรียบร้อย** - บางรูปมี transparent padding เยอะมาก (เช่น Chula
+   Engineering ACTNOW มี whitespace รอบข้อความเยอะมาก) ใช้ Pillow (`pip
+   install Pillow`) crop ตาม bounding box ของ pixel ที่ไม่ใช่ transparent ก่อน
+   เซฟเป็น PNG ใน `web/public/logos/`
+3. **ออกแบบ favicon + site logo ของเว็บเอง** (ผู้ใช้ถามว่าเคยทำไว้รึยัง - ยัง
+   ไม่เคย เดิม favicon เป็น placeholder ของ Vite scaffold ตั้งแต่วันแรก ไม่เคย
+   เปลี่ยน) - ใช้ตัวการ์ตูนน้อง Solar เองเป็นฐาน (SVG path เดียวกับใน
+   `MascotFace.tsx` เป๊ะๆ เพื่อความสอดคล้องของ brand): `favicon.svg` แบบง่าย
+   ให้อ่านออกแม้ที่ 16x16, และ `site-logo.svg` แบบเต็มรูป (ไอคอน+ตัวหนังสือ
+   "Nong Fab / Solar EMS") สำหรับใช้เป็น "โลโก้ของเว็บเอง" ในแถวโลโก้ ยังแก้
+   `<title>` จาก "web" (default เดิม) เป็น "Nong Fab Solar EMS" ด้วยเลย
+4. **สร้าง `OrgLogos.tsx`** component ใช้ร่วมกัน 2 จุด: หน้า login (เหนือฟอร์ม
+   sign-in, ขนาดใหญ่กว่า) และ footer ท้ายทุกหน้าที่ login แล้ว (เล็กกว่า) -
+   เรียง 6 โลโก้ (site logo ของเว็บเอง + 5 องค์กร) แถวเดียวกันแบบ responsive
+   wrap
+5. **Footer ไม่บังเนื้อหาเว็บเด็ดขาดตามที่ผู้ใช้กำชับ** - เพิ่ม `<footer>`
+   แบบ normal document flow (ไม่ใช้ position:fixed) ต่อท้าย `<main>` ใน
+   `Layout.tsx` ทำให้มีแต่ดันหน้าเว็บให้สูงขึ้น ไม่มีทางไปทับเนื้อหา
+   dashboard หรือปุ่มลอย mascot/แชทที่มุมล่างทั้งสองได้เลย เพิ่ม
+   padding-bottom เยอะพอ (140px) กันไม่ให้แถวโลโก้ไปชนปุ่มลอยพอดีด้วย
+6. **แก้ contrast bug ที่เจอจาก live verify**: ตัวหนังสือ "Nong Fab" ใน
+   site-logo.svg (สีเข้ม #1f2430) อ่านไม่ออกเลยตอน dark mode - แก้โดยใส่
+   `<style>@media (prefers-color-scheme: dark)` ไว้ข้างในไฟล์ SVG เอง (SVG
+   ที่โหลดผ่าน `<img>` ยัง evaluate media query ของตัวเองตาม OS/browser
+   preference ได้ปกติ)
+7. ทดสอบครบ: frontend suite เต็ม 184 ตัวผ่าน (เพิ่ม `OrgLogos.test.tsx`)
+   `tsc` ผ่าน verify จริงด้วย Playwright ทั้ง light/dark mode ทั้งหน้า login
+   และ footer เห็นโลโก้ครบ 6 อัน ไม่มีการซ้อนทับกับปุ่มลอยเลย
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- **เทคนิคใหม่ที่ได้เรียนรู้**: เวลาผู้ใช้ส่งรูปมาในแชทแต่หาไฟล์ไม่เจอใน
+  `/root/.claude/uploads/<session-id>/` (ซึ่งมักมีแต่ไฟล์เก่าจาก context
+  ตอนต้น session) ให้ลองดึงจาก JSONL transcript ของ session ที่
+  `/root/.claude/projects/-home-user-solarnwpmos/<session-id>.jsonl` แทน -
+  รูปที่ส่งมาใหม่ล่าสุดจะอยู่เป็น `image` content block พร้อม
+  `source.data` เป็น base64 ในนั้น
+- ไฟล์โลโก้ทั้งหมดอยู่ที่ `web/public/logos/` (ptt-lng.png, pe-lng.png,
+  ee-chula.png, chula-engineering.png, chula-university.png, site-logo.svg)
+  - เสิร์ฟตรงจาก Vite public folder ไม่ต้อง import
+- ยังไม่ได้ทำระบบ favicon หลายขนาด (apple-touch-icon, PNG fallback สำหรับ
+  browser เก่าที่ไม่รองรับ SVG favicon) - ใช้แค่ SVG เดียวตามที่ scaffold
+  เดิมตั้งไว้แล้ว (เพียงพอสำหรับ browser สมัยใหม่ทั้งหมด)
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **งานที่ผู้ใช้ขอไว้ล่าสุดเสร็จครบแล้ว** - รอฟีดแบ็กหรือคำสั่งเพิ่มเติม
+2. รอบนี้ไม่แตะ backend เลย - **ไม่ต้อง** กด Railway deploy สำหรับงานรอบนี้
+   แต่ยังมีงานค้างจาก entry ก่อนๆ ที่อาจยังไม่ได้กด (ดู entry ก่อนหน้า)
