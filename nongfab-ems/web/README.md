@@ -1950,6 +1950,41 @@ assistant reply (not the user's own), and that clicking it calls
 clean. **Live-verified via Playwright**: opened the assistant panel and
 confirmed the 🔊 button renders under the greeting bubble.
 
+### Fixed - `npm run build` failing in CI, the actual reason Cloudflare had zero of today's commits live (2026-07-18, Track 2)
+
+The user reported the live site (Cloudflare) still showed old branding/bugs
+despite many commits pushed today, and separately asked to check GitHub
+Actions for anything failing on the way into the API. Checking the CI run
+for the most recent commit (`Auto-migrate chat_messages...`) found **every
+CI run since early today has been red**, and one of the three failing jobs
+is this package's own `lint+test+build - web/` job: `tsc -b` failed on
+`src/lib/__tests__/useChatSocket.test.tsx(162,30)` with `Type 'string' is
+not assignable to type 'null'`. Root cause: `renderHook(..., {
+initialProps: { active: false, peer: null } })` let TypeScript infer
+`peer`'s type from the literal `null` instead of the callback param's own
+`string | null` annotation, so the later `rerender({ ..., peer: PEER })`
+(a real string) failed to typecheck. Fixed by annotating the literal:
+`peer: null as string | null`.
+
+Cloudflare Pages builds from `npm run build` on push - with that step
+throwing on every commit today, there was never a successful build to
+deploy, which is why the live site stayed frozen on old code all day
+regardless of how many commits landed. This was not a Cloudflare
+configuration problem at all.
+
+While in the same CI run, also fixed two more trivial lint-only failures
+blocking the same run (flagged here since they're outside this package,
+not touched otherwise this session): `api/tests/test_ingestion_scheduler.py`
+had an unsorted import block (`ruff check --fix`), and
+`forecast/tests/test_local_store.py` had two lines over the 150-char limit
+(wrapped the `record_forecast_points(...)` calls across multiple lines).
+
+**Tested**: `tsc -b` clean, full web suite 295/295, `npm run build`
+succeeds locally. `ruff check` clean on both other files; their own test
+suites still pass (28/28 combined). Once this lands on `main`/the working
+branch and Cloudflare's next build runs, today's actual UI changes should
+finally go live.
+
 ## Run locally
 
 ```bash

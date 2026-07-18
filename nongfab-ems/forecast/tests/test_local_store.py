@@ -464,9 +464,15 @@ def test_record_forecast_points_upserts_on_zone_horizon_target_time():
 def test_forecast_history_points_scoped_to_zone_and_horizon():
     store = RealDataStore()
     now = datetime(2026, 7, 18, 9, tzinfo=timezone.utc)
-    store.record_forecast_points("GIS", "hour", now, [_FakeForecastPoint(timestamp=now, pred=1.0, lower=None, upper=None, algorithm=None, error=None)])
-    store.record_forecast_points("ISB", "hour", now, [_FakeForecastPoint(timestamp=now, pred=2.0, lower=None, upper=None, algorithm=None, error=None)])
-    store.record_forecast_points("GIS", "day", now, [_FakeForecastPoint(timestamp=now, pred=3.0, lower=None, upper=None, algorithm=None, error=None)])
+    store.record_forecast_points(
+        "GIS", "hour", now, [_FakeForecastPoint(timestamp=now, pred=1.0, lower=None, upper=None, algorithm=None, error=None)]
+    )
+    store.record_forecast_points(
+        "ISB", "hour", now, [_FakeForecastPoint(timestamp=now, pred=2.0, lower=None, upper=None, algorithm=None, error=None)]
+    )
+    store.record_forecast_points(
+        "GIS", "day", now, [_FakeForecastPoint(timestamp=now, pred=3.0, lower=None, upper=None, algorithm=None, error=None)]
+    )
 
     rows = store.forecast_history_points("GIS", "hour", since=now)
     assert len(rows) == 1

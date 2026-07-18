@@ -152,7 +152,7 @@ describe('useChatSocket', () => {
     setToken()
     const { result, rerender } = renderHook(
       ({ active, peer }: { active: boolean; peer: string | null }) => useChatSocket(profile, peer, active),
-      { wrapper: AuthProvider, initialProps: { active: false, peer: null } },
+      { wrapper: AuthProvider, initialProps: { active: false, peer: null as string | null } },
     )
     const ws = MockWebSocket.instances[0]
     act(() => ws.open())
