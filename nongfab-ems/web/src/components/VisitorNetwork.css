@@ -245,6 +245,16 @@
   border-color: var(--text-h);
 }
 
+.visitor-profile-cancel {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
 .visitor-edit-profile {
   align-self: flex-start;
   margin: 0 14px 8px;

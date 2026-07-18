@@ -136,6 +136,34 @@ describe('VisitorNetwork', () => {
     expect(screen.getByRole('button', { name: '✏️ คนดูเว็บ' })).toBeInTheDocument()
   })
 
+  it('editing an existing profile prefills the current name/avatar, can be cancelled, and saving updates it in place', async () => {
+    const user = userEvent.setup()
+    renderWidget(VIEWER_TOKEN)
+    await openWidget(user)
+    await user.type(screen.getByLabelText('ชื่อที่แสดง'), 'คนเดิม')
+    await user.click(screen.getByRole('radio', { name: 'avatar fox' }))
+    await user.click(screen.getByRole('button', { name: 'เริ่มแชท' }))
+    await screen.findByRole('button', { name: '✏️ คนเดิม' })
+
+    await user.click(screen.getByRole('button', { name: '✏️ คนเดิม' }))
+    const nameInput = screen.getByLabelText('ชื่อที่แสดง') as HTMLInputElement
+    expect(nameInput.value).toBe('คนเดิม')
+    expect(screen.getByRole('radio', { name: 'avatar fox' })).toHaveAttribute('aria-checked', 'true')
+
+    // Cancelling a reopened edit leaves the saved profile untouched.
+    await user.click(screen.getByRole('button', { name: 'ยกเลิก' }))
+    expect(screen.getByRole('button', { name: '✏️ คนเดิม' })).toBeInTheDocument()
+
+    // Reopening and actually saving updates the profile in place.
+    await user.click(screen.getByRole('button', { name: '✏️ คนเดิม' }))
+    await user.clear(screen.getByLabelText('ชื่อที่แสดง'))
+    await user.type(screen.getByLabelText('ชื่อที่แสดง'), 'ชื่อใหม่')
+    await user.click(screen.getByRole('radio', { name: 'avatar unicorn' }))
+    await user.click(screen.getByRole('button', { name: 'บันทึก' }))
+
+    expect(await screen.findByRole('button', { name: '✏️ ชื่อใหม่' })).toBeInTheDocument()
+  })
+
   it('sending a chat message goes out over the socket with the profile fields attached', async () => {
     const user = userEvent.setup()
     renderWidget()

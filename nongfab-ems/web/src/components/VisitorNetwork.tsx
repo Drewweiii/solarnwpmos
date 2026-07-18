@@ -38,6 +38,12 @@ export function VisitorNetwork() {
   // that transient `null` from ever getting locked in as "not admin" (found
   // live: admin was briefly shown the profile picker it should never see).
   const [savedProfile, setSavedProfile] = useState<ChatProfile | null>(() => loadChatProfile())
+  // Reopening the picker to change name/avatar while still logged in (the
+  // pencil button below) must not discard the existing profile the way the
+  // very-first-time flow does - it's a separate "currently editing" flag,
+  // not a null-out-and-restart, so ProfileSetup can prefill the current
+  // values instead of showing a blank form again.
+  const [isEditingProfile, setIsEditingProfile] = useState(false)
   const profile = role === 'admin' ? adminProfile() : savedProfile
   const isActiveView = isOpen && tab === 'chat'
   const chat = useChatSocket(profile ?? adminProfile(), isActiveView && profile != null)
@@ -87,10 +93,17 @@ export function VisitorNetwork() {
           </div>
 
           {tab === 'chat' ? (
-            profile ? (
-              <ChatTab chat={chat} profile={profile} onEditProfile={role === 'admin' ? undefined : () => setSavedProfile(null)} />
+            profile && !isEditingProfile ? (
+              <ChatTab chat={chat} profile={profile} onEditProfile={role === 'admin' ? undefined : () => setIsEditingProfile(true)} />
             ) : (
-              <ProfileSetup onSaved={setSavedProfile} />
+              <ProfileSetup
+                initial={savedProfile}
+                onSaved={(p) => {
+                  setSavedProfile(p)
+                  setIsEditingProfile(false)
+                }}
+                onCancel={savedProfile ? () => setIsEditingProfile(false) : undefined}
+              />
             )
           ) : (
             <FeedbackTab />
@@ -101,9 +114,17 @@ export function VisitorNetwork() {
   )
 }
 
-function ProfileSetup({ onSaved }: { onSaved: (profile: ChatProfile) => void }) {
-  const [name, setName] = useState('')
-  const [avatarId, setAvatarId] = useState(AVATAR_OPTIONS[0].id)
+function ProfileSetup({
+  initial,
+  onSaved,
+  onCancel,
+}: {
+  initial: ChatProfile | null
+  onSaved: (profile: ChatProfile) => void
+  onCancel?: () => void
+}) {
+  const [name, setName] = useState(initial?.displayName ?? '')
+  const [avatarId, setAvatarId] = useState(initial?.avatarId ?? AVATAR_OPTIONS[0].id)
 
   return (
     <form
@@ -114,7 +135,11 @@ function ProfileSetup({ onSaved }: { onSaved: (profile: ChatProfile) => void }) 
         onSaved(saveChatProfile(name, avatarId))
       }}
     >
-      <p className="visitor-profile-note">ตั้งชื่อและเลือก avatar ที่จะแสดงในแชท (เหมือน LINE) ก่อนเริ่มคุยกันค่ะ</p>
+      <p className="visitor-profile-note">
+        {initial
+          ? 'แก้ไขชื่อและ avatar ที่จะแสดงในแชทค่ะ'
+          : 'ตั้งชื่อและเลือก avatar ที่จะแสดงในแชท (เหมือน LINE) ก่อนเริ่มคุยกันค่ะ'}
+      </p>
       <label className="visitor-profile-name-label" htmlFor="visitor-profile-name">
         ชื่อที่แสดง
       </label>
@@ -144,8 +169,13 @@ function ProfileSetup({ onSaved }: { onSaved: (profile: ChatProfile) => void }) 
         ))}
       </div>
       <button type="submit" className="visitor-send" disabled={!name.trim()}>
-        เริ่มแชท
+        {initial ? 'บันทึก' : 'เริ่มแชท'}
       </button>
+      {onCancel && (
+        <button type="button" className="visitor-profile-cancel" onClick={onCancel}>
+          ยกเลิก
+        </button>
+      )}
     </form>
   )
 }
