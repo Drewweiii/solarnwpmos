@@ -1839,6 +1839,62 @@ same privacy property the old public room violated; a reply flowed back;
 and reloading the sender's page kept its saved name/avatar with no
 re-prompt, with the edit-profile button still present and working.
 
+### Fixed - dark-theme logo white boxes, mobile page overflow, site renamed (2026-07-18)
+
+- **`public/logos/pe-lng.png` / `chula-university.png`**: both had a baked-
+  in opaque white background (not real transparency), showing as a visible
+  white rectangle in dark mode. Chroma-keyed to genuine transparency
+  (flood-fill from the border on near-white pixels + a slight Gaussian
+  blur on the resulting alpha for a clean edge, not a naive global-
+  threshold key - an earlier attempt at that left visible grey speckle
+  noise from the source PNGs' own compression fuzz). Verified pixel-
+  identical to the original when composited back onto a white background,
+  and clean (no white box, no speckling) composited onto the dark theme's
+  `--bg`.
+- **Site renamed** "Nong Fab Solar EMS" → "PTT LNG Terminal 2 Nong Fab
+  Solar Forecasting" everywhere it's visible: `Login.tsx`'s `<h1>` (own
+  smaller font-size, now 26px not 34px, to fit the longer name inside
+  `.login-form`'s 460px width), `Layout.tsx`'s header brand, `index.html`'s
+  `<title>`, `OrgLogos.tsx`'s site-logo alt text. Left the site-logo.svg
+  mark's own embedded wordmark artwork untouched (a bigger redesign task on
+  its own, not requested).
+- **Fixed a second, previously-undiagnosed cause of the same "mascot
+  invisible until you pinch-zoom out on mobile" bug** (`App.css`'s header
+  wrap fix above resolved the first cause): `OrgLogos.css`'s
+  `.org-logos-footer` combines `width: 100%` with left/right padding under
+  the CSS default *content-box* sizing, which computes total rendered
+  width as 100% of the parent **plus** the padding - exactly the 40px
+  overflow measured live. Added a universal `*, *::before, *::after {
+  box-sizing: border-box }` reset to `index.css` (defense in depth against
+  this whole bug class recurring anywhere else, not just this one
+  component) rather than patching just this one selector.
+- **`ForecastPage.tsx`**'s collapsible "Forecast models used here" table
+  (4 columns of real prose) also doesn't fit a narrow phone - wrapped it in
+  a new `.model-info-table-scroll` div with its own `overflow-x: auto`
+  (same principle as `VisitorNetwork.css`'s chat scroll containers).
+  **Caught and reverted a self-introduced regression before shipping it**:
+  the first attempt put `display: block` directly on `.model-info-table`
+  to make `overflow-x` actually take effect (a `<table>`'s native `display:
+  table` doesn't reliably respect `overflow` cross-browser) - but that
+  author-stylesheet rule overrode the browser's native `details:not([open])
+  > *:not(summary) { display: none }` collapse behavior, so the table
+  stayed laid out (and overflowing) even while the panel was visually
+  closed. Moving `overflow-x: auto` onto a dedicated wrapper `<div>`
+  instead - leaving the `<table>` element itself untouched - fixed the
+  overflow without fighting `<details>`'s own collapse mechanism.
+
+**Tested**: `App.test.tsx`, `Layout.test.tsx`, `OrgLogos.test.tsx` updated
+for the new brand text. Full suite 289/289, `tsc` clean. **Live-verified
+via Playwright**: composited both logos onto light/dark backgrounds before
+touching the real files; screenshotted the real login page in both color
+schemes (logos clean, title wraps to 2 lines and reads correctly); at a
+375px mobile viewport, walked through login → post-login profile gate →
+dashboard and confirmed `document.body.scrollWidth` now exactly equals
+`window.innerWidth` (was 415 vs 375 before the box-sizing fix) - the
+mascot and chat toggle are visible in the initial viewport with no zoom
+needed, and the collapsed model-info table stays genuinely hidden (visible
+screenshot: just the collapsed "▶" summary rows, no leaked table content).
+
 ## Run locally
 
 ```bash

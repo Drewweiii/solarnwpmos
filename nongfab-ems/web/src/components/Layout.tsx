@@ -38,7 +38,7 @@ export function Layout() {
   return (
     <div className="app-shell">
       <header className="app-header">
-        <div className="app-header-brand">Nong Fab Solar EMS</div>
+        <div className="app-header-brand">PTT LNG Terminal 2 Nong Fab Solar Forecasting</div>
         <nav className="app-nav">
           <NavLink to="/forecast" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
             Forecast

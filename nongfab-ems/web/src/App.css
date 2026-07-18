@@ -20,7 +20,12 @@
 }
 
 .login-form h1 {
-  font-size: 34px;
+  /* Smaller than the default h1 (56px, App.css) - was already true for the
+     short "Nong Fab Solar EMS", but even more necessary now that the title
+     reads "PTT LNG Terminal 2 Nong Fab Solar Forecasting" (2026-07-18
+     rename) - this wraps to 2 lines within .login-form's 460px max-width. */
+  font-size: 26px;
+  line-height: 1.25;
   margin: 0 0 6px;
   text-align: center;
 }
@@ -116,7 +121,11 @@
 .app-header-brand {
   font-weight: 600;
   color: var(--text-h);
-  white-space: nowrap;
+  /* No nowrap (unlike before the 2026-07-18 rename) - "PTT LNG Terminal 2
+     Nong Fab Solar Forecasting" is long enough that keeping it on one
+     unbreakable line would itself overflow a narrow phone screen, the same
+     class of bug .app-header's own flex-wrap above was just fixed for. */
+  max-width: 260px;
 }
 
 .app-nav {

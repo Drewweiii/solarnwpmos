@@ -5,7 +5,7 @@ import { OrgLogos } from '../OrgLogos'
 describe('OrgLogos', () => {
   it('renders the site logo plus all 5 partner organization logos', () => {
     render(<OrgLogos variant="footer" />)
-    expect(screen.getByAltText('Nong Fab Solar EMS')).toBeInTheDocument()
+    expect(screen.getByAltText('PTT LNG Terminal 2 Nong Fab Solar Forecasting')).toBeInTheDocument()
     expect(screen.getByAltText('PTT LNG')).toBeInTheDocument()
     expect(screen.getByAltText('PE LNG Co., Ltd.')).toBeInTheDocument()
     expect(screen.getByAltText('Electrical Engineering, Chulalongkorn University')).toBeInTheDocument()

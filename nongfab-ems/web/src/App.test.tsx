@@ -8,7 +8,7 @@ describe('App', () => {
   it('renders the login screen when no token is stored', () => {
     localStorage.removeItem('nongfab_ems_token')
     render(<App />)
-    expect(screen.getByRole('heading', { name: /Nong Fab Solar EMS/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /PTT LNG Terminal 2 Nong Fab Solar Forecasting/i })).toBeInTheDocument()
     expect(screen.getByLabelText(/Username/i)).toBeInTheDocument()
   })
 })

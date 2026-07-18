@@ -1,3 +1,15 @@
+/* Without this, a padded element declared `width: 100%` computes to 100%
+   of its parent *plus* its own padding (content-box, the CSS default) -
+   found live 2026-07-18 causing exactly a 40px mobile page overflow from
+   OrgLogos.css's `.org-logos-footer` (`width: 100%` + `padding: 28px 20px
+   140px`, 20px each side = the missing 40px), part of the same "page wider
+   than the viewport hides the fixed mascot" bug fixed in App.css. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 :root {
   --text: #6b6375;
   --text-h: #08060d;

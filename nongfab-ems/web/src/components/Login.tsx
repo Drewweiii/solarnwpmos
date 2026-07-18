@@ -29,7 +29,7 @@ export function Login() {
       <LoginWelcome />
       <OrgLogos variant="login" />
       <form className="login-form" onSubmit={handleSubmit}>
-        <h1>Nong Fab Solar EMS</h1>
+        <h1>PTT LNG Terminal 2 Nong Fab Solar Forecasting</h1>
         <p className="login-subtitle">Sign in to continue</p>
         {autoLogoutReason && (
           <p role="status" className="login-notice">

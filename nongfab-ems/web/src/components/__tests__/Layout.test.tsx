@@ -41,7 +41,7 @@ describe('Layout - post-login chat profile gate', () => {
     expect(screen.getByRole('heading', { name: 'ก่อนเข้าเว็บ...' })).toBeInTheDocument()
     expect(screen.getByLabelText('ชื่อที่แสดง')).toBeInTheDocument()
     expect(screen.queryByText('เนื้อหาแดชบอร์ด')).not.toBeInTheDocument()
-    expect(screen.queryByText('Nong Fab Solar EMS')).not.toBeInTheDocument()
+    expect(screen.queryByText('PTT LNG Terminal 2 Nong Fab Solar Forecasting')).not.toBeInTheDocument()
   })
 
   it('reveals the dashboard immediately after saving a profile, with no page reload needed', async () => {
