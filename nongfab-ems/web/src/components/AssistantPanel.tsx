@@ -41,10 +41,17 @@ function greeting(): ChatMessage {
   }
 }
 
-// A stable (not Date.now()-based) id for the category-menu message
-// specifically, so repeated 📚 taps can check "is this already the last
-// message" instead of blindly appending another copy - see pushCategoryMenu.
+// Stable (not Date.now()-based) ids for every menu-level message - category,
+// group, and sub-question menus alike - so navigating can tell "is this
+// already on screen" and, more importantly, "is *some* menu already the
+// trailing message" (see pushOrReplaceMenu below and isMenuMessageId).
 const CATEGORY_MENU_ID = 'cat-menu'
+const GROUP_MENU_ID_PREFIX = 'grp-'
+const SUB_MENU_ID_PREFIX = 'sub-'
+
+function isMenuMessageId(id: string): boolean {
+  return id === CATEGORY_MENU_ID || id.startsWith(GROUP_MENU_ID_PREFIX) || id.startsWith(SUB_MENU_ID_PREFIX)
+}
 
 // Offered on every menu level (not just after a final answer) so a visitor
 // is never stuck once they've picked a category or a topic group - reported
@@ -65,7 +72,7 @@ function groupMenuMessage(categoryId: string, role: string | null | undefined): 
   const category = findCategoryById(categoryId)
   if (!category) return null
   return {
-    id: `${Date.now()}-grp`,
+    id: `${GROUP_MENU_ID_PREFIX}${categoryId}`,
     role: 'assistant',
     text: `หมวด "${category.title}" มีหัวข้ออะไรบ้าง เลือกได้เลยครับ:`,
     options: [
@@ -79,7 +86,7 @@ function subQuestionMenuMessage(groupId: string): ChatMessage | null {
   const group = findGroupById(groupId)
   if (!group) return null
   return {
-    id: `${Date.now()}-sub`,
+    id: `${SUB_MENU_ID_PREFIX}${groupId}`,
     role: 'assistant',
     text: `"${group.title}" อยากรู้เรื่องไหนครับ:`,
     options: [
@@ -160,15 +167,29 @@ export function AssistantPanel({ isOpen, onClose, onAnswered, onInteract }: Assi
     }
   }
 
-  // Repeatedly tapping 📚 (the header icon, or the "ดูหมวดคำถามอื่น" follow-
-  // up button) used to append a brand-new category-menu bubble to the chat
-  // log on every single tap - a burst of taps piled up that many near-
-  // identical menus with no way to remove the old ones (reported 2026-07-18:
-  // "กดย้ำๆ ... มันซ้อนกันไปเรื่อยๆ เอาออกไม่ได้"). If the menu is already the
-  // most recent message, tapping it again is a no-op instead of stacking
-  // another copy - it's already right there on screen.
+  // Bouncing between "📚 back to categories" and picking a category/topic
+  // used to append a brand-new menu bubble to the chat log on every single
+  // tap - a burst of taps piled up an ever-growing wall of near-identical
+  // menus with no way to remove the old ones (reported 2026-07-18: "กดย้ำๆ
+  // ... มันซ้อนกันไปเรื่อยๆ เอาออกไม่ได้", and reported again the same day via
+  // screen recording after a first fix that only covered one button tapped
+  // repeatedly - not two different menu buttons alternated, which is what
+  // the recording actually showed). As long as the visitor hasn't asked a
+  // real question since, the trailing menu bubble is replaced in place
+  // instead of stacking a new one below it; a real question/answer (or the
+  // very first menu shown after one) still starts a fresh bubble as before.
+  function pushOrReplaceMenu(menu: ChatMessage) {
+    setMessages((prev) => {
+      const last = prev[prev.length - 1]
+      if (last && isMenuMessageId(last.id)) {
+        return last.id === menu.id ? prev : [...prev.slice(0, -1), menu]
+      }
+      return [...prev, menu]
+    })
+  }
+
   function pushCategoryMenu() {
-    setMessages((prev) => (prev[prev.length - 1]?.id === CATEGORY_MENU_ID ? prev : [...prev, categoryMenuMessage()]))
+    pushOrReplaceMenu(categoryMenuMessage())
   }
 
   function handleOption(option: AssistantOption) {
@@ -183,11 +204,11 @@ export function AssistantPanel({ isOpen, onClose, onAnswered, onInteract }: Assi
     }
     if (option.kind === 'category') {
       const menu = groupMenuMessage(option.categoryId, role)
-      if (menu) setMessages((prev) => [...prev, menu])
+      if (menu) pushOrReplaceMenu(menu)
       return
     }
     const menu = subQuestionMenuMessage(option.groupId)
-    if (menu) setMessages((prev) => [...prev, menu])
+    if (menu) pushOrReplaceMenu(menu)
   }
 
   if (!isOpen) return null

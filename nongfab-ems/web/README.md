@@ -2220,3 +2220,37 @@ If you are developing a production application, we recommend enabling type-aware
 ```
 
 See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+
+### Fixed - AI assistant menu stacking, take two: bouncing between two menu buttons still stacked (2026-07-18, Track 2)
+
+The user's first stacking report (earlier same-day entry above) was fixed
+for the case of the *same* button tapped repeatedly - a stable id on the
+category-menu message let repeated 📚 taps no-op once it was already the
+last message. But the user then sent a screen recording showing it was
+still happening: repeatedly tapping "📚 ดูหมวดคำถามอื่น" and then re-picking
+the *same* category kept appending a fresh pair of menu bubbles forever.
+Root cause the first fix missed: `groupMenuMessage`/`subQuestionMenuMessage`
+had no dedup guard at all and used non-deterministic `Date.now()`-based ids,
+so alternating between two different menu-producing buttons always looked
+like "a new last message" to the old single-id check even though nothing
+new was actually being asked.
+
+Fixed properly this time with a general rule instead of a per-button
+patch: every menu-level message (category/group/sub-question) now gets a
+stable, content-derived id (`grp-${categoryId}`, `sub-${groupId}`), and
+`pushOrReplaceMenu()` checks whether the *trailing* message is *any* kind
+of menu (`isMenuMessageId`) - if so it's replaced in place instead of
+appended, regardless of which specific menu it was. Only a real question/
+answer (or the very first menu shown right after one) still starts a new
+bubble. Net effect: however many times a visitor bounces around the menu
+tree without asking an actual question, only one menu bubble ever sits at
+the bottom of the chat log, updating in place.
+
+**Tested**: new regression test reproduces the exact click sequence from
+the recording (pick category → back → pick same category, four times) and
+asserts zero duplicate category-menu bubbles and exactly one trailing
+group-menu bubble. Full suite 310/310, `tsc` clean. **Live-verified via
+Playwright** against a real dev server + API (not just the test harness):
+scripted the identical bounce sequence in a real browser session and
+confirmed only one menu bubble remains on screen afterward (screenshot
+matches the assertion).

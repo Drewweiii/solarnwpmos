@@ -201,6 +201,26 @@ describe('AIAssistant', () => {
 
       expect(screen.getAllByText('อยากถามเรื่องอะไรดีครับ เลือกหมวดได้เลย:')).toHaveLength(1)
     })
+
+    it('bouncing between 📚 back-to-categories and picking the same category repeatedly does not stack menus either (reported again via screen recording, 2026-07-18)', async () => {
+      const user = userEvent.setup()
+      renderAssistant()
+      await user.click(screen.getByRole('button', { name: /เปิดผู้ช่วย AI/i }))
+
+      const menuButton = await screen.findByRole('button', { name: 'เปิดหมวดคำถาม' })
+      const pickCategory = () => user.click(screen.getByRole('button', { name: /ความรู้เรื่องระบบ Solar/ }))
+
+      await pickCategory()
+      await user.click(screen.getByRole('button', { name: '📚 ดูหมวดคำถามอื่น' }))
+      await pickCategory()
+      await user.click(screen.getByRole('button', { name: '📚 ดูหมวดคำถามอื่น' }))
+      await pickCategory()
+      await user.click(menuButton)
+      await pickCategory()
+
+      expect(screen.queryAllByText('อยากถามเรื่องอะไรดีครับ เลือกหมวดได้เลย:')).toHaveLength(0)
+      expect(screen.getAllByText(/หมวด "ความรู้เรื่องระบบ Solar" มีหัวข้ออะไรบ้าง/)).toHaveLength(1)
+    })
   })
 
   describe('เล่นกับน้อง Solar (play interactions)', () => {
