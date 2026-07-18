@@ -1225,6 +1225,73 @@ questions back-to-back without closing the panel, typed the bare keyword
 group → sub-question, confirmed every answer plus its follow-up chips
 rendered correctly with no layout collisions.
 
+### Added - post-login profile gate, bigger chat/assistant panels, chat stickers with Thai TTS (2026-07-18)
+
+Three more user-requested changes to the visitor-network side, same session
+as the guided Q&A work above:
+
+- **`ChatProfileSetup.tsx`** (new): the name/avatar picker form extracted
+  out of `VisitorNetwork.tsx` (was a private `ProfileSetup` function there)
+  so it can be reused by a second call site. `VisitorNetwork.css`'s
+  `.visitor-profile-*`/`.visitor-avatar-*` rules moved into a new
+  self-contained `ChatProfileSetup.css` (renamed `.chat-profile-setup-*`) -
+  no shared-class coupling between the two files.
+- **`Layout.tsx`**: gained a `chatProfile` check that, if no profile is
+  saved yet, renders `ChatProfileSetup` full-screen and returns early -
+  nothing else in the authenticated app (nav, `<Outlet/>`, the mascot,
+  everything) renders until it's saved. Per the user's explicit request:
+  this used to only surface once someone happened to open the chat panel,
+  which most visitors never did - now it happens right after login, before
+  the dashboard is reachable at all. `VisitorNetwork.tsx` keeps its own
+  fallback check unchanged as defense-in-depth (e.g. localStorage cleared
+  mid-session).
+- **Enlarged both floating panels** per direct feedback that they read as
+  too small: `.visitor-panel` 320×460 → min(420, ...)×min(620, ...),
+  `.assistant-panel` 340×480 → min(440, ...)×min(640, ...) (both still
+  clamped to the viewport on small screens).
+- **`lib/stickers.ts`** (new): a small catalog of original emoji+Thai-
+  caption stickers (สวัสดี/ขอบคุณ/สู้ๆ/รักนะ/แย่จัง/ฮ่าๆ/ยินดีด้วย/โอเค) -
+  deliberately not a reproduction of any licensed sticker set (the
+  reference image the user shared was LINE's own copyrighted character
+  art, which this project has no rights to redistribute). A sticker message
+  is just a specially-prefixed string (`::sticker::<id>`) sent through the
+  exact same `text` field/WebSocket path as a normal chat message - **no
+  backend/schema change needed at all**, ws_chat.py stores/broadcasts it as
+  opaque text same as always. `ChatBubble` in `VisitorNetwork.tsx` detects
+  the prefix and renders a big emoji + caption instead of raw text;
+  `useChatSocket.ts` gained an optional `onLiveMessage` callback that fires
+  only for messages arriving via a live `message` event (never bulk
+  `history` replay) - VisitorNetwork.tsx uses it to call `speakSticker()`
+  (the browser's free, built-in `speechSynthesis` API, `lang: 'th-TH'`) so
+  a sticker's caption is spoken aloud exactly once, right when it actually
+  arrives, not replayed for every old sticker on every history load/scroll-
+  back. Zero-cost, consistent with this project's no-paid-API rule - quality
+  depends entirely on whatever Thai voice (if any) the visitor's own
+  browser/OS ships, which client-side JS can't control or guarantee.
+- The user also asked (as a question, not a request to build it yet)
+  whether a *cloned* voice based on their own voice sample is something
+  this project could do later - answered directly in chat, not implemented:
+  real voice cloning needs either a paid third-party API (this project's
+  standing zero-cost-API rule blocks that outright) or a self-hosted voice
+  model, which is a much bigger undertaking (real audio samples, training/
+  inference infrastructure, consent handling for cloning a real identifiable
+  person's voice) than anything shipped so far - flagged as a distinct
+  future decision for the user to weigh in on, not started.
+
+**Tested**: `Layout.test.tsx` (new) covers the gate blocking/revealing the
+dashboard and skipping entirely on a repeat visit; `stickers.test.ts` (new)
+covers encode/decode round-tripping and `speakSticker`; `VisitorNetwork.
+test.tsx` gained sticker-send, sticker-render, and history-vs-live-speech
+tests. Full suite 228/228, `tsc` clean. **Live-verified via Playwright**
+(light + dark): confirmed the dashboard is fully absent until the gate's
+form is submitted, then appears with no reload; sent a sticker and
+confirmed both the enlarged panel and the big-emoji-plus-caption rendering
+(not raw `::sticker::` text); confirmed `speakSticker` fires exactly once
+per live-arriving sticker (patched `SpeechSynthesis.prototype.speak` to
+observe it, since the `window.speechSynthesis` accessor itself can't be
+reassigned directly in a real browser - a test-script-only wrinkle, not an
+app bug).
+
 ## Run locally
 
 ```bash

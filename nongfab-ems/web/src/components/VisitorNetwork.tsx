@@ -1,9 +1,10 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { AVATAR_OPTIONS, avatarById, getOrCreateClientId, loadChatProfile, saveChatProfile, type ChatProfile } from '../lib/chatProfile'
+import { avatarById, getOrCreateClientId, loadChatProfile, type ChatProfile } from '../lib/chatProfile'
 import { useSubmitFeedback } from '../lib/queries'
+import { decodeSticker, encodeSticker, speakSticker, STICKER_OPTIONS } from '../lib/stickers'
 import { useChatSocket, type ChatSocketState } from '../lib/useChatSocket'
 import type { ChatMessage } from '../lib/types'
-import { MascotFace } from './MascotFace'
+import { ChatProfileSetup } from './ChatProfileSetup'
 import './VisitorNetwork.css'
 
 type Tab = 'chat' | 'feedback'
@@ -46,7 +47,16 @@ export function VisitorNetwork() {
   // can actually be sent until ProfileSetup is completed - the placeholder
   // name/avatar here are never sent, since the send form only renders once
   // `savedProfile` is non-null.
-  const chat = useChatSocket(savedProfile ?? { clientId: getOrCreateClientId(), displayName: '', avatarId: '' }, isActiveView && savedProfile != null)
+  const chat = useChatSocket(
+    savedProfile ?? { clientId: getOrCreateClientId(), displayName: '', avatarId: '' },
+    isActiveView && savedProfile != null,
+    // Speak a sticker's Thai caption aloud the moment it actually arrives
+    // live (never for replayed history - see useChatSocket.ts's docstring).
+    (message) => {
+      const sticker = decodeSticker(message.text)
+      if (sticker) speakSticker(sticker)
+    },
+  )
   const { onlineCount, unreadCount } = chat
   const titleId = useId()
 
@@ -96,7 +106,7 @@ export function VisitorNetwork() {
             savedProfile && !isEditingProfile ? (
               <ChatTab chat={chat} profile={savedProfile} onEditProfile={() => setIsEditingProfile(true)} />
             ) : (
-              <ProfileSetup
+              <ChatProfileSetup
                 initial={savedProfile}
                 onSaved={(p) => {
                   setSavedProfile(p)
@@ -114,81 +124,18 @@ export function VisitorNetwork() {
   )
 }
 
-function ProfileSetup({
-  initial,
-  onSaved,
-  onCancel,
-}: {
-  initial: ChatProfile | null
-  onSaved: (profile: ChatProfile) => void
-  onCancel?: () => void
-}) {
-  const [name, setName] = useState(initial?.displayName ?? '')
-  const [avatarId, setAvatarId] = useState(initial?.avatarId ?? AVATAR_OPTIONS[0].id)
-
-  return (
-    <form
-      className="visitor-profile-setup"
-      onSubmit={(e) => {
-        e.preventDefault()
-        if (!name.trim()) return
-        onSaved(saveChatProfile(name, avatarId))
-      }}
-    >
-      <div className="visitor-profile-mascot" aria-hidden="true">
-        <MascotFace mood="idle" />
-      </div>
-      <p className="visitor-profile-note">
-        {initial
-          ? 'น้อง Solar: แก้ไขชื่อและ avatar ที่จะแสดงในแชทได้เลยครับ'
-          : 'น้อง Solar: ตั้งชื่อและเลือก avatar ที่จะแสดงในแชท (เหมือน LINE) ก่อนเริ่มคุยกันได้เลยครับ'}
-      </p>
-      <label className="visitor-profile-name-label" htmlFor="visitor-profile-name">
-        ชื่อที่แสดง
-      </label>
-      <input
-        id="visitor-profile-name"
-        type="text"
-        className="visitor-input"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="ชื่อของคุณ"
-        maxLength={30}
-      />
-      <div className="visitor-avatar-grid" role="radiogroup" aria-label="เลือก avatar">
-        {AVATAR_OPTIONS.map((a) => (
-          <button
-            key={a.id}
-            type="button"
-            role="radio"
-            aria-checked={avatarId === a.id}
-            aria-label={`avatar ${a.id}`}
-            className={avatarId === a.id ? 'visitor-avatar-option selected' : 'visitor-avatar-option'}
-            style={{ background: a.color }}
-            onClick={() => setAvatarId(a.id)}
-          >
-            {a.emoji}
-          </button>
-        ))}
-      </div>
-      <button type="submit" className="visitor-send" disabled={!name.trim()}>
-        {initial ? 'บันทึก' : 'เริ่มแชท'}
-      </button>
-      {onCancel && (
-        <button type="button" className="visitor-profile-cancel" onClick={onCancel}>
-          ยกเลิก
-        </button>
-      )}
-    </form>
-  )
-}
-
 function ChatTab({ chat, profile, onEditProfile }: { chat: ChatSocketState; profile: ChatProfile; onEditProfile?: () => void }) {
   const { messages, sendMessage, connected, hasMoreOlder, loadingOlder, loadOlder } = chat
   const [input, setInput] = useState('')
+  const [showStickers, setShowStickers] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const prevScrollHeightRef = useRef(0)
   const wasNearBottomRef = useRef(true)
+
+  function sendSticker(stickerId: string) {
+    sendMessage(encodeSticker(stickerId))
+    setShowStickers(false)
+  }
 
   useEffect(() => {
     const el = listRef.current
@@ -226,6 +173,24 @@ function ChatTab({ chat, profile, onEditProfile }: { chat: ChatSocketState; prof
           ✏️ {profile.displayName}
         </button>
       )}
+      {showStickers && (
+        <div className="visitor-sticker-picker" role="group" aria-label="เลือกสติกเกอร์">
+          {STICKER_OPTIONS.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className="visitor-sticker-option"
+              style={{ background: s.color }}
+              disabled={!connected}
+              onClick={() => sendSticker(s.id)}
+              aria-label={`ส่งสติกเกอร์ ${s.label}`}
+              title={s.label}
+            >
+              {s.emoji}
+            </button>
+          ))}
+        </div>
+      )}
       <form
         className="visitor-input-row"
         onSubmit={(e) => {
@@ -234,6 +199,15 @@ function ChatTab({ chat, profile, onEditProfile }: { chat: ChatSocketState; prof
           setInput('')
         }}
       >
+        <button
+          type="button"
+          className={showStickers ? 'visitor-sticker-toggle active' : 'visitor-sticker-toggle'}
+          onClick={() => setShowStickers((v) => !v)}
+          aria-label={showStickers ? 'ปิดแผงสติกเกอร์' : 'เปิดแผงสติกเกอร์'}
+          aria-pressed={showStickers}
+        >
+          😊
+        </button>
         <input
           type="text"
           className="visitor-input"
@@ -253,6 +227,8 @@ function ChatTab({ chat, profile, onEditProfile }: { chat: ChatSocketState; prof
 
 function ChatBubble({ message, isOwn }: { message: ChatMessage; isOwn: boolean }) {
   const avatar = avatarById(message.avatar)
+  const sticker = decodeSticker(message.text)
+
   return (
     <div className={isOwn ? 'visitor-bubble-row own' : 'visitor-bubble-row'}>
       {!isOwn && (
@@ -260,10 +236,20 @@ function ChatBubble({ message, isOwn }: { message: ChatMessage; isOwn: boolean }
           {avatar.emoji}
         </span>
       )}
-      <div className={isOwn ? 'visitor-bubble visitor-bubble-own' : 'visitor-bubble'}>
-        {!isOwn && <span className="visitor-bubble-author">{message.display_name}</span>}
-        <span className="visitor-bubble-text">{message.text}</span>
-      </div>
+      {sticker ? (
+        <div className="visitor-sticker-bubble" aria-label={`สติกเกอร์: ${sticker.label}`}>
+          {!isOwn && <span className="visitor-bubble-author">{message.display_name}</span>}
+          <span className="visitor-sticker-bubble-emoji" style={{ background: sticker.color }}>
+            {sticker.emoji}
+          </span>
+          <span className="visitor-sticker-bubble-caption">{sticker.label}</span>
+        </div>
+      ) : (
+        <div className={isOwn ? 'visitor-bubble visitor-bubble-own' : 'visitor-bubble'}>
+          {!isOwn && <span className="visitor-bubble-author">{message.display_name}</span>}
+          <span className="visitor-bubble-text">{message.text}</span>
+        </div>
+      )}
     </div>
   )
 }
