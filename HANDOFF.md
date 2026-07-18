@@ -353,6 +353,190 @@ branch `claude/solar-optimization-forecasting-jryux7`)
 
 ---
 
+## 2026-07-18 14:06 ICT
+
+**Track 2 — หน้าตา/Interface + AI assistant + ระบบเชื่อมต่อผู้ชม** (บัญชีนี้ /
+branch `claude/solar-optimization-forecasting-jryux7`)
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+ผู้ใช้ถามตามด้วย 2 คำถาม + 1 คำขอเพิ่มเติมเกี่ยวกับระบบ profile แชทที่เพิ่งทำ
+ไป (entry ก่อนหน้า) - ตอบ+ทำเสร็จแล้ว commit `b03fc06`:
+
+1. **ยืนยัน (ไม่ต้องแก้โค้ด)**: profile (ชื่อ+avatar) เก็บใน localStorage ของ
+   browser ไม่ผูกกับ session login - logout แล้ว login ใหม่ด้วยเครื่อง/
+   browser เดิม ไม่ต้องตั้งใหม่
+2. **เจอ + แก้บั๊กจริง**: ปุ่มแก้ไขโปรไฟล์ (✏️) ที่มีอยู่แล้วเปิดฟอร์มว่างเปล่า
+   ทุกครั้งแทนที่จะเติมชื่อ/avatar ปัจจุบันให้ - แก้ให้ prefill ค่าปัจจุบันแล้ว
+   พร้อมเพิ่มปุ่ม "ยกเลิก" (`ProfileSetup` รับ `initial: ChatProfile | null`
+   ใน `VisitorNetwork.tsx`)
+3. **ทำใหม่**: ผู้ใช้ขอให้ **admin เปลี่ยนชื่อ+avatar ได้เหมือน viewer/
+   operator ด้วย** แต่เวลาแสดงให้คนอื่นเห็นให้ขึ้นคำว่า "admin" นำหน้าชื่อ -
+   ลบ special-case เดิมที่ force admin เป็นชื่อ "admin"+avatar "crown" ตายตัว
+   ออกทั้งหมด (`chatProfile.ts`'s `adminProfile()`/`ADMIN_AVATAR` ลบทิ้ง,
+   `VisitorNetwork.tsx` ไม่เช็ค `role === 'admin'` อีกต่อไป - ทุก role ผ่าน
+   picker เดียวกันหมด) แล้วย้าย logic การ "บังคับ prefix" ไปทำที่ **backend**
+   แทน (`ws_chat.py`): เมื่อ role เป็น admin ระบบจะเติม `"admin "` นำหน้าชื่อที่
+   เลือกไว้เสมอ (`ADMIN_NAME_PREFIX`) ก่อนบันทึก/ส่งต่อ - **client ฝั่งไหนก็
+   เอาออกไม่ได้** เพราะบังคับที่ server ไม่ใช่ UI ส่วน avatar เลือกได้อิสระจาก
+   avatar catalog เดียวกับทุกคน ไม่ force เป็น crown อีกต่อไป
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- ผลลัพธ์ที่ผู้ชมคนอื่นเห็นตอนนี้: admin ตั้งชื่อ "สมชาย" + เลือก avatar
+  "lion" → คนอื่นเห็นเป็น "admin สมชาย" พร้อม avatar สิงโตในแชท (verify จริง
+  ด้วย Playwright แล้ว - ดู screenshot ที่อธิบายไว้ใน commit message)
+- `AVATAR_OPTIONS` (12 แบบ, `web/src/lib/chatProfile.ts`) เป็น catalog เดียว
+  ที่ทุก role เลือกได้ตอนนี้ - ไม่มี avatar สงวนไว้เฉพาะ role ใดแล้ว
+- ข้อความแชทเก่าที่เคยถูกบันทึกด้วย avatar "crown" (จาก entry ก่อนหน้าที่
+  admin ยัง force อยู่) จะ fallback ไป avatar ตัวแรกใน catalog เวลาแสดงผล
+  (`avatarById()` ไม่รู้จัก id "crown" อีกต่อไป) - เป็นแค่เรื่อง cosmetic ของ
+  ข้อความเก่า ไม่กระทบข้อมูลจริงหรือฟังก์ชันอื่น
+- ทดสอบครบ: backend suite เต็ม 139 ตัวผ่าน (รวม test ใหม่ที่ตรวจ prefix
+  บังคับ + client ปลอม prefix ไม่ได้), frontend suite เต็ม 172 ตัวผ่าน `tsc`
+  ผ่าน verify จริงด้วย Playwright (admin + viewer คนละ browser context)
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **งานที่ผู้ใช้ขอไว้ล่าสุดเสร็จครบแล้ว** - รอฟีดแบ็กหรือคำสั่งเพิ่มเติม
+2. **ต้องกด Deploy บน Railway ด้วยตัวเอง** อีกครั้ง (ยังไม่ยืนยันว่ากดแล้ว
+   ตั้งแต่ entry ก่อนหน้าด้วยซ้ำ) - รอบนี้ไม่มี schema เปลี่ยนเพิ่ม (ใช้
+   column เดิมจาก `0006_chat_profile_and_history.sql`) แค่ logic การ prefix
+   เปลี่ยนที่ backend เท่านั้น
+3. ยังไม่มี retention policy สำหรับ `chat_messages` เหมือนที่เตือนไว้ใน entry
+   ก่อนหน้า
+
+## 2026-07-18 14:27 ICT
+
+**Track 2 — หน้าตา/Interface + AI assistant + ระบบเชื่อมต่อผู้ชม** (บัญชีนี้ /
+branch `claude/solar-optimization-forecasting-jryux7`)
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+ผู้ใช้ขอปรับปรุง AI assistant ครั้งใหญ่ - ตั้งชื่อ "น้อง Solar" (เพศชาย) พร้อม
+ฟีเจอร์ใหม่ 2 อย่าง - ทำเสร็จแล้ว commit `ada0b4b`:
+
+1. **ตั้งชื่อ "น้อง Solar" เป็นตัวละครเพศชาย** - เปลี่ยนคำพูดทั้งหมดใน
+   `assistant.ts` จากหญิง (หนู/ค่ะ/คะ) เป็นชาย (ผม/ครับ) ทุกจุด รวมถึง
+   greeting ใน `AssistantPanel.tsx` และหัวข้อ panel ("น้อง Solar - ผู้ช่วย AI")
+2. **Popup ใหญ่หน้า login** (`LoginWelcome.tsx` ใหม่) - เด้งอัตโนมัติทุกครั้งที่
+   มาหน้า login (ไม่ persist ว่าเคยปิดแล้ว) มีน้อง Solar ตัวใหญ่ทักทาย แนะนำ
+   ฟีเจอร์เว็บ 6 อย่างแบบย่อ และบอก credential สำหรับ viewer (`pttlng`/
+   `12345`) ชัดเจน ปิดได้ 3 ทาง (ปุ่ม ×, ปุ่ม CTA, คลิก backdrop)
+3. **น้องไปโผล่หน้าตั้งชื่อ+เลือก avatar ด้วย** (`VisitorNetwork.tsx`'s
+   `ProfileSetup`) - ดึงตัวการ์ตูนมาแสดงเหนือฟอร์ม พร้อมข้อความพูดแทนตัว
+   ("น้อง Solar: ตั้งชื่อและเลือก avatar...ครับ")
+4. **ตัวใหญ่ขึ้น** - ปุ่มลอย mascot จาก 68px → 108px (มือถือ 84px) พร้อมขยับ
+   ตำแหน่ง panel ให้ไม่ทับกัน
+5. **แสดงอารมณ์ได้** - รีแฟกเตอร์ SVG ตัวการ์ตูนออกเป็น component แยก
+   `MascotFace.tsx` (ใช้ร่วมกัน 3 จุด: ปุ่มลอย, login popup, profile setup)
+   รับ prop `mood: 'idle' | 'happy' | 'sad'` เปลี่ยนรูปปาก + เพิ่ม sparkle
+   (happy) หรือหยดน้ำตา (sad) - ตอบคำถามได้จริง = ยิ้มกว้าง, ตอบไม่ได้/fetch
+   พัง = หน้าเศร้า, auto กลับเป็นหน้าปกติหลัง 4 วิ (`AIAssistant.tsx` คุม
+   timer) ฝั่ง logic เพิ่มฟังก์ชันใหม่ `answerQuestionWithMood()` ใน
+   `assistant.ts` ที่ห่อ `answerQuestion()` เดิมไว้ (ไม่กระทบ caller/test เดิม
+   ที่ยังใช้ string return แบบเดิมอยู่)
+6. ทดสอบครบ: frontend suite เต็ม 182 ตัวผ่าน (เพิ่ม test ใหม่หลายจุดรวมถึง
+   เช็ค mood เปลี่ยนจริงจากการอ่าน SVG `d` attribute ของปาก) `tsc` ผ่าน
+   verify จริงด้วย Playwright เห็นทั้ง popup login, mascot ตัวใหญ่บน
+   dashboard, mascot ในฟอร์ม profile, และทั้ง 3 mood (idle/happy/sad) จริง
+   ในเบราว์เซอร์
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- Popup หน้า login ไม่มี persistence (ไม่เก็บ localStorage ว่าเคยปิดแล้ว) -
+  จะเด้งทุกครั้งที่กลับมาหน้า login (เช่นหลัง sign out) ตามที่ผู้ใช้ขอแบบ
+  ตรงตัว - ถ้าฟีดแบ็กมาว่ารำคาญ ค่อยเพิ่ม localStorage flag ทีหลังได้
+- ระหว่าง live-verify เจอเรื่อง screenshot บางจุดถ่ายเร็วเกินไป (ก่อน CSS
+  ของ dev server โหลดเสร็จ) ทำให้ดูเหมือนมี bug ภาพซ้อนกัน - ไม่ใช่ bug จริง
+  แค่ race condition ของสคริปต์ verify เอง (แก้โดยเพิ่ม wait ก่อน screenshot)
+  ไม่กระทบโค้ด production
+- ไม่มีการเปลี่ยน backend เลยในรอบนี้ (ทั้งหมดเป็นฝั่ง `web/` ล้วนๆ) - **ไม่ต้อง
+  กด Railway deploy สำหรับงานรอบนี้** แต่ยังมีงานค้างจาก entry ก่อนๆ ที่อาจ
+  ยังไม่ได้กด (ดู entry ก่อนหน้า)
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **งานที่ผู้ใช้ขอไว้ล่าสุดเสร็จครบแล้ว** - รอฟีดแบ็กหรือคำสั่งเพิ่มเติม
+2. ถ้าผู้ใช้บ่นว่า popup login เด้งบ่อยเกินไป ให้เพิ่ม localStorage flag แบบ
+   "ปิดแล้วไม่เด้งอีกในเซสชันนี้/browser นี้" - ยังไม่ได้ทำไว้ตอนนี้เพราะผู้ใช้
+   ขอแบบเด้งทุกครั้งตรงๆ
+3. Backend ยัง pending การ deploy ค้างจาก entry ก่อนหน้า (schema
+   `0006_chat_profile_and_history.sql` + logic prefix "admin ") - เตือนซ้ำ
+   ไว้เผื่อลืม
+
+## 2026-07-18 14:44 ICT
+
+**Track 2 — หน้าตา/Interface + AI assistant + ระบบเชื่อมต่อผู้ชม** (บัญชีนี้ /
+branch `claude/solar-optimization-forecasting-jryux7`)
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+ผู้ใช้ส่งรูปโลโก้ 5 องค์กรมาให้ (PTT LNG, PE LNG, Electrical Engineering
+Chula, Chula Engineering ACTNOW, Chulalongkorn University) ขอให้ใส่เหนือ
+หน้า login และท้ายเว็บหลัก พร้อม favicon ของเว็บเอง - ทำเสร็จแล้ว commit
+`65b8737`:
+
+1. **ดึงรูปที่ผู้ใช้ส่งมาได้จริง** - รูปที่ส่งมาในแชทไม่ได้ถูกเซฟเป็นไฟล์ใน
+   `/root/.claude/uploads/` เหมือน attachment ทั่วไป (มีแต่ของเก่าตั้งแต่
+   14 ก.ค.) แต่หาเจอว่าถูกเก็บเป็น base64 อยู่ใน JSONL transcript ของ session
+   เอง (`/root/.claude/projects/.../*.jsonl`) - เขียนสคริปต์ python ดึง
+   base64 image blocks ออกมา decode เป็นไฟล์จริง แล้ว verify ด้วยการเปิดดูรูป
+   เทียบกับที่ผู้ใช้ส่งมาทีละรูปจนมั่นใจว่าตรงกัน 100% ก่อนเอาไปใช้ (เผื่อ
+   session ถัดไปเจอสถานการณ์คล้ายกัน - ผู้ใช้ส่งรูปมาแต่หาไฟล์ไม่เจอใน
+   uploads ปกติ ให้ลองเช็ค JSONL transcript แบบนี้)
+2. **ครอปรูปให้เรียบร้อย** - บางรูปมี transparent padding เยอะมาก (เช่น Chula
+   Engineering ACTNOW มี whitespace รอบข้อความเยอะมาก) ใช้ Pillow (`pip
+   install Pillow`) crop ตาม bounding box ของ pixel ที่ไม่ใช่ transparent ก่อน
+   เซฟเป็น PNG ใน `web/public/logos/`
+3. **ออกแบบ favicon + site logo ของเว็บเอง** (ผู้ใช้ถามว่าเคยทำไว้รึยัง - ยัง
+   ไม่เคย เดิม favicon เป็น placeholder ของ Vite scaffold ตั้งแต่วันแรก ไม่เคย
+   เปลี่ยน) - ใช้ตัวการ์ตูนน้อง Solar เองเป็นฐาน (SVG path เดียวกับใน
+   `MascotFace.tsx` เป๊ะๆ เพื่อความสอดคล้องของ brand): `favicon.svg` แบบง่าย
+   ให้อ่านออกแม้ที่ 16x16, และ `site-logo.svg` แบบเต็มรูป (ไอคอน+ตัวหนังสือ
+   "Nong Fab / Solar EMS") สำหรับใช้เป็น "โลโก้ของเว็บเอง" ในแถวโลโก้ ยังแก้
+   `<title>` จาก "web" (default เดิม) เป็น "Nong Fab Solar EMS" ด้วยเลย
+4. **สร้าง `OrgLogos.tsx`** component ใช้ร่วมกัน 2 จุด: หน้า login (เหนือฟอร์ม
+   sign-in, ขนาดใหญ่กว่า) และ footer ท้ายทุกหน้าที่ login แล้ว (เล็กกว่า) -
+   เรียง 6 โลโก้ (site logo ของเว็บเอง + 5 องค์กร) แถวเดียวกันแบบ responsive
+   wrap
+5. **Footer ไม่บังเนื้อหาเว็บเด็ดขาดตามที่ผู้ใช้กำชับ** - เพิ่ม `<footer>`
+   แบบ normal document flow (ไม่ใช้ position:fixed) ต่อท้าย `<main>` ใน
+   `Layout.tsx` ทำให้มีแต่ดันหน้าเว็บให้สูงขึ้น ไม่มีทางไปทับเนื้อหา
+   dashboard หรือปุ่มลอย mascot/แชทที่มุมล่างทั้งสองได้เลย เพิ่ม
+   padding-bottom เยอะพอ (140px) กันไม่ให้แถวโลโก้ไปชนปุ่มลอยพอดีด้วย
+6. **แก้ contrast bug ที่เจอจาก live verify**: ตัวหนังสือ "Nong Fab" ใน
+   site-logo.svg (สีเข้ม #1f2430) อ่านไม่ออกเลยตอน dark mode - แก้โดยใส่
+   `<style>@media (prefers-color-scheme: dark)` ไว้ข้างในไฟล์ SVG เอง (SVG
+   ที่โหลดผ่าน `<img>` ยัง evaluate media query ของตัวเองตาม OS/browser
+   preference ได้ปกติ)
+7. ทดสอบครบ: frontend suite เต็ม 184 ตัวผ่าน (เพิ่ม `OrgLogos.test.tsx`)
+   `tsc` ผ่าน verify จริงด้วย Playwright ทั้ง light/dark mode ทั้งหน้า login
+   และ footer เห็นโลโก้ครบ 6 อัน ไม่มีการซ้อนทับกับปุ่มลอยเลย
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- **เทคนิคใหม่ที่ได้เรียนรู้**: เวลาผู้ใช้ส่งรูปมาในแชทแต่หาไฟล์ไม่เจอใน
+  `/root/.claude/uploads/<session-id>/` (ซึ่งมักมีแต่ไฟล์เก่าจาก context
+  ตอนต้น session) ให้ลองดึงจาก JSONL transcript ของ session ที่
+  `/root/.claude/projects/-home-user-solarnwpmos/<session-id>.jsonl` แทน -
+  รูปที่ส่งมาใหม่ล่าสุดจะอยู่เป็น `image` content block พร้อม
+  `source.data` เป็น base64 ในนั้น
+- ไฟล์โลโก้ทั้งหมดอยู่ที่ `web/public/logos/` (ptt-lng.png, pe-lng.png,
+  ee-chula.png, chula-engineering.png, chula-university.png, site-logo.svg)
+  - เสิร์ฟตรงจาก Vite public folder ไม่ต้อง import
+- ยังไม่ได้ทำระบบ favicon หลายขนาด (apple-touch-icon, PNG fallback สำหรับ
+  browser เก่าที่ไม่รองรับ SVG favicon) - ใช้แค่ SVG เดียวตามที่ scaffold
+  เดิมตั้งไว้แล้ว (เพียงพอสำหรับ browser สมัยใหม่ทั้งหมด)
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **งานที่ผู้ใช้ขอไว้ล่าสุดเสร็จครบแล้ว** - รอฟีดแบ็กหรือคำสั่งเพิ่มเติม
+2. รอบนี้ไม่แตะ backend เลย - **ไม่ต้อง** กด Railway deploy สำหรับงานรอบนี้
+   แต่ยังมีงานค้างจาก entry ก่อนๆ ที่อาจยังไม่ได้กด (ดู entry ก่อนหน้า)
+
+---
+
 ## 2026-07-18 14:46 ICT
 
 ### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)

@@ -109,15 +109,35 @@ def test_ws_chat_falls_back_to_username_when_no_display_name_given(app, token_fa
     assert message["avatar"] is None
 
 
-def test_ws_chat_forces_the_admin_identity_regardless_of_client_input(app, token_factory):
+def test_ws_chat_prefixes_the_admin_display_name_but_keeps_their_chosen_avatar(app, token_factory):
     token = token_factory("admin", username="boss")
     with TestClient(app) as client, client.websocket_connect(f"/ws/chat?token={token}") as ws:
         ws.receive_json()  # history
         ws.receive_json()  # presence
-        ws.send_json({"text": "hi", "display_name": "not admin", "avatar": "cat"})
+        ws.send_json({"text": "hi", "display_name": "สมชาย", "avatar": "cat"})
         message = ws.receive_json()
-    assert message["display_name"] == "admin"
-    assert message["avatar"] == "crown"
+    assert message["display_name"] == "admin สมชาย"
+    assert message["avatar"] == "cat"  # not forced - admin can pick like everyone else
+
+
+def test_ws_chat_admin_prefix_cannot_be_stripped_by_the_client(app, token_factory):
+    token = token_factory("admin", username="boss")
+    with TestClient(app) as client, client.websocket_connect(f"/ws/chat?token={token}") as ws:
+        ws.receive_json()  # history
+        ws.receive_json()  # presence
+        ws.send_json({"text": "hi", "display_name": "not prefixed"})
+        message = ws.receive_json()
+    assert message["display_name"] == "admin not prefixed"
+
+
+def test_ws_chat_falls_back_to_prefixed_username_when_admin_gives_no_display_name(app, token_factory):
+    token = token_factory("admin", username="boss")
+    with TestClient(app) as client, client.websocket_connect(f"/ws/chat?token={token}") as ws:
+        ws.receive_json()  # history
+        ws.receive_json()  # presence
+        ws.send_json({"text": "hi"})
+        message = ws.receive_json()
+    assert message["display_name"] == "admin boss"
 
 
 def test_get_chat_history_pages_older_messages(app, token_factory):

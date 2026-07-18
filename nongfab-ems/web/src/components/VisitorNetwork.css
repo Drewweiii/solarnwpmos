@@ -209,6 +209,12 @@
   overflow-y: auto;
 }
 
+.visitor-profile-mascot {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 2px;
+}
+
 .visitor-profile-note {
   margin: 0 0 4px;
   font-size: 12px;
@@ -243,6 +249,16 @@
 
 .visitor-avatar-option.selected {
   border-color: var(--text-h);
+}
+
+.visitor-profile-cancel {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  cursor: pointer;
 }
 
 .visitor-edit-profile {

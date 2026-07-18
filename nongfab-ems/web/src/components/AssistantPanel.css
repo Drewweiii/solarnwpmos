@@ -1,7 +1,7 @@
 .assistant-panel {
   position: fixed;
   right: 20px;
-  bottom: 100px;
+  bottom: 140px;
   z-index: 41;
   width: min(340px, calc(100vw - 40px));
   max-height: min(480px, calc(100vh - 140px));
@@ -165,6 +165,6 @@
 @media (max-width: 480px) {
   .assistant-panel {
     right: 12px;
-    bottom: 92px;
+    bottom: 112px;
   }
 }

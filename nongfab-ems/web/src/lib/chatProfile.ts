@@ -5,6 +5,12 @@
  * name + avatar picked once per browser (LINE-style) is what actually tells
  * them apart in chat, not the account they logged in with.
  *
+ * Admin uses this exact same picker/profile flow (no special case here) -
+ * the only admin-specific behavior is server-side: ws_chat.py always
+ * prepends "admin " to whatever name an admin account picks before
+ * broadcasting it, so other visitors can still tell an admin message apart
+ * at a glance.
+ *
  * Nothing here is sent to any third party or costs anything - it's just
  * localStorage plus a small bundled emoji catalog.
  */
@@ -33,16 +39,9 @@ export const AVATAR_OPTIONS: AvatarOption[] = [
   { id: 'star', emoji: '⭐', color: '#FACC15' },
 ]
 
-// Reserved for the admin role - deliberately NOT in AVATAR_OPTIONS (never
-// offered in the viewer/operator picker grid) since the user asked that
-// admin skip picking anything and always just look like this.
-export const ADMIN_AVATAR: AvatarOption = { id: 'crown', emoji: '👑', color: '#D4AF37' }
-export const ADMIN_DISPLAY_NAME = 'admin'
-
 const DEFAULT_AVATAR = AVATAR_OPTIONS[0]
 
 export function avatarById(id: string | null | undefined): AvatarOption {
-  if (id === ADMIN_AVATAR.id) return ADMIN_AVATAR
   return AVATAR_OPTIONS.find((a) => a.id === id) ?? DEFAULT_AVATAR
 }
 
@@ -86,9 +85,4 @@ export function saveChatProfile(displayName: string, avatarId: string): ChatProf
   const trimmed = displayName.trim().slice(0, MAX_DISPLAY_NAME_LENGTH)
   localStorage.setItem(PROFILE_KEY, JSON.stringify({ displayName: trimmed, avatarId }))
   return { clientId: getOrCreateClientId(), displayName: trimmed, avatarId }
-}
-
-/** admin never goes through the picker - see the module docstring. */
-export function adminProfile(): ChatProfile {
-  return { clientId: getOrCreateClientId(), displayName: ADMIN_DISPLAY_NAME, avatarId: ADMIN_AVATAR.id }
 }

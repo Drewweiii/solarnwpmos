@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { answerQuestion, ASSISTANT_FALLBACK_MESSAGE } from '../assistant'
+import { answerQuestion, answerQuestionWithMood, ASSISTANT_FALLBACK_MESSAGE } from '../assistant'
 import * as api from '../api'
 import type { AssetRegistry, ForecastResponse, PerformanceResponse, WeatherStripResponse } from '../types'
 
@@ -116,5 +116,35 @@ describe('answerQuestion', () => {
     vi.spyOn(api, 'getPerformance').mockRejectedValue(new Error('network down'))
     const answer = await answerQuestion('ตอนนี้กำลังไฟเท่าไหร่', ctx)
     expect(answer).toMatch(/ดึงข้อมูลไม่สำเร็จ/)
+  })
+
+  it('speaks as a male character (ผม/ครับ), never the female หนู/ค่ะ/คะ', async () => {
+    const answer = await answerQuestion('kWp คือ อะไร', ctx)
+    expect(answer).not.toMatch(/หนู|ค่ะ|คะ/)
+  })
+})
+
+describe('answerQuestionWithMood', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('reports mood "happy" for a real matched answer', async () => {
+    const result = await answerQuestionWithMood('kWp คือ อะไร', ctx)
+    expect(result.mood).toBe('happy')
+    expect(result.text).toMatch(/กิโลวัตต์พีค/)
+  })
+
+  it('reports mood "sad" when nothing matches', async () => {
+    const result = await answerQuestionWithMood('อยากรู้เรื่องดวงจันทร์', ctx)
+    expect(result.mood).toBe('sad')
+    expect(result.text).toBe(ASSISTANT_FALLBACK_MESSAGE)
+  })
+
+  it('reports mood "sad" when the matched intent fetch throws', async () => {
+    vi.spyOn(api, 'getPerformance').mockRejectedValue(new Error('network down'))
+    const result = await answerQuestionWithMood('ตอนนี้กำลังไฟเท่าไหร่', ctx)
+    expect(result.mood).toBe('sad')
+    expect(result.text).toMatch(/ดึงข้อมูลไม่สำเร็จ/)
   })
 })

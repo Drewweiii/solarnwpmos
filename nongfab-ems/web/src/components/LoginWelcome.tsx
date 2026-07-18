@@ -1,0 +1,64 @@
+import { useState } from 'react'
+import { MascotFace } from './MascotFace'
+import './LoginWelcome.css'
+
+const FEATURES = [
+  'Forecast — กราฟพยากรณ์การผลิตไฟ เทียบกับของจริง',
+  'Simulation — ทดลองสถานการณ์สมมติ เช่น เมฆเยอะขึ้น หรือแผงเสื่อมสภาพ',
+  'Financial — วิเคราะห์ความคุ้มค่าการลงทุน (NPV/IRR/คืนทุน)',
+  '3D View — โรงงานจำลอง 3 มิติ พร้อมเงาและเส้นทางดวงอาทิตย์',
+  'Energy Report — รายงานสรุปพลังงานรายปี/รายเดือน',
+  'Irradiance Map — แผนที่ความเข้มแสงอาทิตย์ในพื้นที่',
+]
+
+/** A big popup on the login screen - "น้อง Solar" greets a first-time (or
+ * just-signed-out) visitor, gives a quick tour of what the site does, and
+ * hands out the public viewer login (pttlng/12345) so someone without an
+ * operator/admin account can still get in. Shows every time this component
+ * mounts (i.e. every time someone lands back on the login screen) rather
+ * than persisting a "seen it" flag - it's short enough not to be annoying,
+ * and doubles as a standing reminder of the viewer credentials.
+ */
+export function LoginWelcome() {
+  const [isOpen, setIsOpen] = useState(true)
+  if (!isOpen) return null
+
+  return (
+    <div className="login-welcome-backdrop" onClick={() => setIsOpen(false)}>
+      <div
+        className="login-welcome-card"
+        role="dialog"
+        aria-label="แนะนำเว็บไซต์โดยน้อง Solar"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button type="button" className="login-welcome-close" onClick={() => setIsOpen(false)} aria-label="ปิดหน้าต่างแนะนำ">
+          ×
+        </button>
+
+        <div className="login-welcome-mascot">
+          <MascotFace mood="happy" />
+        </div>
+
+        <h2 className="login-welcome-title">สวัสดีครับ! ผมชื่อ "น้อง Solar" 👋</h2>
+        <p className="login-welcome-text">
+          ผมเป็นผู้ช่วย AI ประจำเว็บ Nong Fab Solar EMS ครับ เว็บนี้ใช้ติดตามและพยากรณ์การผลิตไฟฟ้าจากโซลาร์เซลล์ มีฟีเจอร์หลักๆ ดังนี้ครับ:
+        </p>
+        <ul className="login-welcome-features">
+          {FEATURES.map((f) => (
+            <li key={f}>{f}</li>
+          ))}
+        </ul>
+        <p className="login-welcome-text">แถมยังมีระบบแชทคุยกับผู้ชมคนอื่น และส่งข้อความถึงแอดมินได้อีกด้วยครับ</p>
+
+        <p className="login-welcome-credentials">
+          ถ้าคุณเป็นผู้ชมทั่วไป (ไม่ใช่ operator หรือ admin) ใช้ <strong>username: pttlng</strong> และ <strong>password: 12345</strong>{' '}
+          เข้าระบบได้เลยครับ!
+        </p>
+
+        <button type="button" className="login-welcome-cta" onClick={() => setIsOpen(false)}>
+          เข้าใจแล้ว เริ่มใช้งานเลย
+        </button>
+      </div>
+    </div>
+  )
+}

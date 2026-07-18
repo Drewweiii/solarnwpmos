@@ -2,6 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { useDeployWatch } from '../lib/deployWatch'
 import { AIAssistant } from './AIAssistant'
+import { OrgLogos } from './OrgLogos'
 import { VisitorNetwork } from './VisitorNetwork'
 
 export function Layout() {
@@ -51,6 +52,9 @@ export function Layout() {
       <main className="app-main">
         <Outlet />
       </main>
+      <footer className="app-footer">
+        <OrgLogos variant="footer" />
+      </footer>
       <AIAssistant />
       <VisitorNetwork />
     </div>
