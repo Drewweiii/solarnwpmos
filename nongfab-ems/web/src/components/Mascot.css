@@ -1,0 +1,94 @@
+.mascot-button {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 40;
+  width: 68px;
+  height: 68px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 50%;
+}
+
+.mascot-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.mascot-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transition: transform 0.15s ease;
+}
+
+.mascot-button:hover .mascot-svg {
+  transform: scale(1.06);
+}
+
+.mascot-button:active .mascot-svg {
+  transform: scale(0.96);
+}
+
+/* Slow, gentle side-to-side "looking around" - kept subtle on purpose so it
+ * reads as alive without being distracting while someone's trying to read
+ * the dashboard next to it. */
+.mascot-rotate {
+  transform-origin: 60px 66px;
+  animation: mascot-look 7s ease-in-out infinite;
+}
+
+@keyframes mascot-look {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  20% {
+    transform: rotate(-9deg);
+  }
+  50% {
+    transform: rotate(0deg);
+  }
+  70% {
+    transform: rotate(9deg);
+  }
+}
+
+.mascot-glow {
+  animation: mascot-pulse 3.2s ease-in-out infinite;
+  transform-origin: 60px 60px;
+}
+
+@keyframes mascot-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.94);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+.mascot-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--danger);
+  border: 2px solid var(--bg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mascot-rotate,
+  .mascot-glow,
+  .mascot-svg {
+    animation: none;
+    transition: none;
+  }
+}
