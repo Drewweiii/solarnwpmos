@@ -18,7 +18,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from nongfab_forecast.local_store import RealDataStore
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy import inspect, text
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
 from . import (
     ingestion_scheduler,
@@ -45,6 +46,33 @@ from .ws_chat import ChatStore, ConnectionManager
 logger = logging.getLogger(__name__)
 
 
+async def _ensure_recipient_client_id_column(conn: AsyncConnection) -> None:
+    """`Base.metadata.create_all` (below) only creates brand-new tables - it
+    never alters one that already exists, so a `chat_messages` table
+    created before `recipient_client_id` was added to the model (2026-07-18's
+    private-messaging rework) never picks up the new column just from a
+    redeploy. This was meant to be a one-off manual `psql` migration (see
+    db/migrations/0007_chat_direct_messages.sql), but discovered live the
+    same day that this deployment's `API_TIMESCALE_DSN` is a plain SQLite
+    file on a Railway volume, not Postgres - Railway has no SQL console for
+    that the way it does for its own Postgres plugin, so "run this SQL by
+    hand" had no actual UI to do it in. Patching it in automatically here
+    instead removes the manual step entirely. Uses SQLAlchemy's
+    dialect-agnostic inspector (not raw `PRAGMA`/`information_schema`), so
+    this keeps working unchanged if a deployment ever does move to Postgres.
+    """
+
+    def _needs_column(sync_conn) -> bool:
+        insp = inspect(sync_conn)
+        if "chat_messages" not in insp.get_table_names():
+            return False  # brand new - create_all above already made it with every current column
+        return "recipient_client_id" not in {c["name"] for c in insp.get_columns("chat_messages")}
+
+    if await conn.run_sync(_needs_column):
+        await conn.execute(text("ALTER TABLE chat_messages ADD COLUMN recipient_client_id TEXT"))
+        logger.info("startup schema patch: added chat_messages.recipient_client_id")
+
+
 def create_app(settings: Settings | None = None, engine: AsyncEngine | None = None) -> FastAPI:
     """`engine`, if given, is used as-is and never disposed by this app's
     lifespan (the caller owns it - e.g. a test fixture's in-memory sqlite
@@ -60,6 +88,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
         if settings.create_tables_on_startup:
             async with eng.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
+                await _ensure_recipient_client_id_column(conn)
         user_store = UserStore(eng)
         if settings.seed_demo_users:
             await user_store.seed_demo_users()

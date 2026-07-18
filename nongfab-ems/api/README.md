@@ -764,22 +764,25 @@ layer itself.
 
 ### Rewritten - `/ws/chat` is private 1:1 messaging, not a public broadcast room (2026-07-18)
 
-⚠ **Needs a manual DB migration on Railway's production Postgres, in
-addition to the usual manual "Deploy" click** (see root `README.md`'s
-"Deployment notes" - Railway has no working auto-deploy). `create_tables_
-on_startup`/`Base.metadata.create_all` only creates tables that don't exist
-yet; it never adds a column to an already-existing table. `chat_messages`
-already exists in production (from `0005`/`0006`), so the new
-`recipient_client_id` column will silently be missing unless someone runs:
+**Correction, same day**: this originally said a manual `psql` migration
+against Railway's Postgres was required. That was wrong - checking
+production's actual `API_TIMESCALE_DSN` variable live (2026-07-18) found
+it's `sqlite+aiosqlite:////data/app.db`, a plain SQLite file on a Railway
+volume, **not Postgres at all** (the Postgres service in the Railway
+project is provisioned but unused/orphaned - `chat_messages` doesn't exist
+there, which is why running the migration SQL against it failed with
+`relation "chat_messages" does not exist"`). Railway gives no SQL console
+for a plain volume file the way it does for its own Postgres plugin, so
+"run this by hand" had nowhere to actually run it.
 
-```
-psql "$TIMESCALE_DSN" -f db/migrations/0007_chat_direct_messages.sql
-```
-
-against the real Railway Postgres before (or right after) clicking Deploy.
-Skipping this doesn't crash the API - SQLAlchemy will just fail to insert/
-read the new column, so private messages would silently break in
-production while every test and local run stayed green.
+Fixed properly instead: `main.py`'s `_ensure_recipient_client_id_column()`
+runs right after `Base.metadata.create_all` on every startup (still gated
+by `create_tables_on_startup`) and patches the column in via SQLAlchemy's
+dialect-agnostic inspector if a `chat_messages` table already exists
+without it - no manual DB step needed at all, just the usual manual
+Railway "Deploy" click after this pushes (see root `README.md`'s
+"Deployment notes" - Railway's auto-deploy still doesn't trigger on its
+own). Works unchanged if a deployment ever does move to real Postgres.
 
 The user reported the previous `/ws/chat` (site-wide single room + a
 public message broadcast to everyone connected) as a real privacy bug -

@@ -74,16 +74,20 @@ Deployment notes:
   ABI-inconsistent numpy that crashed at import on first deploy (caught by
   the Railway runtime logs, fixed and re-verified by reproducing the exact
   install in a throwaway venv and importing `nongfab_api.main`).
-- **(2026-07-18) `/ws/chat`'s private-messaging rework needs a manual DB
-  migration on Railway's production Postgres, on top of the manual
-  "Deploy" click above** - `Base.metadata.create_all` only creates
-  brand-new tables, never adds a column to one that already exists, and
-  `chat_messages` already exists in production. Someone has to run
-  `psql "$TIMESCALE_DSN" -f db/migrations/0007_chat_direct_messages.sql`
-  against the real Railway Postgres, or private chat messages will
-  silently fail to persist their `recipient_client_id` in production even
-  though every test and local run is green - see `api/README.md`'s
-  matching dated entry for the full story.
+- **(2026-07-18, corrected same day) `/ws/chat`'s private-messaging rework
+  needed a schema patch for the same reason the bullet above already
+  documents - production really is SQLite (`API_TIMESCALE_DSN =
+  sqlite+aiosqlite:////data/app.db` on a Railway volume, confirmed live by
+  reading the actual Railway variable), not Postgres. An earlier version of
+  this note said to run a manual `psql` migration against Railway's
+  Postgres service - wrong: that Postgres service exists in the project
+  but nothing is actually connected to it (`chat_messages` doesn't exist
+  there at all). Fixed properly instead - `main.py` now patches the
+  missing `recipient_client_id` column into `chat_messages` automatically
+  on startup (dialect-agnostic, so this also works if a deployment ever
+  does move to real Postgres) - no manual DB step needed, just the usual
+  manual Railway "Deploy" click above. See `api/README.md`'s matching
+  dated entry for the full story.
 - End-to-end verified through the live public URLs (frontend serves, the
   deployed bundle points at the Railway API, login returns a real JWT with
   correct CORS for the Cloudflare origin, every read route 200s, RBAC
