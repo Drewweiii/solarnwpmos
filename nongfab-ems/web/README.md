@@ -1917,6 +1917,39 @@ the mobile horizontal-overflow bug fixed just above in this same entry.
 schemes (screenshots) and confirmed `display: none` actually applies at
 900px width (below the breakpoint).
 
+### Added - a voice for น้อง Solar (2026-07-18)
+
+The user asked to give the AI assistant a voice, and after presenting
+options (via `AskUserQuestion` - dynamic TTS of every real reply vs. only
+pre-scripted phrases; auto-speak vs. a manual button) picked: **speak
+every dynamic reply, triggered by a per-message button** (not auto-play).
+
+- **`lib/tts.ts`** (new): extracted `speakText(text)` - the same
+  zero-cost, no-API-key `window.speechSynthesis` mechanism the sticker
+  system already used, now shared. Calls `synth.cancel()` before every
+  `synth.speak()` so rapid repeated clicks can never queue up a stacking
+  backlog of utterances - same no-stack principle as this session's other
+  rapid-click fixes (`useMascotReaction.ts`, the AssistantPanel category
+  menu above). `stickers.ts`'s `speakSticker()` now just calls this.
+- **`AssistantPanel.tsx`**: every assistant reply (not the visitor's own
+  echoed messages) gets a small 🔊 button under its bubble
+  (`aria-label="ฟังเสียงข้อความนี้"`) that speaks that exact reply text
+  aloud on click.
+
+Quality depends entirely on whichever Thai system voice (if any) the
+visitor's own browser/OS ships - same honest caveat as the existing
+sticker TTS, since there's no way to guarantee a specific voice from
+client-side JS without a paid TTS API (out of scope per this project's
+zero-cost rule).
+
+**Tested**: `tts.test.ts` (new) covers speaking, the cancel-before-speak
+no-stack behavior, and the no-`speechSynthesis` no-op case.
+`AIAssistant.test.tsx` gained tests for the button appearing on every
+assistant reply (not the user's own), and that clicking it calls
+`speechSynthesis.speak` with `lang: "th-TH"`. Full suite 295/295, `tsc`
+clean. **Live-verified via Playwright**: opened the assistant panel and
+confirmed the 🔊 button renders under the greeting bubble.
+
 ## Run locally
 
 ```bash

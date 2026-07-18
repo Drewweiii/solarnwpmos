@@ -9,6 +9,7 @@ import {
 import { findCategoryById, findGroupById, groupsForRole } from '../lib/assistantTopics'
 import { useAuth } from '../lib/auth'
 import { MASCOT_INTERACTIONS, type MascotInteraction } from '../lib/mascotInteractions'
+import { speakText } from '../lib/tts'
 import './AssistantPanel.css'
 
 interface ChatMessage {
@@ -252,6 +253,17 @@ export function AssistantPanel({ isOpen, onClose, onAnswered, onInteract }: Assi
                 </span>
               ))}
             </div>
+            {m.role === 'assistant' && (
+              <button
+                type="button"
+                className="assistant-speak-button"
+                onClick={() => speakText(m.text)}
+                aria-label="ฟังเสียงข้อความนี้"
+                title="ฟังเสียง"
+              >
+                🔊
+              </button>
+            )}
             {m.id === lastMessageId && m.options && m.options.length > 0 && !isThinking && (
               <div className="assistant-quick-replies">
                 {m.options.map((opt, i) => (

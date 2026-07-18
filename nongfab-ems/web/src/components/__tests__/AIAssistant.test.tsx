@@ -36,6 +36,17 @@ describe('AIAssistant', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.restoreAllMocks()
+    vi.stubGlobal('speechSynthesis', { speak: vi.fn(), cancel: vi.fn() })
+    vi.stubGlobal(
+      'SpeechSynthesisUtterance',
+      class {
+        text: string
+        lang = ''
+        constructor(text: string) {
+          this.text = text
+        }
+      },
+    )
   })
 
   it('starts closed - only the mascot button is visible, no chat panel', () => {
@@ -120,6 +131,36 @@ describe('AIAssistant', () => {
     await user.type(input, 'อยากรู้เรื่องดวงจันทร์')
     await user.click(screen.getByRole('button', { name: 'ส่ง' }))
     await waitFor(() => expect(mouth()).not.toBe(happyMouth))
+  })
+
+  describe('เสียงพูดของน้อง Solar (voice replies, added 2026-07-18)', () => {
+    it('shows a 🔊 button on every assistant reply and speaks it aloud when clicked', async () => {
+      const user = userEvent.setup()
+      renderAssistant()
+      await user.click(screen.getByRole('button', { name: /เปิดผู้ช่วย AI/i }))
+
+      const speakButtons = await screen.findAllByRole('button', { name: 'ฟังเสียงข้อความนี้' })
+      expect(speakButtons.length).toBeGreaterThan(0) // the greeting itself is an assistant message
+
+      await user.click(speakButtons[0])
+      expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1)
+      const utterance = (window.speechSynthesis.speak as ReturnType<typeof vi.fn>).mock.calls[0][0] as SpeechSynthesisUtterance
+      expect(utterance.lang).toBe('th-TH')
+    })
+
+    it('does not show a speak button on the user\'s own echoed message', async () => {
+      const user = userEvent.setup()
+      renderAssistant()
+      await user.click(screen.getByRole('button', { name: /เปิดผู้ช่วย AI/i }))
+
+      const input = await screen.findByLabelText('พิมพ์คำถามถึงผู้ช่วย AI')
+      await user.type(input, 'kWp คือ อะไร')
+      await user.click(screen.getByRole('button', { name: 'ส่ง' }))
+      await waitFor(() => expect(screen.getByText(/กิโลวัตต์พีค/)).toBeInTheDocument())
+
+      const userBubble = screen.getByText('kWp คือ อะไร').closest('div')
+      expect(userBubble?.parentElement?.querySelector('.assistant-speak-button')).toBeNull()
+    })
   })
 
   describe('การนำทางหมวดคำถาม (category navigation, fixed 2026-07-18)', () => {

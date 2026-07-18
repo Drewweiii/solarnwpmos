@@ -151,6 +151,24 @@
   font-style: italic;
 }
 
+.assistant-speak-button {
+  align-self: flex-start;
+  margin: 2px 0 0;
+  padding: 2px 6px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.6;
+  border-radius: 6px;
+}
+
+.assistant-speak-button:hover {
+  opacity: 1;
+  background: var(--accent-bg);
+}
+
 .assistant-quick-replies {
   display: flex;
   flex-wrap: wrap;

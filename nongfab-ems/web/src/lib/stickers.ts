@@ -15,6 +15,8 @@
  * that back into a renderable sticker on the receiving end.
  */
 
+import { speakText } from './tts'
+
 export interface StickerOption {
   id: string
   emoji: string
@@ -45,15 +47,7 @@ export function decodeSticker(text: string): StickerOption | null {
   return STICKER_OPTIONS.find((s) => s.id === id) ?? null
 }
 
-/** Speaks a sticker's Thai caption aloud via the browser's built-in
- * speechSynthesis - a no-op (not an error) on a browser/environment where
- * it isn't available (e.g. the jsdom test environment, or a browser with no
- * Thai voice installed at all). */
+/** Speaks a sticker's Thai caption aloud - see lib/tts.ts's speakText(). */
 export function speakSticker(sticker: StickerOption): void {
-  if (typeof window === 'undefined') return
-  const synth = window.speechSynthesis
-  if (!synth) return
-  const utterance = new SpeechSynthesisUtterance(sticker.label)
-  utterance.lang = 'th-TH'
-  synth.speak(utterance)
+  speakText(sticker.label)
 }
