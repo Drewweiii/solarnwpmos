@@ -403,3 +403,62 @@ branch `claude/solar-optimization-forecasting-jryux7`)
    เปลี่ยนที่ backend เท่านั้น
 3. ยังไม่มี retention policy สำหรับ `chat_messages` เหมือนที่เตือนไว้ใน entry
    ก่อนหน้า
+
+## 2026-07-18 14:27 ICT
+
+**Track 2 — หน้าตา/Interface + AI assistant + ระบบเชื่อมต่อผู้ชม** (บัญชีนี้ /
+branch `claude/solar-optimization-forecasting-jryux7`)
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+ผู้ใช้ขอปรับปรุง AI assistant ครั้งใหญ่ - ตั้งชื่อ "น้อง Solar" (เพศชาย) พร้อม
+ฟีเจอร์ใหม่ 2 อย่าง - ทำเสร็จแล้ว commit `ada0b4b`:
+
+1. **ตั้งชื่อ "น้อง Solar" เป็นตัวละครเพศชาย** - เปลี่ยนคำพูดทั้งหมดใน
+   `assistant.ts` จากหญิง (หนู/ค่ะ/คะ) เป็นชาย (ผม/ครับ) ทุกจุด รวมถึง
+   greeting ใน `AssistantPanel.tsx` และหัวข้อ panel ("น้อง Solar - ผู้ช่วย AI")
+2. **Popup ใหญ่หน้า login** (`LoginWelcome.tsx` ใหม่) - เด้งอัตโนมัติทุกครั้งที่
+   มาหน้า login (ไม่ persist ว่าเคยปิดแล้ว) มีน้อง Solar ตัวใหญ่ทักทาย แนะนำ
+   ฟีเจอร์เว็บ 6 อย่างแบบย่อ และบอก credential สำหรับ viewer (`pttlng`/
+   `12345`) ชัดเจน ปิดได้ 3 ทาง (ปุ่ม ×, ปุ่ม CTA, คลิก backdrop)
+3. **น้องไปโผล่หน้าตั้งชื่อ+เลือก avatar ด้วย** (`VisitorNetwork.tsx`'s
+   `ProfileSetup`) - ดึงตัวการ์ตูนมาแสดงเหนือฟอร์ม พร้อมข้อความพูดแทนตัว
+   ("น้อง Solar: ตั้งชื่อและเลือก avatar...ครับ")
+4. **ตัวใหญ่ขึ้น** - ปุ่มลอย mascot จาก 68px → 108px (มือถือ 84px) พร้อมขยับ
+   ตำแหน่ง panel ให้ไม่ทับกัน
+5. **แสดงอารมณ์ได้** - รีแฟกเตอร์ SVG ตัวการ์ตูนออกเป็น component แยก
+   `MascotFace.tsx` (ใช้ร่วมกัน 3 จุด: ปุ่มลอย, login popup, profile setup)
+   รับ prop `mood: 'idle' | 'happy' | 'sad'` เปลี่ยนรูปปาก + เพิ่ม sparkle
+   (happy) หรือหยดน้ำตา (sad) - ตอบคำถามได้จริง = ยิ้มกว้าง, ตอบไม่ได้/fetch
+   พัง = หน้าเศร้า, auto กลับเป็นหน้าปกติหลัง 4 วิ (`AIAssistant.tsx` คุม
+   timer) ฝั่ง logic เพิ่มฟังก์ชันใหม่ `answerQuestionWithMood()` ใน
+   `assistant.ts` ที่ห่อ `answerQuestion()` เดิมไว้ (ไม่กระทบ caller/test เดิม
+   ที่ยังใช้ string return แบบเดิมอยู่)
+6. ทดสอบครบ: frontend suite เต็ม 182 ตัวผ่าน (เพิ่ม test ใหม่หลายจุดรวมถึง
+   เช็ค mood เปลี่ยนจริงจากการอ่าน SVG `d` attribute ของปาก) `tsc` ผ่าน
+   verify จริงด้วย Playwright เห็นทั้ง popup login, mascot ตัวใหญ่บน
+   dashboard, mascot ในฟอร์ม profile, และทั้ง 3 mood (idle/happy/sad) จริง
+   ในเบราว์เซอร์
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- Popup หน้า login ไม่มี persistence (ไม่เก็บ localStorage ว่าเคยปิดแล้ว) -
+  จะเด้งทุกครั้งที่กลับมาหน้า login (เช่นหลัง sign out) ตามที่ผู้ใช้ขอแบบ
+  ตรงตัว - ถ้าฟีดแบ็กมาว่ารำคาญ ค่อยเพิ่ม localStorage flag ทีหลังได้
+- ระหว่าง live-verify เจอเรื่อง screenshot บางจุดถ่ายเร็วเกินไป (ก่อน CSS
+  ของ dev server โหลดเสร็จ) ทำให้ดูเหมือนมี bug ภาพซ้อนกัน - ไม่ใช่ bug จริง
+  แค่ race condition ของสคริปต์ verify เอง (แก้โดยเพิ่ม wait ก่อน screenshot)
+  ไม่กระทบโค้ด production
+- ไม่มีการเปลี่ยน backend เลยในรอบนี้ (ทั้งหมดเป็นฝั่ง `web/` ล้วนๆ) - **ไม่ต้อง
+  กด Railway deploy สำหรับงานรอบนี้** แต่ยังมีงานค้างจาก entry ก่อนๆ ที่อาจ
+  ยังไม่ได้กด (ดู entry ก่อนหน้า)
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **งานที่ผู้ใช้ขอไว้ล่าสุดเสร็จครบแล้ว** - รอฟีดแบ็กหรือคำสั่งเพิ่มเติม
+2. ถ้าผู้ใช้บ่นว่า popup login เด้งบ่อยเกินไป ให้เพิ่ม localStorage flag แบบ
+   "ปิดแล้วไม่เด้งอีกในเซสชันนี้/browser นี้" - ยังไม่ได้ทำไว้ตอนนี้เพราะผู้ใช้
+   ขอแบบเด้งทุกครั้งตรงๆ
+3. Backend ยัง pending การ deploy ค้างจาก entry ก่อนหน้า (schema
+   `0006_chat_profile_and_history.sql` + logic prefix "admin ") - เตือนซ้ำ
+   ไว้เผื่อลืม
