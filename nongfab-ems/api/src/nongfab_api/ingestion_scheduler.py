@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from nongfab_forecast import training
@@ -38,7 +38,17 @@ async def run_startup_backfill(store: RealDataStore, lookback_days: int) -> None
     a table that already has a reasonable amount of data, so a redeploy with a
     persistent store (API_REAL_DATA_DB_PATH pointed at a real volume) doesn't
     re-backfill from scratch every restart.
+
+    `_backfill_forecast_history` runs *first*, ahead of the network-dependent
+    steps below - it's a pure local computation (no HTTP calls at all) with
+    no dependency on any of them, so there is no reason for the dashboard's
+    Forecast/Prediction-interval history to sit blocked behind however long
+    NWP/Himawari/PVGIS take to succeed or fail (each is a real network call
+    to an external source, no fixed upper bound on that here) when it could
+    already be showing something the moment the process is ready to serve.
     """
+    await _backfill_forecast_history(store)
+
     counts = store.counts()
 
     if counts["nwp_history"] < 100:
@@ -213,6 +223,39 @@ async def _backfill_pvgis(store: RealDataStore) -> None:
     _, points = result
     store.insert_nwp_points(points)
     logger.info("startup backfill: pvgis done, %d hourly rows ingested", len(points))
+
+
+async def _backfill_forecast_history(store: RealDataStore) -> None:
+    """One-time cold-start seed of `forecast_history` so a freshly-booted
+    process (a Railway redeploy, or any container restart) doesn't show a
+    blank Forecast/Prediction interval history for recent past hours until
+    enough real polling has happened to rebuild it organically - see
+    `nongfab_forecast.serving.backfill_forecast_history`'s own docstring for
+    the full reasoning (physics-baseline-only, an honest approximation, not
+    a claimed ML measurement).
+
+    Gated per (zone, horizon) on whether that pair already has any
+    persisted history within its own lookback window - a deployment with a
+    real persistent volume for `NONGFAB_REAL_DATA_DB` should never have
+    this silently overwrite real accumulated ML-quality history with a
+    lesser physics-only seed on every restart.
+    """
+    from nongfab_forecast.serving import FORECAST_HISTORY_LOOKBACK_HOURS, backfill_forecast_history
+
+    now = datetime.now(timezone.utc)
+    for zone in ZONES:
+        for horizon, lookback_hours in FORECAST_HISTORY_LOOKBACK_HOURS.items():
+            existing = store.forecast_history_points(zone, horizon, since=now - timedelta(hours=lookback_hours))
+            if existing:
+                logger.info("startup backfill: forecast_history already has data for %s/%s, skipping", zone, horizon)
+                continue
+            try:
+                inserted = backfill_forecast_history(zone, horizon, store, now=now)
+                logger.info("startup backfill: forecast_history seeded %d rows for %s/%s", inserted, zone, horizon)
+            except Exception:
+                logger.warning(
+                    "startup backfill: forecast_history failed for %s/%s, skipping (non-fatal)", zone, horizon, exc_info=True
+                )
 
 
 async def _poll_himawari_forever(store: RealDataStore, interval_seconds: float) -> None:

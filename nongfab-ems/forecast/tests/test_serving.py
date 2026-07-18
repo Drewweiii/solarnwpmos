@@ -6,10 +6,12 @@ import pytest
 from nongfab_forecast.local_store import RealDataStore
 from nongfab_forecast.serving import (
     FALLBACK_PI_HALF_WIDTH_PCT,
+    FORECAST_HISTORY_LOOKBACK_HOURS,
     ModelNotTrainedError,
     UnknownHorizonError,
     UnknownZoneError,
     _ceil_to,
+    backfill_forecast_history,
     get_forecast_with_fallback,
     get_latest_forecast,
     validate_horizon,
@@ -185,4 +187,41 @@ def test_get_forecast_with_fallback_does_not_persist_minute_horizon(tmp_path, mo
     monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{db_path}")
     store = RealDataStore()
     get_forecast_with_fallback("GIS", "minute", store=store)
+    assert store.counts()["forecast_history"] == 0
+
+
+def test_backfill_forecast_history_seeds_the_full_lookback_window():
+    """Regression test for the user's second 2026-07-18 follow-up: right
+    after a fresh deploy/restart, forecast_history is genuinely empty (see
+    local_store.py's ephemeral-storage docstring), so a request landing
+    seconds later still showed a blank past even with _persist_and_merge_
+    history in place - that function only stops history from being *lost
+    going forward*, it can't retroactively show history that was never
+    computed. This backfill closes that specific gap."""
+    now = datetime(2026, 7, 18, 12, tzinfo=timezone.utc)
+    store = RealDataStore()
+
+    inserted = backfill_forecast_history("GIS", "hour", store, now=now)
+
+    assert inserted == FORECAST_HISTORY_LOOKBACK_HOURS["hour"]
+    rows = store.forecast_history_points("GIS", "hour", since=now - timedelta(hours=FORECAST_HISTORY_LOOKBACK_HOURS["hour"]))
+    assert len(rows) == FORECAST_HISTORY_LOOKBACK_HOURS["hour"]
+    # physics-baseline only - no ML model ran, so algorithm must stay honest
+    for row in rows:
+        assert row[4] is None  # algorithm
+
+
+def test_backfill_forecast_history_covers_hours_strictly_before_now():
+    now = datetime(2026, 7, 18, 12, tzinfo=timezone.utc)
+    store = RealDataStore()
+    backfill_forecast_history("GIS", "day", store, now=now)
+    rows = store.forecast_history_points("GIS", "day", since=now - timedelta(hours=FORECAST_HISTORY_LOOKBACK_HOURS["day"]))
+    for target_time, *_ in rows:
+        assert datetime.fromisoformat(target_time) < now
+
+
+def test_backfill_forecast_history_is_a_noop_for_minute_horizon():
+    store = RealDataStore()
+    inserted = backfill_forecast_history("GIS", "minute", store, now=datetime.now(timezone.utc))
+    assert inserted == 0
     assert store.counts()["forecast_history"] == 0

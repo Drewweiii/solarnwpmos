@@ -588,6 +588,53 @@ immediately, overlapping the actual-power bars, without needing to wait
 through any polls first. See `web/README.md`'s matching dated entry for
 the frontend side and screenshot evidence.
 
+### Follow-up, same day: the cold-start gap the seeded test above didn't cover
+
+The verification above proves the merge logic works, but it started from a
+store that already had *something* persisted (the manually-seeded points).
+The user's own next follow-up screenshot showed the real remaining gap:
+**a genuinely fresh boot** (a real Railway redeploy, or this dev sandbox
+restarted clean) has an *empty* `forecast_history` table - there is nothing
+yet for `_persist_and_merge_history()` to merge in, so the very first
+request or two after any restart still shows a blank past, exactly like
+before this whole fix. `_persist_and_merge_history()` only stops history
+from being *lost going forward* once it exists; it can't retroactively
+show history that was never computed.
+
+Closed by:
+
+- **New `backfill_forecast_history(zone, horizon, store, now=None)`** in
+  `serving.py` - computes a physics-baseline-only retrospective series
+  covering the horizon's own lookback window (pvlib clear-sky, computable
+  for any timestamp, attenuated by whatever the *current* most-recent
+  cloud reading happens to be - an honest approximation of the past, not a
+  measurement of it, same `algorithm=None` convention as the live
+  fallback path) and persists it via `record_forecast_points()`.
+- **`api/ingestion_scheduler.py`'s new `_backfill_forecast_history()`**,
+  called from `run_startup_backfill()` - loops every (zone, horizon),
+  gated on whether that pair already has any persisted history in its own
+  lookback window (so a deployment with a real persistent volume never has
+  this silently overwrite real accumulated ML-quality history on restart).
+
+**Found and fixed a real sequencing bug while live-verifying this**:
+`run_startup_backfill()` originally called the new backfill *last*, after
+NWP/Himawari/PVGIS - all real network calls to external sources with no
+fixed time bound in this environment. Live-tested in this dev sandbox
+(whose network egress is deliberately restricted), the forecast_history
+backfill sat unreachable for several minutes behind those slower/blocked
+calls before the process even got a chance to run it - not a correctness
+bug (unit tests all passed against the function directly), but a real
+"the fix technically exists but doesn't help for a long time" gap. Fixed
+by moving `_backfill_forecast_history()` to run *first* - it has no
+dependency on any of the other steps (pure local computation, zero HTTP
+calls), so there was never a reason for it to wait behind them. Re-verified
+live after the reorder: a completely fresh boot populated all 288 expected
+rows (3 zones x (24h Intra-day + 72h Day-ahead)) within ~3 seconds, and
+`GET /forecast/GIS/hour` on the very first request already returned 30
+points (24 backfilled past + 6 forward) starting the previous day - the
+dashboard's Day-ahead chart on a brand-new login showed multiple complete
+day/night cycles before "now" immediately, no gap.
+
 ## Known gaps / next steps
 
 - **No automatic retraining pipeline of its own** - `registry.log_run()` +

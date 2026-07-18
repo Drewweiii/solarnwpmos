@@ -62,6 +62,13 @@ fixture explicitly turns it off so the suite stays hermetic/fast):
    gate above, so it seeds Day-ahead training even when GFS backfill is thin
    or unreachable. Day-ahead only, not Intra-day - see `ingestion/pvgis/
    README.md` and `forecast/README.md`'s matching dated entry for why.
+   **(2026-07-18)** `_backfill_forecast_history()` now runs *first*, ahead
+   of NWP/Himawari/PVGIS - it's a pure local computation (no HTTP calls),
+   so a freshly-booted process seeds the dashboard's Forecast/Prediction-
+   interval history within seconds instead of sitting blocked behind
+   however long the network-dependent steps above take to succeed or fail.
+   See `forecast/README.md`'s "Forecast history persistence" entry for the
+   full story (including the live-tested sequencing bug this fixes).
 2. **Continuous live polling**: Himawari every `API_HIMAWARI_POLL_INTERVAL_
    SECONDS` (default 600s, matching its native 10-min product cadence), GFS
    every `API_NWP_POLL_INTERVAL_SECONDS` (default 3600s - GFS only

@@ -240,6 +240,60 @@ def _persist_and_merge_history(
     ]
 
 
+def backfill_forecast_history(zone: str, horizon: str, store: RealDataStore, now: datetime | None = None) -> int:
+    """One-time cold-start seed for `forecast_history` - computes a
+    physics-baseline-only retrospective series covering the horizon's own
+    lookback window and persists it, so a freshly-booted process (a
+    Railway redeploy, or *any* container restart - `forecast_history` is
+    just as ephemeral as `nwp_history`/`cloud_history`/`uv_history`, see
+    `local_store.py`'s own docstring) doesn't show a completely blank
+    Forecast/Prediction interval history until enough real polling time has
+    passed to rebuild it organically. `_persist_and_merge_history()` alone
+    only stops history from being *lost going forward* once it exists - it
+    can't retroactively show history that was never computed in the first
+    place, which is exactly what a request landing seconds after a fresh
+    deploy runs into (the user's own second 2026-07-18 follow-up screenshot,
+    still showing a blank past right after being told to redeploy).
+
+    Deliberately physics-baseline only (`algorithm=None`, same honesty
+    convention as `get_forecast_with_fallback()`'s live fallback path) -
+    there is no real historical NWP/cloud input to feed a genuine ML
+    prediction for an already-past hour retroactively, only pvlib's
+    clear-sky geometry (computable for any timestamp, past or future)
+    attenuated by whatever the *current* most-recent cloud reading happens
+    to be (not the true historical cloud cover for those past hours, which
+    was never recorded) - an honest approximation, not a claimed
+    measurement, same spirit as `FALLBACK_PI_HALF_WIDTH_PCT`'s own fixed
+    band.
+
+    Unconditional - the caller (`api/ingestion_scheduler.py`'s
+    `run_startup_backfill`) is responsible for gating this to only run once
+    per (zone, horizon) that genuinely has no persisted history yet, so a
+    deployment with a real persistent volume for `NONGFAB_REAL_DATA_DB`
+    doesn't re-seed a lesser physics-only history over real accumulated
+    ML-quality history on every restart.
+    """
+    zone = validate_zone(zone)
+    horizon = validate_horizon(horizon)
+    lookback_hours = FORECAST_HISTORY_LOOKBACK_HOURS.get(horizon)
+    if lookback_hours is None:
+        return 0
+    now = now if now is not None else datetime.now(timezone.utc)
+    end = _ceil_to(now, timedelta(hours=1)) - timedelta(hours=1)
+    timestamps = pd.date_range(end=end, periods=lookback_hours, freq="h", tz="UTC")
+    baseline = real_data.physics_baseline_series(zone, timestamps, store)
+    points = [
+        ForecastPoint(
+            timestamp=ts.to_pydatetime(),
+            pred=float(row.pred),
+            lower=max(0.0, float(row.pred) * (1 - FALLBACK_PI_HALF_WIDTH_PCT)),
+            upper=float(row.pred) * (1 + FALLBACK_PI_HALF_WIDTH_PCT),
+        )
+        for ts, row in baseline.iterrows()
+    ]
+    return store.record_forecast_points(zone, horizon, now, points)
+
+
 def get_latest_forecast(zone: str, horizon: str, store: RealDataStore | None = None) -> ForecastResult:
     """Raises UnknownZoneError/UnknownHorizonError for bad input, or
     ModelNotTrainedError if no model has been registered yet for this

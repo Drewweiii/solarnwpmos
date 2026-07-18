@@ -982,6 +982,18 @@ backend's own lookback window doesn't: an hour that ages out of the
 server's retention window but was already shown in a tab that's stayed
 open longer than that).
 
+**Second follow-up, same day**: even the server-side persistence above had
+one more cold-start gap - a genuinely *fresh* deploy/restart starts with an
+empty `forecast_history` table, so the first request or two right after
+still showed a blank past until enough real polling happened to rebuild it.
+Closed by a startup backfill that seeds it immediately on boot - see
+`forecast/README.md`'s "Follow-up, same day" entry under "Forecast history
+persistence" for the full story, including a real sequencing bug (the new
+backfill sat blocked behind slow network-dependent steps) found and fixed
+while live-verifying it. Re-verified live after that fix: a brand-new
+login on a freshly-booted API immediately showed multiple full day/night
+cycles of history on the Day-ahead chart, no gap.
+
 ## Run locally
 
 ```bash
