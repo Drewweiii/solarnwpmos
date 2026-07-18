@@ -2,10 +2,13 @@ import { useState } from 'react'
 import { MascotFace } from './MascotFace'
 import './LoginWelcome.css'
 
+// This popup hands out the public *viewer* login (pttlng/12345) in the same
+// breath, so the tour must only list what a viewer actually sees - Simulation
+// and Financial are operator/admin-only (Layout.tsx/App.tsx's RequireOperator,
+// 2026-07-18) and were removed from here for exactly that reason: advertising
+// a page a first-time visitor can't reach is worse than not mentioning it.
 const FEATURES = [
   'Forecast — กราฟพยากรณ์การผลิตไฟ เทียบกับของจริง',
-  'Simulation — ทดลองสถานการณ์สมมติ เช่น เมฆเยอะขึ้น หรือแผงเสื่อมสภาพ',
-  'Financial — วิเคราะห์ความคุ้มค่าการลงทุน (NPV/IRR/คืนทุน)',
   '3D View — โรงงานจำลอง 3 มิติ พร้อมเงาและเส้นทางดวงอาทิตย์',
   'Energy Report — รายงานสรุปพลังงานรายปี/รายเดือน',
   'Irradiance Map — แผนที่ความเข้มแสงอาทิตย์ในพื้นที่',

@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { TOPIC_ANSWERS } from '../assistantContent'
-import { ALL_TOPIC_GROUPS, findClarifyGroup, findCategoryById, findGroupById, findGroupBySubQuestionId, TOPIC_CATEGORIES } from '../assistantTopics'
+import {
+  ALL_TOPIC_GROUPS,
+  findCategoryById,
+  findClarifyGroup,
+  findGroupById,
+  findGroupBySubQuestionId,
+  groupsForRole,
+  TOPIC_CATEGORIES,
+} from '../assistantTopics'
 
 // A guard against the exact failure mode this content is expected to grow
 // into over many future sessions: adding a sub-question to assistantTopics.ts
@@ -61,6 +69,25 @@ describe('lookup helpers', () => {
       for (const group of category.groups) {
         expect(group.subQuestions.length).toBeGreaterThan(0)
       }
+    }
+  })
+})
+
+describe('groupsForRole', () => {
+  const websiteCategory = findCategoryById('website')!
+
+  it('drops Simulation/Financial for a viewer', () => {
+    const groups = groupsForRole(websiteCategory, 'viewer')
+    expect(groups.find((g) => g.id === 'page_simulation')).toBeUndefined()
+    expect(groups.find((g) => g.id === 'page_financial')).toBeUndefined()
+    // Everything else stays.
+    expect(groups.find((g) => g.id === 'page_forecast')).toBeDefined()
+    expect(groups.length).toBe(websiteCategory.groups.length - 2)
+  })
+
+  it('keeps every group for operator/admin/unknown roles', () => {
+    for (const role of ['operator', 'admin', null, undefined]) {
+      expect(groupsForRole(websiteCategory, role)).toEqual(websiteCategory.groups)
     }
   })
 })

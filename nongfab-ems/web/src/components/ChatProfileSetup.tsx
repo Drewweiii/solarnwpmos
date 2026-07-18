@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AVATAR_OPTIONS, saveChatProfile, type ChatProfile } from '../lib/chatProfile'
+import { avatarById, AVATAR_OPTIONS, saveChatProfile, type ChatProfile } from '../lib/chatProfile'
 import { MascotFace } from './MascotFace'
 import './ChatProfileSetup.css'
 
@@ -25,6 +25,14 @@ export function ChatProfileSetup({
 }) {
   const [name, setName] = useState(initial?.displayName ?? '')
   const [avatarId, setAvatarId] = useState(initial?.avatarId ?? AVATAR_OPTIONS[0].id)
+  // The mascot introduces itself first - only swap the preview over to
+  // showing the visitor's own chosen avatar once they've actually picked
+  // one (or immediately when editing an existing profile, since there's
+  // already a real choice to show). Per the user's explicit request
+  // (2026-07-18): picking an avatar should visibly show that avatar in
+  // place of น้อง Solar, not leave the mascot showing regardless of choice.
+  const [hasPickedAvatar, setHasPickedAvatar] = useState(initial != null)
+  const selectedAvatar = avatarById(avatarId)
 
   return (
     <form
@@ -36,7 +44,13 @@ export function ChatProfileSetup({
       }}
     >
       <div className="chat-profile-setup-mascot" aria-hidden="true">
-        <MascotFace mood="idle" />
+        {hasPickedAvatar ? (
+          <span className="chat-profile-setup-avatar-preview" style={{ background: selectedAvatar.color }}>
+            {selectedAvatar.emoji}
+          </span>
+        ) : (
+          <MascotFace mood="idle" />
+        )}
       </div>
       <p className="chat-profile-setup-note">
         {initial
@@ -65,7 +79,10 @@ export function ChatProfileSetup({
             aria-label={`avatar ${a.id}`}
             className={avatarId === a.id ? 'chat-profile-setup-avatar-option selected' : 'chat-profile-setup-avatar-option'}
             style={{ background: a.color }}
-            onClick={() => setAvatarId(a.id)}
+            onClick={() => {
+              setAvatarId(a.id)
+              setHasPickedAvatar(true)
+            }}
           >
             {a.emoji}
           </button>

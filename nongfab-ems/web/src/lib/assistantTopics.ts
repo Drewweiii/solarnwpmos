@@ -28,6 +28,14 @@ export interface AssistantTopicGroup {
    * clarifying menu of this group's sub-questions (see findClarifyGroup). */
   keywords: string[]
   subQuestions: AssistantSubQuestion[]
+  /** Set on groups describing an operator/admin-only page (Simulation,
+   * Financial - see Layout.tsx/App.tsx's RequireOperator, 2026-07-18).
+   * groupsForRole() below drops these from the browsable "การใช้เว็บนี้"
+   * menu for a viewer, since offering a menu button for a page they can't
+   * open is worse than not mentioning it. The underlying answer (in
+   * assistantContent.ts) still exists and still notes the restriction, for
+   * anyone who reaches it a different way (e.g. typing the exact question). */
+  viewerHidden?: boolean
 }
 
 export interface AssistantTopicCategory {
@@ -157,6 +165,37 @@ export const TOPIC_CATEGORIES: AssistantTopicCategory[] = [
     ],
   },
   {
+    id: 'forecasting',
+    emoji: '📈',
+    title: 'หลักการพยากรณ์การผลิตไฟ',
+    description: 'ระบบพยากรณ์ทำงานยังไง ใช้โมเดลอะไรบ้าง รับข้อมูลจากไหน แม่นแค่ไหน',
+    groups: [
+      {
+        id: 'forecast_overview',
+        title: 'ภาพรวมระบบพยากรณ์',
+        keywords: ['ระบบพยากรณ์ทำงานยังไง', 'โมเดลพยากรณ์'],
+        subQuestions: [
+          { id: 'fc_how', label: 'พยากรณ์ทำงานยังไง (ภาพรวม)', question: 'ระบบพยากรณ์การผลิตไฟฟ้าทำงานยังไง' },
+          { id: 'fc_horizons', label: 'ทำไมต้องมี 3 ระยะเวลา', question: 'ทำไมระบบต้องพยากรณ์ถึง 3 ระยะเวลา' },
+          { id: 'fc_models', label: 'แต่ละระยะใช้โมเดลอะไร ทำไม', question: 'พยากรณ์แต่ละระยะเวลาใช้โมเดลอะไร ทำไมถึงเลือกโมเดลนั้น' },
+          { id: 'fc_data', label: 'ข้อมูลมาจากไหนบ้าง', question: 'โมเดลพยากรณ์เอาข้อมูลมาจากไหนบ้าง' },
+        ],
+      },
+      {
+        id: 'forecast_advanced',
+        title: 'รายละเอียดเชิงลึก',
+        keywords: ['model competition', 'การแข่งขันโมเดล', 'physics baseline', 'prediction interval'],
+        subQuestions: [
+          { id: 'fc_competition', label: 'Model Competition คืออะไร', question: 'การแข่งขันของโมเดล (Model Competition) คืออะไร' },
+          { id: 'fc_interval', label: 'ช่วงความไม่แน่นอนคืออะไร', question: 'ช่วงความไม่แน่นอน (Prediction Interval) ในกราฟคืออะไร แม่นแค่ไหน' },
+          { id: 'fc_physics', label: 'Physics baseline คืออะไร', question: 'Physics baseline คืออะไร ทำไมบางทีไม่ได้ใช้ AI พยากรณ์' },
+          { id: 'fc_retrain', label: 'โมเดลเรียนรู้ใหม่บ่อยแค่ไหน', question: 'โมเดลพยากรณ์มีการเรียนรู้ข้อมูลใหม่บ่อยแค่ไหน' },
+          { id: 'fc_accuracy', label: 'รู้ได้ยังไงว่าแม่นแค่ไหน', question: 'รู้ได้ยังไงว่าพยากรณ์การผลิตไฟแม่นแค่ไหน' },
+        ],
+      },
+    ],
+  },
+  {
     id: 'website',
     emoji: '🌐',
     title: 'การใช้เว็บไซต์นี้',
@@ -172,12 +211,14 @@ export const TOPIC_CATEGORIES: AssistantTopicCategory[] = [
         id: 'page_simulation',
         title: 'หน้า Simulation',
         keywords: [],
+        viewerHidden: true,
         subQuestions: [{ id: 'page_simulation', label: 'หน้า Simulation ใช้ดูอะไร', question: 'หน้า Simulation ในเว็บนี้ใช้ทำอะไรได้บ้าง' }],
       },
       {
         id: 'page_financial',
         title: 'หน้า Financial',
         keywords: [],
+        viewerHidden: true,
         subQuestions: [{ id: 'page_financial', label: 'หน้า Financial ใช้ดูอะไร', question: 'หน้า Financial ในเว็บนี้ใช้ดูอะไรได้บ้าง' }],
       },
       {
@@ -235,4 +276,13 @@ export function findCategoryById(categoryId: string): AssistantTopicCategory | n
 
 export function findGroupById(groupId: string): AssistantTopicGroup | null {
   return ALL_TOPIC_GROUPS.find((g) => g.id === groupId) ?? null
+}
+
+/** A category's groups, filtered to what the given role can actually reach -
+ * drops `viewerHidden` groups (Simulation/Financial) when `role === 'viewer'`,
+ * unfiltered for every other role (including unknown/missing role, so this
+ * never over-hides by default). */
+export function groupsForRole(category: AssistantTopicCategory, role: string | null | undefined): AssistantTopicGroup[] {
+  if (role !== 'viewer') return category.groups
+  return category.groups.filter((g) => !g.viewerHidden)
 }

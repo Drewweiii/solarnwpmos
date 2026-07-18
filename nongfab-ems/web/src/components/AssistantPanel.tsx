@@ -6,7 +6,7 @@ import {
   type AssistantMood,
   type AssistantOption,
 } from '../lib/assistant'
-import { findCategoryById, findGroupById } from '../lib/assistantTopics'
+import { findCategoryById, findGroupById, groupsForRole } from '../lib/assistantTopics'
 import { useAuth } from '../lib/auth'
 import './AssistantPanel.css'
 
@@ -48,14 +48,14 @@ function categoryMenuMessage(): ChatMessage {
   }
 }
 
-function groupMenuMessage(categoryId: string): ChatMessage | null {
+function groupMenuMessage(categoryId: string, role: string | null | undefined): ChatMessage | null {
   const category = findCategoryById(categoryId)
   if (!category) return null
   return {
     id: `${Date.now()}-grp`,
     role: 'assistant',
     text: `หมวด "${category.title}" มีหัวข้ออะไรบ้าง เลือกได้เลยครับ:`,
-    options: category.groups.map((g): AssistantOption => ({ kind: 'group', label: g.title, groupId: g.id })),
+    options: groupsForRole(category, role).map((g): AssistantOption => ({ kind: 'group', label: g.title, groupId: g.id })),
   }
 }
 
@@ -79,7 +79,7 @@ interface AssistantPanelProps {
 }
 
 export function AssistantPanel({ isOpen, onClose, onAnswered }: AssistantPanelProps) {
-  const { token } = useAuth()
+  const { token, role } = useAuth()
   const [messages, setMessages] = useState<ChatMessage[]>([greeting()])
   const [input, setInput] = useState('')
   const [isThinking, setIsThinking] = useState(false)
@@ -127,7 +127,7 @@ export function AssistantPanel({ isOpen, onClose, onAnswered }: AssistantPanelPr
     setInput('')
     setIsThinking(true)
     try {
-      const { text, mood, options } = await answerQuestionWithMood(trimmed, { token })
+      const { text, mood, options } = await answerQuestionWithMood(trimmed, { token, role })
       setMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: 'assistant', text, options }])
       onAnswered?.(mood)
     } finally {
@@ -146,7 +146,7 @@ export function AssistantPanel({ isOpen, onClose, onAnswered }: AssistantPanelPr
       return
     }
     if (option.kind === 'category') {
-      const menu = groupMenuMessage(option.categoryId)
+      const menu = groupMenuMessage(option.categoryId, role)
       if (menu) setMessages((prev) => [...prev, menu])
       return
     }

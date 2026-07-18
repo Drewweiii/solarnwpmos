@@ -1443,6 +1443,81 @@ View/Energy Report/Irradiance Map, and navigating straight to `/financial`
 in the URL bar bounces back to `/forecast`; logged in as `admin` - both
 links present and `/financial` loads normally.
 
+### Added/Fixed - avatar picker bug, viewer-aware น้อง Solar content, Forecasting Q&A category (2026-07-18)
+
+Re-surveyed the repo via `HANDOFF.md` before starting (per the user's
+explicit instruction, since Track 1 had shipped several rounds of work -
+Model Competition fixes, the viewer nav-hiding above, 3D sun sizing - since
+this account's last turn). Confirmed the Simulation/Financial nav-hiding
+the user described was already done by Track 1 directly (see the entry just
+above this one) - not re-implemented here. Three separate fixes/additions:
+
+- **Fixed the avatar picker**: (1) one avatar (`koala` 🐨 on a `#94A3B8`
+  grey circle) rendered as an apparently-blank circle - the emoji's own
+  grey/white fur tones sit too close to its own background color to read
+  clearly, and it also sat next to `panda`'s similarly-grey circle, making
+  both hard to tell apart. Replaced with `hamster` 🐹 on a warm, clearly-
+  contrasting tan (`#D97706`) background (`lib/chatProfile.ts`). (2)
+  `ChatProfileSetup.tsx` now shows the visitor's actually-selected avatar
+  big in the preview slot the moment they pick one (or immediately when
+  editing an existing profile) - it used to always show น้อง Solar's static
+  mascot face regardless of what was picked, so there was no visual
+  confirmation of your choice.
+- **Made น้อง Solar's content viewer-aware**, since it was still advertising
+  Simulation/Financial (operator-and-up only as of the entry above) as if
+  every visitor could reach them: `LoginWelcome.tsx`'s feature-tour list no
+  longer mentions either (that popup specifically hands out the public
+  *viewer* login in the same breath, so it must only list what a viewer can
+  actually open). `lib/assistant.ts`'s `AssistantContext` gained an optional
+  `role` field; the `help_navigation` and `financial_info` intents now
+  branch on `role === 'viewer'` - the page list drops those two bullets
+  (with a one-line note explaining why, not just silently fewer pages), and
+  asking about Financial tells a viewer plainly it's operator-and-up instead
+  of walking them through a page they can't open. `assistantTopics.ts`
+  gained a `viewerHidden` flag (set on the `page_simulation`/`page_financial`
+  groups) and a `groupsForRole()` helper - `AssistantPanel.tsx`'s "การใช้
+  เว็บนี้" category browser uses it so those two menu buttons don't even
+  appear for a viewer. The underlying answers themselves also gained an
+  access-restriction note, as defense-in-depth for anyone who reaches them
+  a different way (e.g. typing the exact question text).
+- **Added a 4th guided-Q&A category, "หลักการพยากรณ์การผลิตไฟ"** (📈), per
+  the user's explicit request to explain how forecasting works, why 3
+  horizons, which model per horizon and why, where data comes from, and
+  more - with the sub-questions chosen by this account, not dictated. Two
+  groups: "ภาพรวมระบบพยากรณ์" (how it works overall, why 3 horizons, which
+  model per horizon + why, data sources) and "รายละเอียดเชิงลึก" (Model
+  Competition, prediction interval reliability, physics-baseline fallback,
+  retrain cadence, how accuracy is actually measured). Content is grounded
+  in the real current forecast module - not invented - researched fresh
+  from `forecast/README.md`, `api/README.md`, and recent `HANDOFF.md`/`web/
+  README.md` entries: the real model names (CNN-LSTM for minute-ahead,
+  LightGBM/Random Forest/Sum-k LSTM competing for hour-ahead, NeuralProphet
+  for day-ahead), the real data sources (Himawari cloud imagery, GFS/NWP,
+  PVGIS historical weather), and the same honesty this project keeps
+  throughout - RMSE is currently measured against a physics-model estimate,
+  not real SCADA telemetry, because none exists yet, and the guide says so
+  plainly rather than implying otherwise.
+
+**Tested**: `ChatProfileSetup.test.tsx` (new) covers the live-preview
+swap behavior; `assistant.test.ts`/`assistantTopics.test.ts` gained
+role-aware-answer tests and Forecasting-category tests (model names appear
+in the "which model per horizon" answer, the accuracy answer stays honest
+about physics-vs-telemetry, `groupsForRole` drops the right two groups for
+viewer and nothing for anyone else). Full suite 249/249, `tsc` clean.
+**Live-verified via Playwright**: picked the hamster avatar and confirmed
+the live preview updates to show it; logged in as `pttlng` (viewer) and
+confirmed the login-welcome feature list, the nav bar, the assistant's page-
+listing answer, and the "การใช้เว็บนี้" category browser all agree in
+excluding Simulation/Financial; browsed into the new Forecasting category
+end-to-end (📚 → category → group → Model Competition question) and
+confirmed the real answer renders with follow-up chips.
+
+**Still outstanding, not done this turn**: merging the Irradiance Map and
+3D View tabs into one - the user described this as already requested of
+Track 2 (confirmed in `HANDOFF.md`: still unclaimed as of Track 1's last
+entry) but the explicit numbered task list for this session's turn didn't
+include it, so it wasn't started without confirming first.
+
 ## Run locally
 
 ```bash

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { answerQuestion, answerQuestionWithMood, ASSISTANT_FALLBACK_MESSAGE } from '../assistant'
+import { answerQuestion, answerQuestionWithMood, ASSISTANT_FALLBACK_MESSAGE, TOP_LEVEL_OPTIONS } from '../assistant'
 import * as api from '../api'
 import type { AssetRegistry, ForecastResponse, PerformanceResponse, WeatherStripResponse } from '../types'
 
@@ -181,5 +181,64 @@ describe('answerQuestionWithMood', () => {
     const result = await answerQuestionWithMood('สวัสดีครับ', ctx)
     expect(result.options?.length).toBeGreaterThan(0)
     expect(result.options?.every((o) => o.kind === 'category')).toBe(true)
+  })
+})
+
+describe('Forecasting guided Q&A category', () => {
+  it('explains which model handles each horizon, grounded in the real model names', async () => {
+    const result = await answerQuestionWithMood('พยากรณ์แต่ละระยะเวลาใช้โมเดลอะไร ทำไมถึงเลือกโมเดลนั้น', ctx)
+    expect(result.text).toMatch(/CNN-LSTM/)
+    expect(result.text).toMatch(/LightGBM/)
+    expect(result.text).toMatch(/Random Forest/)
+    expect(result.text).toMatch(/Sum-k LSTM/)
+    expect(result.text).toMatch(/NeuralProphet/)
+  })
+
+  it('is honest that RMSE is currently measured against a physics model, not real SCADA telemetry', async () => {
+    const result = await answerQuestionWithMood('รู้ได้ยังไงว่าพยากรณ์การผลิตไฟแม่นแค่ไหน', ctx)
+    expect(result.text).toMatch(/RMSE/)
+    expect(result.text).toMatch(/ไม่ใช่ค่าที่วัดจากมิเตอร์จริง/)
+  })
+
+  it('is included as a 4th top-level browse category', () => {
+    const categoryLabels = TOP_LEVEL_OPTIONS.map((o) => o.label)
+    expect(categoryLabels.some((l) => l.includes('พยากรณ์'))).toBe(true)
+    expect(TOP_LEVEL_OPTIONS).toHaveLength(4)
+  })
+})
+
+describe('role-aware answers (Simulation/Financial are operator-and-up only)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('lists all pages including Simulation/Financial for a non-viewer role', async () => {
+    const result = await answerQuestionWithMood('มีหน้าอะไรบ้าง', { token: 'x', role: 'operator' })
+    expect(result.text).toContain('Simulation')
+    expect(result.text).toContain('Financial')
+  })
+
+  it('omits Simulation/Financial bullets from the page list for a viewer, but explains why in a closing note', async () => {
+    const result = await answerQuestionWithMood('มีหน้าอะไรบ้าง', { token: 'x', role: 'viewer' })
+    expect(result.text).not.toContain('• Simulation')
+    expect(result.text).not.toContain('• Financial')
+    expect(result.text).toMatch(/operator/)
+  })
+
+  it('tells a viewer Financial is operator-and-up instead of walking them through using it', async () => {
+    const result = await answerQuestionWithMood('การลงทุนคุ้มไหม', { token: 'x', role: 'viewer' })
+    expect(result.text).toMatch(/operator/)
+    expect(result.text).not.toMatch(/NPV\/IRR/)
+  })
+
+  it('still explains Financial normally for an operator/admin', async () => {
+    const result = await answerQuestionWithMood('การลงทุนคุ้มไหม', { token: 'x', role: 'operator' })
+    expect(result.text).toMatch(/NPV\/IRR/)
+  })
+
+  it('defaults to the non-viewer (unrestricted) behavior when role is missing entirely', async () => {
+    const result = await answerQuestionWithMood('มีหน้าอะไรบ้าง', { token: 'x' })
+    expect(result.text).toContain('Simulation')
+    expect(result.text).toContain('Financial')
   })
 })
