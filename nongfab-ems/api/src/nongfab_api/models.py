@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import TIMESTAMP, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -6,6 +6,24 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
     pass
+
+
+def as_utc(dt: datetime) -> datetime:
+    """Guarantee a tz-aware (UTC) datetime before it reaches a JSON response.
+
+    Every `created_at` here is written as `datetime.now(timezone.utc)`, but
+    what a row reads back as depends on the DB driver: asyncpg round-trips a
+    `TIMESTAMPTZ` column's tzinfo correctly, but aiosqlite silently drops it
+    (confirmed directly - a value stored tz-aware reads back tz-naive). A
+    naive datetime serializes with no UTC offset in the JSON (e.g.
+    `"2026-07-18T15:23:32"` instead of `"...+00:00"`), and a browser's `new
+    Date(...)` then reads a timezone-less ISO string as *local* time, not
+    UTC - every timestamp ends up wrong by exactly the viewer's UTC offset
+    (reported 2026-07-18: feedback timestamps not matching real send time).
+    Since the value was always UTC to begin with, attaching `timezone.utc`
+    when it comes back naive is correct, not a guess.
+    """
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 class UserORM(Base):
@@ -28,10 +46,10 @@ class UserORM(Base):
 
 class ChatMessageORM(Base):
     """Maps to `chat_messages` (db/migrations/0005_chat_and_feedback.sql,
-    extended by 0006_chat_profile_and_history.sql) - persisted history for
-    the single site-wide visitor chat room served by ws_chat.py, so a client
-    that connects mid-conversation can be replayed recent messages instead
-    of joining a blank room.
+    extended by 0006_chat_profile_and_history.sql, then 0007_chat_direct_
+    messages.sql) - persisted history for ws_chat.py's private 1:1 visitor
+    messaging, so a client re-opening a conversation gets its past messages
+    instead of a blank thread.
 
     `display_name`/`avatar`/`client_id` are nullable: the viewer/operator
     demo logins are shared credentials (see auth.py's DEMO_USERS), so
@@ -40,6 +58,14 @@ class ChatMessageORM(Base):
     pick for themselves (nongfab web/src/lib/chatProfile.ts). Rows written
     before this column existed simply have NULLs here; application code
     falls back to `username`/a default avatar for those.
+
+    `recipient_client_id` (2026-07-18): who a message is privately addressed
+    to - see ws_chat.py's module docstring for why this exists (the chat
+    used to broadcast every message to every connected visitor, "openchat"
+    style, which the user flagged as an actual privacy problem). Nullable
+    only because pre-2026-07-18 rows predate the column and have no sensible
+    value to backfill (they were public broadcasts with no single intended
+    recipient) - every row written from that date on always has one.
     """
 
     __tablename__ = "chat_messages"
@@ -52,6 +78,7 @@ class ChatMessageORM(Base):
     display_name: Mapped[str | None] = mapped_column(String, nullable=True)
     avatar: Mapped[str | None] = mapped_column(String, nullable=True)
     client_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    recipient_client_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class FeedbackMessageORM(Base):

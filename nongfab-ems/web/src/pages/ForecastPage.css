@@ -115,6 +115,19 @@
   padding: 4px 0;
 }
 
+.model-info-table-scroll {
+  /* 4 columns of real prose (Purpose/Range) don't fit a narrow phone at any
+     font size - scrolling this table sideways within its own wrapper
+     (instead of letting it force the whole page wider than the viewport)
+     is the fix, same principle as VisitorNetwork.css's chat scroll
+     containers. A dedicated wrapper (not `display: block` on the table
+     itself) - putting `display` directly on `.model-info-table` overrode
+     the browser's native collapsed-<details> `display: none`, so the table
+     stayed visibly laid out (and overflowing) even while the panel was
+     closed. */
+  overflow-x: auto;
+}
+
 .model-info-table {
   width: 100%;
   border-collapse: collapse;

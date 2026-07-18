@@ -44,7 +44,7 @@ export function LoginWelcome() {
 
         <h2 className="login-welcome-title">สวัสดีครับ! ผมชื่อ "น้อง Solar" 👋</h2>
         <p className="login-welcome-text">
-          ผมเป็นผู้ช่วย AI ประจำเว็บ Nong Fab Solar EMS ครับ เว็บนี้ใช้ติดตามและพยากรณ์การผลิตไฟฟ้าจากโซลาร์เซลล์ มีฟีเจอร์หลักๆ ดังนี้ครับ:
+          ผมเป็นผู้ช่วย AI ประจำเว็บนี้ครับ เว็บนี้ใช้ติดตามและพยากรณ์การผลิตไฟฟ้าจากโซลาร์เซลล์ มีฟีเจอร์หลักๆ ดังนี้ครับ:
         </p>
         <ul className="login-welcome-features">
           {FEATURES.map((f) => (

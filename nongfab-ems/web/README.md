@@ -1972,6 +1972,173 @@ in-scene protractor labels (queried directly from the DOM: `"Azimuth 288°"`,
 `"Altitude 51°"`, `"Zenith 39°"`) matched. Zero browser console errors
 across every screenshot.
 
+### Fixed - visitor chat rebuilt as private 1:1 messaging, not a public room (2026-07-18, Track 2)
+
+The user flagged, in strong terms, that the previous chat was a real
+privacy bug: it broadcast every message to every connected visitor
+("openchat" style) with no way to pick who you were talking to -
+"ต้องทำเพราะมันจำเป็น" (must fix, it's necessary), twice, across two
+separate messages. Client-side filtering would not have actually fixed
+this (every browser would still receive every message over the wire), so
+this is a genuine server-side routing change - see `ws_chat.py`'s module
+docstring on the API side.
+
+- **`lib/useChatSocket.ts`** (rewritten): no more single flat `messages`/
+  `onlineCount`. Now exposes `contacts` (who you can start/resume a
+  conversation with - online visitors from the server's `online_users`
+  push, plus previously-chatted people who've since gone offline,
+  remembered locally so a conversation doesn't vanish from the list just
+  because the other person closed their tab) and `conversations` (messages/
+  unread/pagination keyed by peer `client_id`). `openConversation(peerId)`
+  fetches that pair's history via `GET /chat/history?my_client_id=&peer_
+  client_id=`; `sendMessage(peerId, text)` addresses the WS payload with
+  `recipient_client_id`. There is no more bulk `history` WS push on connect
+  - only `online_users` and per-recipient `message` events.
+- **`components/VisitorNetwork.tsx`**: the chat tab now defaults to a
+  contact list (`ContactRow` per visitor, 🟢ออนไลน์/ออฟไลน์ status, per-
+  contact unread badge) - clicking someone opens a `ThreadView` (back
+  button, scoped message list/input/stickers, `key={peerClientId}` so
+  switching threads resets scroll state cleanly). The toggle button's
+  unread badge is now a sum across every open conversation.
+- **`types.ts`**/**`api.ts`**: `ChatMessage` gained `recipient_client_id`;
+  `ChatPresence`/`ChatHistory` replaced by `OnlineUser`/`ChatOnlineUsers`;
+  `chatSocketUrl()` now sends `client_id`/`display_name`/`avatar` as
+  connect-time query params (the server needs identity before any message
+  is ever sent, to populate the online list); `getChatHistory()` now takes
+  both ends of the pair.
+
+Also answers the user's other two questions this same message raised: (1)
+avatar/name persistence across a re-login on the same browser was already
+true before this change (`chatProfile.ts`'s `localStorage`-based profile is
+independent of the JWT/login state) and still is - verified live below,
+along with the existing "✏️ edit profile" flow still working, now synced
+live to what other people see via a `type: "update_profile"` WS message
+instead of requiring a reconnect.
+
+**Tested**: `useChatSocket.test.tsx` and `VisitorNetwork.test.tsx` fully
+rewritten (12 + 15 tests) for the new contact-list/thread model, including
+a component-level proof that a message from one peer never renders inside
+a different peer's thread. Full suite 284/284, `tsc` clean. **Live-
+verified via Playwright** with three real signed-in visitors (viewer/
+operator/admin, each through the real login + post-login profile gate):
+the contact list showed the other two online (admin's name correctly
+prefixed "admin "); a private message from one to another arrived only for
+its recipient - the third visitor's page never showed it, live-proving the
+same privacy property the old public room violated; a reply flowed back;
+and reloading the sender's page kept its saved name/avatar with no
+re-prompt, with the edit-profile button still present and working.
+
+### Fixed - dark-theme logo white boxes, mobile page overflow, site renamed (2026-07-18)
+
+- **`public/logos/pe-lng.png` / `chula-university.png`**: both had a baked-
+  in opaque white background (not real transparency), showing as a visible
+  white rectangle in dark mode. Chroma-keyed to genuine transparency
+  (flood-fill from the border on near-white pixels + a slight Gaussian
+  blur on the resulting alpha for a clean edge, not a naive global-
+  threshold key - an earlier attempt at that left visible grey speckle
+  noise from the source PNGs' own compression fuzz). Verified pixel-
+  identical to the original when composited back onto a white background,
+  and clean (no white box, no speckling) composited onto the dark theme's
+  `--bg`.
+- **Site renamed** "Nong Fab Solar EMS" → "PTT LNG Terminal 2 Nong Fab
+  Solar Forecasting" everywhere it's visible: `Login.tsx`'s `<h1>` (own
+  smaller font-size, now 26px not 34px, to fit the longer name inside
+  `.login-form`'s 460px width), `Layout.tsx`'s header brand, `index.html`'s
+  `<title>`, `OrgLogos.tsx`'s site-logo alt text. Left the site-logo.svg
+  mark's own embedded wordmark artwork untouched (a bigger redesign task on
+  its own, not requested).
+- **Fixed a second, previously-undiagnosed cause of the same "mascot
+  invisible until you pinch-zoom out on mobile" bug** (`App.css`'s header
+  wrap fix above resolved the first cause): `OrgLogos.css`'s
+  `.org-logos-footer` combines `width: 100%` with left/right padding under
+  the CSS default *content-box* sizing, which computes total rendered
+  width as 100% of the parent **plus** the padding - exactly the 40px
+  overflow measured live. Added a universal `*, *::before, *::after {
+  box-sizing: border-box }` reset to `index.css` (defense in depth against
+  this whole bug class recurring anywhere else, not just this one
+  component) rather than patching just this one selector.
+- **`ForecastPage.tsx`**'s collapsible "Forecast models used here" table
+  (4 columns of real prose) also doesn't fit a narrow phone - wrapped it in
+  a new `.model-info-table-scroll` div with its own `overflow-x: auto`
+  (same principle as `VisitorNetwork.css`'s chat scroll containers).
+  **Caught and reverted a self-introduced regression before shipping it**:
+  the first attempt put `display: block` directly on `.model-info-table`
+  to make `overflow-x` actually take effect (a `<table>`'s native `display:
+  table` doesn't reliably respect `overflow` cross-browser) - but that
+  author-stylesheet rule overrode the browser's native `details:not([open])
+  > *:not(summary) { display: none }` collapse behavior, so the table
+  stayed laid out (and overflowing) even while the panel was visually
+  closed. Moving `overflow-x: auto` onto a dedicated wrapper `<div>`
+  instead - leaving the `<table>` element itself untouched - fixed the
+  overflow without fighting `<details>`'s own collapse mechanism.
+
+**Tested**: `App.test.tsx`, `Layout.test.tsx`, `OrgLogos.test.tsx` updated
+for the new brand text. Full suite 289/289, `tsc` clean. **Live-verified
+via Playwright**: composited both logos onto light/dark backgrounds before
+touching the real files; screenshotted the real login page in both color
+schemes (logos clean, title wraps to 2 lines and reads correctly); at a
+375px mobile viewport, walked through login → post-login profile gate →
+dashboard and confirmed `document.body.scrollWidth` now exactly equals
+`window.innerWidth` (was 415 vs 375 before the box-sizing fix) - the
+mascot and chat toggle are visible in the initial viewport with no zoom
+needed, and the collapsed model-info table stays genuinely hidden (visible
+screenshot: just the collapsed "▶" summary rows, no leaked table content).
+
+### Added - subtle solar-system decoration on the login screen (2026-07-18)
+
+The user asked for the empty left/right margins on a wide login screen to
+be decorated in a solar-system theme, explicitly "ทำพอดีๆ" (tastefully, not
+cluttered) - so this is deliberately restrained: `LoginSolarDecor.tsx`
+renders a small glowing sun + two thin orbit rings (one small dot each,
+`--accent` purple and a light blue) per side, plus 3 faint twinkling stars,
+all `aria-hidden`/`pointer-events: none` (carries no information) at ~40%
+opacity so it never competes with the actual sign-in form. `position:
+fixed` at `z-index: -1` so it can never sit above the form or the
+`LoginWelcome` modal regardless of DOM order. Orbits rotate slowly (34s/
+64s, opposite directions) via CSS `@keyframes`, respecting
+`prefers-reduced-motion`. Hidden entirely below a 1020px viewport - no
+spare margin to decorate there, and it must never become a third source of
+the mobile horizontal-overflow bug fixed just above in this same entry.
+
+**Tested**: `LoginSolarDecor.test.tsx` (new) - renders without crashing,
+`aria-hidden`, no interactive elements. Full suite 290/290, `tsc` clean.
+**Live-verified via Playwright** at a 1600px viewport in both color
+schemes (screenshots) and confirmed `display: none` actually applies at
+900px width (below the breakpoint).
+
+### Added - a voice for น้อง Solar (2026-07-18)
+
+The user asked to give the AI assistant a voice, and after presenting
+options (via `AskUserQuestion` - dynamic TTS of every real reply vs. only
+pre-scripted phrases; auto-speak vs. a manual button) picked: **speak
+every dynamic reply, triggered by a per-message button** (not auto-play).
+
+- **`lib/tts.ts`** (new): extracted `speakText(text)` - the same
+  zero-cost, no-API-key `window.speechSynthesis` mechanism the sticker
+  system already used, now shared. Calls `synth.cancel()` before every
+  `synth.speak()` so rapid repeated clicks can never queue up a stacking
+  backlog of utterances - same no-stack principle as this session's other
+  rapid-click fixes (`useMascotReaction.ts`, the AssistantPanel category
+  menu above). `stickers.ts`'s `speakSticker()` now just calls this.
+- **`AssistantPanel.tsx`**: every assistant reply (not the visitor's own
+  echoed messages) gets a small 🔊 button under its bubble
+  (`aria-label="ฟังเสียงข้อความนี้"`) that speaks that exact reply text
+  aloud on click.
+
+Quality depends entirely on whichever Thai system voice (if any) the
+visitor's own browser/OS ships - same honest caveat as the existing
+sticker TTS, since there's no way to guarantee a specific voice from
+client-side JS without a paid TTS API (out of scope per this project's
+zero-cost rule).
+
+**Tested**: `tts.test.ts` (new) covers speaking, the cancel-before-speak
+no-stack behavior, and the no-`speechSynthesis` no-op case.
+`AIAssistant.test.tsx` gained tests for the button appearing on every
+assistant reply (not the user's own), and that clicking it calls
+`speechSynthesis.speak` with `lang: "th-TH"`. Full suite 295/295, `tsc`
+clean. **Live-verified via Playwright**: opened the assistant panel and
+confirmed the 🔊 button renders under the greeting bubble.
+
 ## Run locally
 
 ```bash

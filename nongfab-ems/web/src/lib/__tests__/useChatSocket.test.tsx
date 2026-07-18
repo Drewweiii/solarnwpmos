@@ -8,6 +8,7 @@ import { MockWebSocket } from './mockWebSocket'
 import * as api from '../api'
 
 const profile: ChatProfile = { clientId: 'my-client-id', displayName: 'ทดสอบ', avatarId: 'cat' }
+const PEER = 'peer-client-id'
 
 function setToken() {
   localStorage.setItem('nongfab_ems_token', 'header.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9.sig')
@@ -17,7 +18,7 @@ function setToken() {
 // 'message'` widens to `string`, and callers passing this into anything
 // typed ChatMessage[] (e.g. mocking getChatHistory's response) fail to
 // typecheck even though the value itself is perfectly valid at runtime.
-function historyMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
+function chatMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
   return {
     type: 'message',
     id: 1,
@@ -27,7 +28,8 @@ function historyMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
     created_at: '2026-01-01T00:00:00Z',
     display_name: 'Alice',
     avatar: 'fox',
-    client_id: 'alice-client',
+    client_id: PEER,
+    recipient_client_id: profile.clientId,
     ...overrides,
   }
 }
@@ -40,115 +42,195 @@ describe('useChatSocket', () => {
     vi.stubGlobal('WebSocket', MockWebSocket)
   })
 
-  it('applies history, presence, and message events pushed by the server', async () => {
+  it('connects with client_id/display_name/avatar as query params and applies online_users pushes', async () => {
     setToken()
-    const { result } = renderHook(() => useChatSocket(profile, false), { wrapper: AuthProvider })
+    const { result } = renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
+    const ws = MockWebSocket.instances[0]
+    expect(ws.url).toContain('client_id=my-client-id')
+    expect(ws.url).toContain('display_name=%E0%B8%97%E0%B8%94%E0%B8%AA%E0%B8%AD%E0%B8%9A')
+    expect(ws.url).toContain('avatar=cat')
+    act(() => ws.open())
+
+    act(() =>
+      ws.emit({
+        type: 'online_users',
+        users: [{ client_id: PEER, display_name: 'Alice', avatar: 'fox', role: 'viewer' }],
+      }),
+    )
+    await waitFor(() => expect(result.current.contacts).toHaveLength(1))
+    expect(result.current.contacts[0]).toMatchObject({ clientId: PEER, displayName: 'Alice', online: true })
+  })
+
+  it('a live message from a peer opens/updates that peer conversation and remembers them as a contact', async () => {
+    setToken()
+    const { result } = renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
     const ws = MockWebSocket.instances[0]
     act(() => ws.open())
 
-    act(() => ws.emit({ type: 'history', messages: [historyMessage()] }))
-    await waitFor(() => expect(result.current.messages).toHaveLength(1))
-
-    act(() => ws.emit({ type: 'presence', count: 3, usernames: ['alice', 'bob', 'carol'] }))
-    await waitFor(() => expect(result.current.onlineCount).toBe(3))
-
-    act(() => ws.emit(historyMessage({ id: 2, text: 'hello back' })))
-    await waitFor(() => expect(result.current.messages).toHaveLength(2))
-    expect(result.current.messages[1].text).toBe('hello back')
+    act(() => ws.emit(chatMessage({ id: 2, text: 'hello there' })))
+    await waitFor(() => expect(result.current.conversations[PEER]?.messages).toHaveLength(1))
+    expect(result.current.conversations[PEER].messages[0].text).toBe('hello there')
+    // Even though this peer was never in an online_users push, receiving a
+    // message from them is enough to remember them as a contact so the
+    // conversation doesn't disappear from the list if they go offline.
+    expect(result.current.contacts.map((c) => c.clientId)).toContain(PEER)
   })
 
-  it('sendMessage sends the trimmed text plus the caller-supplied profile once the socket is open', () => {
+  it('sendMessage addresses the peer via recipient_client_id and sends the caller-supplied profile once the socket is open', () => {
     setToken()
-    const { result } = renderHook(() => useChatSocket(profile, false), { wrapper: AuthProvider })
+    const { result } = renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
     const ws = MockWebSocket.instances[0]
 
-    result.current.sendMessage('too early')
+    result.current.sendMessage(PEER, 'too early')
     expect(ws.sent).toHaveLength(0)
 
     act(() => ws.open())
-    result.current.sendMessage('  hello there  ')
+    result.current.sendMessage(PEER, '  hello there  ')
     expect(ws.sent).toEqual([
-      JSON.stringify({ text: 'hello there', display_name: 'ทดสอบ', avatar: 'cat', client_id: 'my-client-id' }),
+      JSON.stringify({ text: 'hello there', recipient_client_id: PEER, display_name: 'ทดสอบ', avatar: 'cat' }),
     ])
   })
 
-  it('does not send a blank message', () => {
+  it('does not send a blank message or one with no recipient', () => {
     setToken()
-    const { result } = renderHook(() => useChatSocket(profile, false), { wrapper: AuthProvider })
+    const { result } = renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
     const ws = MockWebSocket.instances[0]
     act(() => ws.open())
 
-    result.current.sendMessage('   ')
+    result.current.sendMessage(PEER, '   ')
+    result.current.sendMessage('', 'hello')
     expect(ws.sent).toHaveLength(0)
   })
 
-  it('counts an incoming message from someone else as unread while not actively viewing', async () => {
+  it('updateProfile sends a type: update_profile message once the socket is open', () => {
     setToken()
-    const { result } = renderHook(() => useChatSocket(profile, false), { wrapper: AuthProvider })
+    const { result } = renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
     const ws = MockWebSocket.instances[0]
     act(() => ws.open())
-    act(() => ws.emit({ type: 'history', messages: [] }))
 
-    act(() => ws.emit(historyMessage({ id: 5, client_id: 'someone-else' })))
-    await waitFor(() => expect(result.current.unreadCount).toBe(1))
+    result.current.updateProfile('New Name', 'fox')
+    expect(ws.sent).toEqual([JSON.stringify({ type: 'update_profile', display_name: 'New Name', avatar: 'fox' })])
+  })
+
+  it('a message from another peer does not leak into an unrelated conversation', async () => {
+    setToken()
+    const { result } = renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+
+    act(() => ws.emit(chatMessage({ id: 1, client_id: PEER, text: 'from peer' })))
+    act(() => ws.emit(chatMessage({ id: 2, client_id: 'someone-else', text: 'from someone else' })))
+    await waitFor(() => expect(result.current.conversations['someone-else']?.messages).toHaveLength(1))
+
+    expect(result.current.conversations[PEER].messages).toHaveLength(1)
+    expect(result.current.conversations[PEER].messages[0].text).toBe('from peer')
+  })
+
+  it('counts an incoming message from a peer as unread while its thread is not the active one', async () => {
+    setToken()
+    const { result } = renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+
+    act(() => ws.emit(chatMessage({ id: 5, client_id: PEER })))
+    await waitFor(() => expect(result.current.totalUnreadCount).toBe(1))
+    expect(result.current.conversations[PEER].unreadCount).toBe(1)
   })
 
   it('does not count its own message (matched by client_id) as unread', async () => {
     setToken()
-    const { result } = renderHook(() => useChatSocket(profile, false), { wrapper: AuthProvider })
+    const { result } = renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
     const ws = MockWebSocket.instances[0]
     act(() => ws.open())
-    act(() => ws.emit({ type: 'history', messages: [] }))
 
-    act(() => ws.emit(historyMessage({ id: 5, client_id: profile.clientId })))
-    await waitFor(() => expect(result.current.messages).toHaveLength(1))
-    expect(result.current.unreadCount).toBe(0)
+    act(() => ws.emit(chatMessage({ id: 5, client_id: profile.clientId, recipient_client_id: PEER })))
+    await waitFor(() => expect(result.current.conversations[PEER]?.messages).toHaveLength(1))
+    expect(result.current.totalUnreadCount).toBe(0)
   })
 
-  it('does not accumulate unread while isActiveView is true, and clears any existing unread on becoming active', async () => {
+  it('does not accumulate unread for the active peer thread, and clears any existing unread on becoming active', async () => {
     setToken()
-    const { result, rerender } = renderHook(({ active }: { active: boolean }) => useChatSocket(profile, active), {
-      wrapper: AuthProvider,
-      initialProps: { active: false },
-    })
+    const { result, rerender } = renderHook(
+      ({ active, peer }: { active: boolean; peer: string | null }) => useChatSocket(profile, peer, active),
+      { wrapper: AuthProvider, initialProps: { active: false, peer: null } },
+    )
     const ws = MockWebSocket.instances[0]
     act(() => ws.open())
-    act(() => ws.emit({ type: 'history', messages: [] }))
-    act(() => ws.emit(historyMessage({ id: 5, client_id: 'someone-else' })))
-    await waitFor(() => expect(result.current.unreadCount).toBe(1))
+    act(() => ws.emit(chatMessage({ id: 5, client_id: PEER })))
+    await waitFor(() => expect(result.current.totalUnreadCount).toBe(1))
 
-    rerender({ active: true })
-    await waitFor(() => expect(result.current.unreadCount).toBe(0))
+    rerender({ active: true, peer: PEER })
+    await waitFor(() => expect(result.current.totalUnreadCount).toBe(0))
 
-    act(() => ws.emit(historyMessage({ id: 6, client_id: 'someone-else', text: 'while viewing' })))
-    await waitFor(() => expect(result.current.messages).toHaveLength(2))
-    expect(result.current.unreadCount).toBe(0)
+    act(() => ws.emit(chatMessage({ id: 6, client_id: PEER, text: 'while viewing' })))
+    await waitFor(() => expect(result.current.conversations[PEER].messages).toHaveLength(2))
+    expect(result.current.totalUnreadCount).toBe(0)
   })
 
-  it('loadOlder prepends a page fetched from GET /chat/history and flags when there is nothing further back', async () => {
+  it('openConversation fetches the peer-scoped history and marks messages up to the last-read id as unread', async () => {
     setToken()
-    const older = [historyMessage({ id: 1, text: 'oldest' })]
-    vi.spyOn(api, 'getChatHistory').mockResolvedValue({ messages: older })
+    const initialHistory = [chatMessage({ id: 1, text: 'old 1' }), chatMessage({ id: 2, text: 'old 2' })]
+    vi.spyOn(api, 'getChatHistory').mockResolvedValue({ messages: initialHistory })
 
-    const { result } = renderHook(() => useChatSocket(profile, false), { wrapper: AuthProvider })
+    const { result } = renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
     const ws = MockWebSocket.instances[0]
     act(() => ws.open())
-    // A full page (PAGE_SIZE=50) of initial history so hasMoreOlder starts
-    // true - otherwise the single-message history below would already look
-    // like "that's everything" and loadOlder would short-circuit.
-    const initialHistory = Array.from({ length: 50 }, (_, i) => historyMessage({ id: 100 + i, text: `msg ${i}` }))
-    act(() => ws.emit({ type: 'history', messages: initialHistory }))
-    await waitFor(() => expect(result.current.messages).toHaveLength(50))
-    expect(result.current.hasMoreOlder).toBe(true)
 
     await act(async () => {
-      result.current.loadOlder()
+      result.current.openConversation(PEER)
       await Promise.resolve()
     })
 
-    await waitFor(() => expect(result.current.messages).toHaveLength(51))
-    expect(result.current.messages[0].text).toBe('oldest')
-    expect(api.getChatHistory).toHaveBeenCalledWith(100, expect.any(String), 50)
-    expect(result.current.hasMoreOlder).toBe(false) // fewer than PAGE_SIZE returned
+    await waitFor(() => expect(result.current.conversations[PEER]?.loaded).toBe(true))
+    expect(api.getChatHistory).toHaveBeenCalledWith(profile.clientId, PEER, expect.any(String), undefined, 50)
+    expect(result.current.conversations[PEER].messages).toHaveLength(2)
+  })
+
+  it('loadOlder prepends a page fetched from GET /chat/history for that peer and flags when there is nothing further back', async () => {
+    setToken()
+    const initialHistory = Array.from({ length: 50 }, (_, i) => chatMessage({ id: 100 + i, text: `msg ${i}` }))
+    const older = [chatMessage({ id: 1, text: 'oldest' })]
+    vi.spyOn(api, 'getChatHistory').mockResolvedValueOnce({ messages: initialHistory }).mockResolvedValueOnce({ messages: older })
+
+    const { result } = renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+
+    await act(async () => {
+      result.current.openConversation(PEER)
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(result.current.conversations[PEER]?.messages).toHaveLength(50))
+    expect(result.current.conversations[PEER].hasMoreOlder).toBe(true)
+
+    await act(async () => {
+      result.current.loadOlder(PEER)
+      await Promise.resolve()
+    })
+
+    await waitFor(() => expect(result.current.conversations[PEER].messages).toHaveLength(51))
+    expect(result.current.conversations[PEER].messages[0].text).toBe('oldest')
+    expect(api.getChatHistory).toHaveBeenLastCalledWith(profile.clientId, PEER, expect.any(String), 100, 50)
+    expect(result.current.conversations[PEER].hasMoreOlder).toBe(false) // fewer than PAGE_SIZE returned
+  })
+
+  it('a contact seen in online_users survives going offline once a conversation with them has been opened', async () => {
+    setToken()
+    vi.spyOn(api, 'getChatHistory').mockResolvedValue({ messages: [] })
+    const { result } = renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+
+    act(() => ws.emit({ type: 'online_users', users: [{ client_id: PEER, display_name: 'Alice', avatar: 'fox', role: 'viewer' }] }))
+    await waitFor(() => expect(result.current.contacts).toHaveLength(1))
+
+    await act(async () => {
+      result.current.openConversation(PEER)
+      await Promise.resolve()
+    })
+
+    act(() => ws.emit({ type: 'online_users', users: [] }))
+    await waitFor(() => expect(result.current.contacts).toHaveLength(1))
+    expect(result.current.contacts[0]).toMatchObject({ clientId: PEER, online: false })
   })
 })

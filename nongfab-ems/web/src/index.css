@@ -1,3 +1,15 @@
+/* Without this, a padded element declared `width: 100%` computes to 100%
+   of its parent *plus* its own padding (content-box, the CSS default) -
+   found live 2026-07-18 causing exactly a 40px mobile page overflow from
+   OrgLogos.css's `.org-logos-footer` (`width: 100%` + `padding: 28px 20px
+   140px`, 20px each side = the missing 40px), part of the same "page wider
+   than the viewport hides the fixed mascot" bug fixed in App.css. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 :root {
   --text: #6b6375;
   --text-h: #08060d;
@@ -97,6 +109,19 @@
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+}
+
+/* Defense in depth against the class of bug fixed 2026-07-18 in App.css's
+   .app-header (an unwrapped row wider than the screen forced the whole page
+   wider than the viewport on mobile, hiding every position:fixed corner
+   widget until the visitor pinch-zoomed out) - if anything else ever
+   overflows horizontally again, this keeps it from widening the page
+   itself. Any element that's *meant* to scroll sideways (chart containers,
+   the weather strip) already owns its own overflow-x, so this doesn't
+   affect them. */
+html,
+body {
+  overflow-x: hidden;
 }
 
 body {

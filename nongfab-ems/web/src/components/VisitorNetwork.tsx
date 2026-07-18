@@ -2,19 +2,19 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { avatarById, getOrCreateClientId, loadChatProfile, type ChatProfile } from '../lib/chatProfile'
 import { useSubmitFeedback } from '../lib/queries'
 import { decodeSticker, encodeSticker, speakSticker, STICKER_OPTIONS } from '../lib/stickers'
-import { useChatSocket, type ChatSocketState } from '../lib/useChatSocket'
+import { useChatSocket, type ChatSocketState, type Contact } from '../lib/useChatSocket'
 import type { ChatMessage } from '../lib/types'
 import { ChatProfileSetup } from './ChatProfileSetup'
 import './VisitorNetwork.css'
 
 type Tab = 'chat' | 'feedback'
 
-/** Floating bottom-left widget: a single shared site-wide chat room plus a
- * "message admin" feedback form, per the user's explicit "everything -
- * real-time chat, presence, a contact form, and an admin feedback channel"
- * request. Kept as one widget with two tabs (not four separate floating
- * buttons) so it doesn't visually compete with the mascot/AI assistant
- * already living in the opposite corner.
+/** Floating bottom-left widget: private 1:1 visitor chat (pick someone from
+ * the contact list, then talk - see useChatSocket.ts's docstring for why
+ * this replaced the old single shared public room) plus a "message admin"
+ * feedback form. Kept as one widget with two tabs (not several separate
+ * floating buttons) so it doesn't visually compete with the mascot/AI
+ * assistant already living in the opposite corner.
  *
  * Every role (including admin) goes through the same name/avatar picker
  * (chatProfile.ts) - the admin-specific "admin " name prefix is applied
@@ -25,7 +25,7 @@ type Tab = 'chat' | 'feedback'
  * `ChatTab` as props - calling it again inside `ChatTab` would open a
  * second, independent `/ws/chat` connection per mounted widget instead of
  * sharing the one this component already holds (caught by a real test:
- * presence/history events sent to "the" socket weren't reaching the chat
+ * online-user/message events sent to "the" socket weren't reaching the chat
  * tab, because it was listening on a different connection).
  */
 export function VisitorNetwork() {
@@ -41,24 +41,39 @@ export function VisitorNetwork() {
   // not a null-out-and-restart, so ProfileSetup can prefill the current
   // values instead of showing a blank form again.
   const [isEditingProfile, setIsEditingProfile] = useState(false)
+  // null = showing the contact list ("who do you want to talk to"); a
+  // client_id = that private thread is open. Reset whenever the panel is
+  // closed so reopening always starts back at the contact list.
+  const [selectedPeerClientId, setSelectedPeerClientId] = useState<string | null>(null)
   const isActiveView = isOpen && tab === 'chat'
   // Before a profile exists yet, useChatSocket still needs a stable
   // clientId (for its own-message/unread bookkeeping) even though nothing
   // can actually be sent until ProfileSetup is completed - the placeholder
   // name/avatar here are never sent, since the send form only renders once
   // `savedProfile` is non-null.
+  const profileForSocket = savedProfile ?? { clientId: getOrCreateClientId(), displayName: '', avatarId: '' }
   const chat = useChatSocket(
-    savedProfile ?? { clientId: getOrCreateClientId(), displayName: '', avatarId: '' },
-    isActiveView && savedProfile != null,
+    profileForSocket,
+    selectedPeerClientId,
+    isActiveView,
     // Speak a sticker's Thai caption aloud the moment it actually arrives
-    // live (never for replayed history - see useChatSocket.ts's docstring).
+    // live, and only for the thread currently on screen - never for replayed
+    // history, and never for a conversation the user isn't even looking at.
     (message) => {
+      const peerClientId = message.client_id === profileForSocket.clientId ? message.recipient_client_id : message.client_id
+      if (peerClientId !== selectedPeerClientId) return
       const sticker = decodeSticker(message.text)
       if (sticker) speakSticker(sticker)
     },
   )
-  const { onlineCount, unreadCount } = chat
+  const { totalUnreadCount, contacts } = chat
+  const onlineCount = contacts.filter((c) => c.online).length
   const titleId = useId()
+
+  function closePanel() {
+    setIsOpen(false)
+    setSelectedPeerClientId(null)
+  }
 
   return (
     <>
@@ -69,9 +84,9 @@ export function VisitorNetwork() {
         aria-label={isOpen ? 'ปิดหน้าต่างเครือข่ายผู้ชม' : 'เปิดหน้าต่างเครือข่ายผู้ชม'}
       >
         <ChatBubbleIcon />
-        {unreadCount > 0 && (
+        {totalUnreadCount > 0 && (
           <span className="visitor-unread-badge" aria-hidden="true">
-            {unreadCount > 99 ? '99+' : unreadCount}
+            {totalUnreadCount > 99 ? '99+' : totalUnreadCount}
           </span>
         )}
       </button>
@@ -82,13 +97,19 @@ export function VisitorNetwork() {
             <span id={titleId} className="visitor-panel-title">
               เครือข่ายผู้ชม 💬
             </span>
-            <button type="button" className="visitor-panel-close" onClick={() => setIsOpen(false)} aria-label="ปิดกล่องเครือข่ายผู้ชม">
+            <button type="button" className="visitor-panel-close" onClick={closePanel} aria-label="ปิดกล่องเครือข่ายผู้ชม">
               ×
             </button>
           </header>
 
           <div className="visitor-tabs" role="tablist">
-            <button type="button" role="tab" aria-selected={tab === 'chat'} className={tab === 'chat' ? 'visitor-tab active' : 'visitor-tab'} onClick={() => setTab('chat')}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'chat'}
+              className={tab === 'chat' ? 'visitor-tab active' : 'visitor-tab'}
+              onClick={() => setTab('chat')}
+            >
               แชท {onlineCount > 0 && `(${onlineCount} ออนไลน์)`}
             </button>
             <button
@@ -104,7 +125,13 @@ export function VisitorNetwork() {
 
           {tab === 'chat' ? (
             savedProfile && !isEditingProfile ? (
-              <ChatTab chat={chat} profile={savedProfile} onEditProfile={() => setIsEditingProfile(true)} />
+              <ChatTab
+                chat={chat}
+                profile={savedProfile}
+                selectedPeerClientId={selectedPeerClientId}
+                onSelectPeer={setSelectedPeerClientId}
+                onEditProfile={() => setIsEditingProfile(true)}
+              />
             ) : (
               <ChatProfileSetup
                 initial={savedProfile}
@@ -124,16 +151,109 @@ export function VisitorNetwork() {
   )
 }
 
-function ChatTab({ chat, profile, onEditProfile }: { chat: ChatSocketState; profile: ChatProfile; onEditProfile?: () => void }) {
-  const { messages, sendMessage, connected, hasMoreOlder, loadingOlder, loadOlder } = chat
+function ChatTab({
+  chat,
+  profile,
+  selectedPeerClientId,
+  onSelectPeer,
+  onEditProfile,
+}: {
+  chat: ChatSocketState
+  profile: ChatProfile
+  selectedPeerClientId: string | null
+  onSelectPeer: (clientId: string | null) => void
+  onEditProfile?: () => void
+}) {
+  const selectedContact = selectedPeerClientId ? chat.contacts.find((c) => c.clientId === selectedPeerClientId) : undefined
+
+  if (selectedPeerClientId) {
+    return (
+      <ThreadView
+        key={selectedPeerClientId}
+        chat={chat}
+        profile={profile}
+        peerClientId={selectedPeerClientId}
+        peerName={selectedContact?.displayName ?? 'ผู้ชม'}
+        peerOnline={selectedContact?.online ?? false}
+        onBack={() => onSelectPeer(null)}
+      />
+    )
+  }
+
+  return (
+    <>
+      <div className="visitor-contact-list">
+        {chat.contacts.length === 0 && (
+          <p className="visitor-empty">ยังไม่มีผู้ชมคนอื่นออนไลน์ตอนนี้ - รอสักครู่แล้วลองดูใหม่นะคะ</p>
+        )}
+        {chat.contacts.map((c) => (
+          <ContactRow key={c.clientId} contact={c} unreadCount={chat.conversations[c.clientId]?.unreadCount ?? 0} onClick={() => onSelectPeer(c.clientId)} />
+        ))}
+      </div>
+      {onEditProfile && (
+        <button type="button" className="visitor-edit-profile" onClick={onEditProfile}>
+          ✏️ {profile.displayName}
+        </button>
+      )}
+    </>
+  )
+}
+
+function ContactRow({ contact, unreadCount, onClick }: { contact: Contact; unreadCount: number; onClick: () => void }) {
+  const avatar = avatarById(contact.avatar)
+  return (
+    <button type="button" className="visitor-contact-row" onClick={onClick}>
+      <span className="visitor-avatar-circle visitor-contact-avatar" style={{ background: avatar.color }} aria-hidden="true">
+        {avatar.emoji}
+      </span>
+      <span className="visitor-contact-info">
+        <span className="visitor-contact-name">{contact.displayName}</span>
+        <span className={contact.online ? 'visitor-contact-status online' : 'visitor-contact-status'}>
+          {contact.online ? '🟢 ออนไลน์' : 'ออฟไลน์'}
+        </span>
+      </span>
+      {unreadCount > 0 && (
+        <span className="visitor-contact-unread" aria-hidden="true">
+          {unreadCount > 99 ? '99+' : unreadCount}
+        </span>
+      )}
+    </button>
+  )
+}
+
+function ThreadView({
+  chat,
+  profile,
+  peerClientId,
+  peerName,
+  peerOnline,
+  onBack,
+}: {
+  chat: ChatSocketState
+  profile: ChatProfile
+  peerClientId: string
+  peerName: string
+  peerOnline: boolean
+  onBack: () => void
+}) {
+  const { conversations, sendMessage, connected, openConversation, loadOlder } = chat
+  const conv = conversations[peerClientId]
+  const messages = conv?.messages ?? []
+  const hasMoreOlder = conv?.hasMoreOlder ?? true
+  const loadingOlder = conv?.loadingOlder ?? false
   const [input, setInput] = useState('')
   const [showStickers, setShowStickers] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const prevScrollHeightRef = useRef(0)
   const wasNearBottomRef = useRef(true)
 
+  useEffect(() => {
+    openConversation(peerClientId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [peerClientId])
+
   function sendSticker(stickerId: string) {
-    sendMessage(encodeSticker(stickerId))
+    sendMessage(peerClientId, encodeSticker(stickerId))
     setShowStickers(false)
   }
 
@@ -155,24 +275,26 @@ function ChatTab({ chat, profile, onEditProfile }: { chat: ChatSocketState; prof
     wasNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
     if (el.scrollTop < 40 && hasMoreOlder && !loadingOlder) {
       prevScrollHeightRef.current = el.scrollHeight
-      loadOlder()
+      loadOlder(peerClientId)
     }
   }
 
   return (
     <>
+      <div className="visitor-thread-header">
+        <button type="button" className="visitor-thread-back" onClick={onBack} aria-label="กลับไปหน้ารายชื่อผู้ชม">
+          ←
+        </button>
+        <span className="visitor-thread-peer-name">{peerName}</span>
+        <span className={peerOnline ? 'visitor-contact-status online' : 'visitor-contact-status'}>{peerOnline ? '🟢 ออนไลน์' : 'ออฟไลน์'}</span>
+      </div>
       <div className="visitor-messages" ref={listRef} onScroll={handleScroll}>
         {loadingOlder && <p className="visitor-loading-older">กำลังโหลดข้อความเก่า...</p>}
-        {messages.length === 0 && <p className="visitor-empty">ยังไม่มีข้อความ - ทักทายผู้ชมคนอื่นได้เลยค่ะ</p>}
+        {messages.length === 0 && <p className="visitor-empty">ยังไม่มีข้อความ - ทักทายผู้ชมคนนี้ได้เลยค่ะ</p>}
         {messages.map((m) => (
           <ChatBubble key={m.id} message={m} isOwn={m.client_id != null && m.client_id === profile.clientId} />
         ))}
       </div>
-      {onEditProfile && (
-        <button type="button" className="visitor-edit-profile" onClick={onEditProfile}>
-          ✏️ {profile.displayName}
-        </button>
-      )}
       {showStickers && (
         <div className="visitor-sticker-picker" role="group" aria-label="เลือกสติกเกอร์">
           {STICKER_OPTIONS.map((s) => (
@@ -195,7 +317,7 @@ function ChatTab({ chat, profile, onEditProfile }: { chat: ChatSocketState; prof
         className="visitor-input-row"
         onSubmit={(e) => {
           e.preventDefault()
-          sendMessage(input)
+          sendMessage(peerClientId, input)
           setInput('')
         }}
       >

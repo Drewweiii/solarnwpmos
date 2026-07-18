@@ -762,6 +762,67 @@ above) before the `local_store.py` fix and returned the seeded reading
 correctly after it - see `web/README.md`'s entry for the rendered cloud
 layer itself.
 
+### Rewritten - `/ws/chat` is private 1:1 messaging, not a public broadcast room (2026-07-18)
+
+**Correction, same day**: this originally said a manual `psql` migration
+against Railway's Postgres was required. That was wrong - checking
+production's actual `API_TIMESCALE_DSN` variable live (2026-07-18) found
+it's `sqlite+aiosqlite:////data/app.db`, a plain SQLite file on a Railway
+volume, **not Postgres at all** (the Postgres service in the Railway
+project is provisioned but unused/orphaned - `chat_messages` doesn't exist
+there, which is why running the migration SQL against it failed with
+`relation "chat_messages" does not exist"`). Railway gives no SQL console
+for a plain volume file the way it does for its own Postgres plugin, so
+"run this by hand" had nowhere to actually run it.
+
+Fixed properly instead: `main.py`'s `_ensure_recipient_client_id_column()`
+runs right after `Base.metadata.create_all` on every startup (still gated
+by `create_tables_on_startup`) and patches the column in via SQLAlchemy's
+dialect-agnostic inspector if a `chat_messages` table already exists
+without it - no manual DB step needed at all, just the usual manual
+Railway "Deploy" click after this pushes (see root `README.md`'s
+"Deployment notes" - Railway's auto-deploy still doesn't trigger on its
+own). Works unchanged if a deployment ever does move to real Postgres.
+
+The user reported the previous `/ws/chat` (site-wide single room + a
+public message broadcast to everyone connected) as a real privacy bug -
+"ต้องทำเพราะมันจำเป็น" (must fix, it's necessary) - not a UX nice-to-have.
+Rewrote `ws_chat.py` so every message is addressed to exactly one
+`recipient_client_id` and is only ever delivered - both the live WS push
+and the persisted row - to the two participants' own sockets;
+`ConnectionManager.send_to_client()` is now the only delivery primitive
+(the old `broadcast()` fan-out-to-everyone method is gone entirely).
+
+- **`ws_chat.py`**: connect now requires `?client_id=` (not just `?token=`)
+  so the server knows identity immediately, before any message is ever
+  sent - this is what populates the new `online_users` broadcast (replaces
+  the old `presence` count-only event) with `{client_id, display_name,
+  avatar, role}` per connected visitor, deduped per browser (several tabs
+  = one entry). No more bulk `history` push on connect - a client only
+  gets a conversation's history once it picks a specific peer (`GET /chat/
+  history?my_client_id=&peer_client_id=`, `ChatStore.conversation_
+  messages()` replacing the old separate `recent_messages()`/`messages_
+  before()` methods with one `before_id`-optional method). A new `type:
+  "update_profile"` WS message syncs a live name/avatar edit into the
+  online list without requiring a reconnect.
+- **`models.py`**: `ChatMessageORM` gained `recipient_client_id` (nullable
+  only because pre-2026-07-18 rows predate the column and were public
+  broadcasts with no single intended recipient - every row written from
+  this date on always has one).
+- **`db/migrations/0007_chat_direct_messages.sql`** (new): the column plus
+  two indexes on `(client_id, recipient_client_id)` and its reverse, for
+  the conversation-scoped lookup `GET /chat/history` now does.
+
+**Tested**: `test_ws_chat.py` fully rewritten (16 tests) - the load-bearing
+one proves a message sent to one recipient is never delivered to a third
+connected client, only to sender+recipient (the actual privacy property,
+not just a UI filter) - plus online-list broadcast/dedup, admin-prefix
+enforcement, multi-tab delivery, live profile sync, and peer-scoped history
+pagination/isolation. Full backend suite 148 passed. See `web/README.md`'s
+matching dated entry for the frontend contact-list/thread rework and its
+live 3-visitor Playwright verification (including the same privacy
+property proven end-to-end through real browsers, not just the WS layer).
+
 ### Added - `GET /weather/precipitation` (2026-07-18)
 
 Sibling route to `/weather/clouds` just above, same "site-wide, not
@@ -869,3 +930,29 @@ fetched `/moon-path/GIS?date=2026-07-18` and confirmed all 96 points came
 back with a genuine mix of 46 below-horizon and 50 above-horizon points
 (moonrise ~02:30Z, moonset ~15:00Z that day) - see `web/README.md`'s entry
 for the rendered scene.
+
+### Fixed - feedback/chat timestamps silently wrong by a fixed offset (2026-07-18)
+
+The user reported admin feedback timestamps "don't match the real send time
+at all" - lined up like `14:49`, `14:50` (consistently off, not random
+garbage). Root cause, confirmed directly (see `models.as_utc`'s docstring):
+`created_at` is always written as `datetime.now(timezone.utc)`, but what a
+row reads back **as** depends on the DB driver - asyncpg round-trips a
+`TIMESTAMPTZ` column's tzinfo correctly, but aiosqlite silently drops it,
+so `row.created_at` comes back tz-**naive** even though the value itself is
+still UTC. A naive datetime serializes with no UTC offset in the JSON
+(`"...T15:23:32"` instead of `"...+00:00"`/`"...Z"`), and a browser's `new
+Date(...)` then reads a timezone-less ISO string as **local** time, not
+UTC - every timestamp ends up wrong by exactly the viewer's own UTC offset
+(ICT = +7h). Fixed with a new `models.as_utc()` helper (attach `timezone.
+utc` only if the value comes back naive - safe, since it was always UTC to
+begin with), applied everywhere a `created_at` is read off a row before
+going into a response: `routes_feedback.py`'s `FeedbackStore.add()`/`list_
+all()` and `ws_chat.py`'s `_row_to_message()`. (Sender name was already
+shown correctly in `AdminFeedbackPage.tsx` - no separate fix needed there.)
+
+**Tested**: two regression tests assert the serialized `created_at` always
+carries an explicit UTC marker - `test_routes_feedback.py`'s new test
+against the SQLite-backed `app` fixture (the exact backend this bug
+reproduces on) and `test_ws_chat.py`'s matching test for chat messages.
+Full backend suite 159 passed.

@@ -143,12 +143,31 @@ export const getFeedback = (token: string): Promise<FeedbackItem[]> => request('
 // ws_chat.py's `/ws/chat` handshake auth, same `?token=` convention as every
 // other authenticated call - derived from API_BASE_URL's http(s) scheme
 // rather than a second env var, so it can never drift out of sync with it.
-export function chatSocketUrl(token: string): string {
+// `clientId`/`displayName`/`avatarId` also ride along as query params (not
+// headers - browsers can't set custom headers on a WS upgrade) since the
+// server now needs to know who this socket is *at connect time*, before any
+// message is ever sent (it's what populates the online-users list).
+export function chatSocketUrl(token: string, clientId: string, displayName: string, avatarId: string): string {
   const wsBase = API_BASE_URL.replace(/^http/, 'ws')
-  return `${wsBase}/ws/chat?token=${encodeURIComponent(token)}`
+  const params = new URLSearchParams({ token, client_id: clientId })
+  if (displayName) params.set('display_name', displayName)
+  if (avatarId) params.set('avatar', avatarId)
+  return `${wsBase}/ws/chat?${params.toString()}`
 }
 
-// Scroll-back page for the chat panel - the `limit` messages immediately
-// before `beforeId`, oldest-first (see ws_chat.py's `GET /chat/history`).
-export const getChatHistory = (beforeId: number, token: string, limit = 50): Promise<{ messages: ChatMessage[] }> =>
-  request(`/chat/history?before_id=${beforeId}&limit=${limit}`, token)
+// A conversation is now scoped to one specific pair of visitors (private
+// messaging, not one shared public room - see ws_chat.py's module
+// docstring), so both ends of the pair are required. `beforeId` omitted
+// loads the most recent page; passed, it pages further back within that
+// same pair - never messages the two exchanged with anyone else.
+export const getChatHistory = (
+  myClientId: string,
+  peerClientId: string,
+  token: string,
+  beforeId?: number,
+  limit = 50,
+): Promise<{ messages: ChatMessage[] }> => {
+  const params = new URLSearchParams({ my_client_id: myClientId, peer_client_id: peerClientId, limit: String(limit) })
+  if (beforeId != null) params.set('before_id', String(beforeId))
+  return request(`/chat/history?${params.toString()}`, token)
+}

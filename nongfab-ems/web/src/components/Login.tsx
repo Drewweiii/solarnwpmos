@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useAuth } from '../lib/auth'
+import { LoginSolarDecor } from './LoginSolarDecor'
 import { LoginWelcome } from './LoginWelcome'
 import { OrgLogos } from './OrgLogos'
 
@@ -26,10 +27,11 @@ export function Login() {
 
   return (
     <div className="login-screen">
+      <LoginSolarDecor />
       <LoginWelcome />
       <OrgLogos variant="login" />
       <form className="login-form" onSubmit={handleSubmit}>
-        <h1>Nong Fab Solar EMS</h1>
+        <h1>PTT LNG Terminal 2 Nong Fab Solar Forecasting</h1>
         <p className="login-subtitle">Sign in to continue</p>
         {autoLogoutReason && (
           <p role="status" className="login-notice">
