@@ -956,3 +956,37 @@ carries an explicit UTC marker - `test_routes_feedback.py`'s new test
 against the SQLite-backed `app` fixture (the exact backend this bug
 reproduces on) and `test_ws_chat.py`'s matching test for chat messages.
 Full backend suite 159 passed.
+
+## `GET /weather/strip` extended with jitkomut's remaining 9 forecast variables (2026-07-18, Track 1 work, done by Track 2 with permission)
+
+ForecastPage's planned 3x3 real-time table + grouped graphs need all 9 of
+jitkomut's reference-paper variables, not just the 2 (ssrd_w_m2/temp_c)
+this endpoint already carried. Added, per point: `ghi_clearsky_w_m2`
+(I_clr) and `cos_zenith` - both pure pvlib solar geometry (Ineichen
+clear-sky + solar position, `nongfab_features.clearsky`), needing no
+weather forecast at all, so populated for the *entire* window including
+future hours; `cloud_index` (k-hat) - the real Himawari-derived clear-sky
+index already used by the Sum-k LSTM training pipeline, nearest-in-time
+join against `cloud_history`, `None` wherever no observation exists nearby
+(which is always true for future hours - Himawari only observes, it
+doesn't forecast); `relative_humidity_pct` and `wind_speed_ms` (from
+`nwp_history`'s existing columns, wind speed computed via
+`hypot(u, v)`) - deliberately `None` for future timestamps even though
+the GFS row technically carries a value there, since unlike ssrd/temp
+neither was ever validated as a trained-model regressor in this pipeline.
+
+Also added a separate `uv_daily` list on the response (not part of
+`points`) for the last 14 days of accumulated UV history - `uv_history` is
+daily-resolution only (NASA POWER's own granularity), so it can't share
+the hourly points list's shape without fabricating intra-day values.
+
+See `web/README.md`'s matching dated entry for the fuller "which of the 9
+were already used vs. newly surfaced" audit and the frontend side of this.
+
+**Tested**: 5 new tests in `test_routes_weather.py` - solar geometry
+present for the whole window including future hours, cloud_index populated
+near a real observation and null further away, RH/wind null specifically
+for future timestamps (not past/now), UV daily history filtered to the
+recent window, and the synthetic-fallback path still computing geometry
+honestly while leaving cloud/RH/wind/UV empty rather than fabricated.
+22/22 in this file, full backend suite 172/172, `ruff check` clean.

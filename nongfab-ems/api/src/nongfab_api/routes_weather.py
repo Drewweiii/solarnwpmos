@@ -12,14 +12,49 @@ falling back to the same synthetic day/night baseline every other
 unauthenticated-telemetry route in this app already uses otherwise -
 `data_source` in the response says which, so the frontend can label it
 honestly rather than imply it's live weather when it isn't.
+
+## The 9 variables (2026-07-18)
+
+Extended the same window to also carry the rest of jitkomut's reference
+paper's 9 forecast variables, for ForecastPage's real-time 3x3 table +
+grouped graphs (see web/README.md's matching dated entry for the full
+audit of which were already used vs. collected-but-unsurfaced):
+I/T/I_wrf were already here (`ssrd_w_m2`/`temp_c` - I is the actual/past/
+now portion, I_wrf is the same field's future-forecast portion, split
+client-side by timestamp vs. now exactly like the main power chart already
+splits actualPast/actualNow vs. pred). Newly added below:
+- **I_clr** (`ghi_clearsky_w_m2`) and **cos(zenith)** (`cos_zenith`) - both
+  deterministic solar geometry (pvlib Ineichen + solar position), computable
+  for the *entire* window including future hours, since neither needs a
+  weather forecast at all - see `nongfab_features.clearsky`.
+- **k-hat** (`cloud_index`) - the real Himawari-derived clear-sky index
+  already flowing through the Sum-k LSTM training pipeline (see
+  `nongfab_forecast.real_data._cloud_index_nearest_to`) - `None` wherever
+  no cloud observation exists nearby in time, which naturally means never
+  for future hours (Himawari has no forecast mode, only observations).
+- **RH** (`relative_humidity_pct`) and **wind speed** (`wind_speed_ms`) -
+  present in the same NWP row as ssrd/temp, but deliberately `None` for
+  future timestamps even though the GFS row technically carries a value
+  there: unlike ssrd/temp, RH/wind were never validated as trained-model
+  regressors in this pipeline, so presenting them as "forecast" here would
+  overstate confidence this project hasn't earned for them yet - the
+  user's own explicit instruction for this dashboard: "ถ้าบางตัวแปรไม่มีการ
+  forecast ก็ไม่เป็นไรไม่ต้องไปฝืนสุ่มค่าข้อมูล forecast".
+- **UV index** (`uv_daily`, a separate list on the response, not part of
+  `points`) - `uv_history` is daily-resolution only (NASA POWER's own
+  granularity, see ingestion/nasa_power/README.md), so it can't share the
+  hourly `points` list's shape without fabricating intra-day values that
+  don't exist.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
+import numpy as np
 import pandas as pd
 from fastapi import APIRouter, Depends, Request
+from nongfab_features.clearsky import compute_clearsky_and_position, nong_fab_site_location
 from nongfab_forecast.local_store import RealDataStore
 from nongfab_simulation.dev_data import synthetic_temp_at
 from pydantic import BaseModel
@@ -39,16 +74,39 @@ DEFAULT_HOURS_EACH_SIDE = 12
 # fallback.
 _MIN_REAL_COVERAGE_FRACTION = 0.8
 
+# How many days of accumulated UV history to return alongside the hourly
+# window - daily-resolution, so a handful of days is already a meaningful
+# trend line without over-fetching an ever-growing accumulated table.
+_UV_HISTORY_DAYS = 14
+
+# Cloud observations (Himawari) more than this far from a target hour aren't
+# treated as "at that hour" - wider than /weather/clouds' own 30-minute
+# staleness guard (a *current-conditions* check) since this is backfilling a
+# multi-hour window from whatever poll cadence actually landed, not gating
+# freshness of a single "right now" reading.
+_CLOUD_INDEX_MAX_DELTA_HOURS = 1.0
+
 
 class WeatherStripPoint(BaseModel):
     timestamp: datetime
     temp_c: float
     ssrd_w_m2: float
+    ghi_clearsky_w_m2: float
+    cos_zenith: float
+    cloud_index: float | None = None
+    relative_humidity_pct: float | None = None
+    wind_speed_ms: float | None = None
+
+
+class UvDailyPoint(BaseModel):
+    date: date
+    uv_index: float
 
 
 class WeatherStripResponse(BaseModel):
     data_source: str  # "real" or "synthetic" - see this module's own docstring
     points: list[WeatherStripPoint]
+    uv_daily: list[UvDailyPoint] = []
 
 
 def _nearest_real_row(df: pd.DataFrame, target: datetime, max_delta_hours: float = 1.5) -> pd.Series | None:
@@ -59,6 +117,38 @@ def _nearest_real_row(df: pd.DataFrame, target: datetime, max_delta_hours: float
     return df.loc[idx]
 
 
+def _solar_geometry(targets: list[datetime]) -> tuple[np.ndarray, np.ndarray]:
+    """(ghi_clearsky_w_m2, cos_zenith) arrays aligned 1:1 with `targets` - pure
+    pvlib geometry (Ineichen clear-sky model + solar position), needs no
+    weather data at all, so this is computable for the entire window
+    (including future hours) regardless of data_source.
+    """
+    lat, lon = nong_fab_site_location()
+    geo = compute_clearsky_and_position(pd.DatetimeIndex(targets), lat, lon)
+    return geo["ghi_clearsky"].to_numpy(), np.cos(np.radians(geo["zenith_deg"].to_numpy()))
+
+
+def _nearest_cloud_index(cloud_df: pd.DataFrame, target: datetime) -> float | None:
+    if cloud_df.empty:
+        return None
+    deltas = (cloud_df["observed_at"] - target).abs()
+    idx = deltas.idxmin()
+    if deltas.loc[idx].total_seconds() > _CLOUD_INDEX_MAX_DELTA_HOURS * 3600:
+        return None
+    return float(cloud_df.loc[idx, "cloud_index"])
+
+
+def _maybe_float(value: object) -> float | None:
+    return None if pd.isna(value) else float(value)  # type: ignore[arg-type]
+
+
+def _wind_speed_ms(row: pd.Series) -> float | None:
+    u, v = row.get("wind10m_u_ms"), row.get("wind10m_v_ms")
+    if pd.isna(u) or pd.isna(v):
+        return None
+    return float(np.hypot(u, v))
+
+
 def _real_window(store: RealDataStore, now: datetime, hours_each_side: int) -> list[WeatherStripPoint] | None:
     df = store.nwp_history_df()
     if df.empty:
@@ -66,12 +156,30 @@ def _real_window(store: RealDataStore, now: datetime, hours_each_side: int) -> l
 
     hour_start = now.replace(minute=0, second=0, microsecond=0)
     targets = [hour_start + timedelta(hours=offset) for offset in range(-hours_each_side, hours_each_side + 1)]
+    ghi_clearsky_arr, cos_zenith_arr = _solar_geometry(targets)
+    cloud_df = store.cloud_history_df()
 
     points: list[WeatherStripPoint] = []
-    for target in targets:
+    for i, target in enumerate(targets):
         row = _nearest_real_row(df, target)
-        if row is not None:
-            points.append(WeatherStripPoint(timestamp=target, temp_c=float(row["temp2m_c"]), ssrd_w_m2=float(row["ssrd_w_m2"])))
+        if row is None:
+            continue
+        # RH/wind are never shown for future hours even though the GFS row
+        # technically carries a value there - see this module's own docstring
+        # on why (never validated as trained regressors, unlike ssrd/temp).
+        is_future = target > now
+        points.append(
+            WeatherStripPoint(
+                timestamp=target,
+                temp_c=float(row["temp2m_c"]),
+                ssrd_w_m2=float(row["ssrd_w_m2"]),
+                ghi_clearsky_w_m2=float(ghi_clearsky_arr[i]),
+                cos_zenith=float(cos_zenith_arr[i]),
+                cloud_index=_nearest_cloud_index(cloud_df, target),
+                relative_humidity_pct=None if is_future else _maybe_float(row.get("relative_humidity_pct")),
+                wind_speed_ms=None if is_future else _wind_speed_ms(row),
+            )
+        )
 
     if len(points) < len(targets) * _MIN_REAL_COVERAGE_FRACTION:
         return None
@@ -84,9 +192,30 @@ def _synthetic_window(now: datetime, hours_each_side: int) -> list[WeatherStripP
         hour_start - timedelta(hours=hours_each_side), hour_start + timedelta(hours=hours_each_side), freq="h", tz="UTC"
     )
     ssrd, temp = synthetic_temp_at(idx)
+    targets = [ts.to_pydatetime() for ts in idx]
+    ghi_clearsky_arr, cos_zenith_arr = _solar_geometry(targets)
+    # cloud_index/RH/wind stay None here - no real observation exists at all
+    # in synthetic-fallback mode, and fabricating plausible-looking values for
+    # them would misrepresent a made-up number as real weather data.
     return [
-        WeatherStripPoint(timestamp=ts.to_pydatetime(), temp_c=float(t), ssrd_w_m2=float(s)) for ts, s, t in zip(idx, ssrd, temp)
+        WeatherStripPoint(
+            timestamp=target,
+            temp_c=float(t),
+            ssrd_w_m2=float(s),
+            ghi_clearsky_w_m2=float(ghi_clearsky_arr[i]),
+            cos_zenith=float(cos_zenith_arr[i]),
+        )
+        for i, (target, s, t) in enumerate(zip(targets, ssrd, temp))
     ]
+
+
+def _uv_daily(store: RealDataStore, now: datetime) -> list[UvDailyPoint]:
+    df = store.uv_history_df()
+    if df.empty:
+        return []
+    cutoff = (now - timedelta(days=_UV_HISTORY_DAYS)).date()
+    recent = df[df["observation_date"] >= cutoff].sort_values("observation_date")
+    return [UvDailyPoint(date=row["observation_date"], uv_index=float(row["uv_index"])) for _, row in recent.iterrows()]
 
 
 @router.get("/weather/strip", response_model=WeatherStripResponse)
@@ -95,12 +224,13 @@ async def get_weather_strip(
 ) -> WeatherStripResponse:
     now = datetime.now(timezone.utc)
     store: RealDataStore = request.app.state.real_data_store
+    uv_daily = _uv_daily(store, now)
 
     real_points = _real_window(store, now, hours_each_side)
     if real_points is not None:
-        return WeatherStripResponse(data_source="real", points=real_points)
+        return WeatherStripResponse(data_source="real", points=real_points, uv_daily=uv_daily)
 
-    return WeatherStripResponse(data_source="synthetic", points=_synthetic_window(now, hours_each_side))
+    return WeatherStripResponse(data_source="synthetic", points=_synthetic_window(now, hours_each_side), uv_daily=uv_daily)
 
 
 # A cloud observation older than this is stale enough that showing it as

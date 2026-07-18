@@ -93,9 +93,14 @@ function makeWeatherStrip(hourStartIso: string, hoursEachSide: number): WeatherS
       timestamp: new Date(start.getTime() + offset * 3600_000).toISOString(),
       temp_c: 30.0,
       ssrd_w_m2: 500,
+      ghi_clearsky_w_m2: 700,
+      cos_zenith: 0.7,
+      cloud_index: null,
+      relative_humidity_pct: null,
+      wind_speed_ms: null,
     })
   }
-  return { data_source: 'real', points }
+  return { data_source: 'real', points, uv_daily: [] }
 }
 
 const registry: AssetRegistry = { zones: [makeZone('GIS', 50), makeZone('ISB', 120), makeZone('Jetty', 200, true)] }

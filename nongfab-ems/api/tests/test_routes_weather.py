@@ -275,6 +275,135 @@ def test_get_precipitation_conditions_intensity_bands(engine, tmp_path, monkeypa
     assert resp.json()["intensity"] == expected_intensity
 
 
+@dataclass
+class _FakeUVObservation:
+    observation_date: object
+    uv_index: float
+    source: str
+
+
+def test_get_weather_strip_includes_solar_geometry_for_whole_window_including_future(engine, tmp_path, monkeypatch):
+    """I_clr (ghi_clearsky_w_m2) and cos(zenith) are pure solar geometry - no
+    weather forecast needed - so they must be populated for every point in
+    the window, including the future half, unlike ssrd/temp which only exist
+    where a real NWP row happens to cover that hour.
+    """
+    from nongfab_api.auth import create_access_token
+
+    monkeypatch.setattr(routes_weather, "datetime", _FixedDatetime)
+    monkeypatch.setattr(dev_data, "datetime", _FixedDatetime)
+    app, settings = _app_with_file_backed_store(engine, tmp_path)
+
+    with TestClient(app) as client:
+        app.state.real_data_store.insert_nwp_points(_real_points_around(_FIXED_NOW, hours_each_side=6))
+        token = create_access_token("tester", "viewer", settings, app.state.deploy_id)
+        resp = client.get("/weather/strip?hours_each_side=4", headers={"Authorization": f"Bearer {token}"})
+    points = resp.json()["points"]
+    assert len(points) == 9
+    for p in points:
+        assert isinstance(p["ghi_clearsky_w_m2"], float)
+        assert 0.0 <= p["cos_zenith"] <= 1.0000001  # cos(zenith) is unitless, [0, ~1]
+
+
+def test_get_weather_strip_includes_cloud_index_near_a_real_cloud_observation(engine, tmp_path, monkeypatch):
+    from nongfab_api.auth import create_access_token
+
+    monkeypatch.setattr(routes_weather, "datetime", _FixedDatetime)
+    monkeypatch.setattr(dev_data, "datetime", _FixedDatetime)
+    app, settings = _app_with_file_backed_store(engine, tmp_path)
+    hour_start = _FIXED_NOW.replace(minute=0, second=0, microsecond=0)
+
+    with TestClient(app) as client:
+        app.state.real_data_store.insert_nwp_points(_real_points_around(_FIXED_NOW, hours_each_side=4))
+        app.state.real_data_store.insert_cloud_frames(
+            [
+                _FakeCloudFrame(
+                    observed_at=hour_start, source="test", nong_fab_cloud_opacity_pct=20.0, nong_fab_cloud_index=0.65,
+                )
+            ]
+        )
+        token = create_access_token("tester", "viewer", settings, app.state.deploy_id)
+        resp = client.get("/weather/strip?hours_each_side=4", headers={"Authorization": f"Bearer {token}"})
+    points = resp.json()["points"]
+    center = next(p for p in points if datetime.fromisoformat(p["timestamp"]) == hour_start)
+    assert center["cloud_index"] == pytest.approx(0.65)
+    # A point 3 hours away from the single cloud observation is well outside
+    # _CLOUD_INDEX_MAX_DELTA_HOURS - no Himawari frame exists that far off,
+    # so it must stay None rather than reusing a stale nearby reading.
+    far = next(p for p in points if datetime.fromisoformat(p["timestamp"]) == hour_start + timedelta(hours=3))
+    assert far["cloud_index"] is None
+
+
+def test_get_weather_strip_nulls_relative_humidity_and_wind_for_future_hours_only(engine, tmp_path, monkeypatch):
+    from nongfab_api.auth import create_access_token
+
+    monkeypatch.setattr(routes_weather, "datetime", _FixedDatetime)
+    monkeypatch.setattr(dev_data, "datetime", _FixedDatetime)
+    app, settings = _app_with_file_backed_store(engine, tmp_path)
+    hour_start = _FIXED_NOW.replace(minute=0, second=0, microsecond=0)
+
+    with TestClient(app) as client:
+        app.state.real_data_store.insert_nwp_points(_real_points_around(_FIXED_NOW, hours_each_side=4))
+        token = create_access_token("tester", "viewer", settings, app.state.deploy_id)
+        resp = client.get("/weather/strip?hours_each_side=4", headers={"Authorization": f"Bearer {token}"})
+    points = resp.json()["points"]
+
+    past_point = next(p for p in points if datetime.fromisoformat(p["timestamp"]) == hour_start - timedelta(hours=2))
+    assert past_point["relative_humidity_pct"] == pytest.approx(70.0)
+    assert past_point["wind_speed_ms"] is not None
+
+    future_point = next(p for p in points if datetime.fromisoformat(p["timestamp"]) == hour_start + timedelta(hours=2))
+    assert future_point["relative_humidity_pct"] is None
+    assert future_point["wind_speed_ms"] is None
+    # ssrd/temp, unlike RH/wind, are still shown for the future - they're the
+    # already-established I_wrf/T forecast, this isn't a new restriction.
+    assert future_point["ssrd_w_m2"] is not None
+
+
+def test_get_weather_strip_includes_recent_uv_daily_history(engine, tmp_path, monkeypatch):
+    from datetime import date as date_cls
+
+    from nongfab_api.auth import create_access_token
+
+    monkeypatch.setattr(routes_weather, "datetime", _FixedDatetime)
+    monkeypatch.setattr(dev_data, "datetime", _FixedDatetime)
+    app, settings = _app_with_file_backed_store(engine, tmp_path)
+
+    with TestClient(app) as client:
+        app.state.real_data_store.insert_uv_observations(
+            [
+                _FakeUVObservation(observation_date=date_cls(2026, 7, 15), uv_index=9.5, source="test"),
+                _FakeUVObservation(observation_date=date_cls(2026, 7, 16), uv_index=10.1, source="test"),
+                # Far outside _UV_HISTORY_DAYS - should be excluded from the response.
+                _FakeUVObservation(observation_date=date_cls(2025, 1, 1), uv_index=3.0, source="test"),
+            ]
+        )
+        token = create_access_token("tester", "viewer", settings, app.state.deploy_id)
+        resp = client.get("/weather/strip?hours_each_side=1", headers={"Authorization": f"Bearer {token}"})
+    uv_daily = resp.json()["uv_daily"]
+    assert [d["date"] for d in uv_daily] == ["2026-07-15", "2026-07-16"]
+    assert uv_daily[1]["uv_index"] == pytest.approx(10.1)
+
+
+def test_get_weather_strip_synthetic_fallback_has_geometry_but_not_cloud_rh_wind(app, token_factory, monkeypatch):
+    monkeypatch.setattr(routes_weather, "datetime", _FixedDatetime)
+    monkeypatch.setattr(dev_data, "datetime", _FixedDatetime)
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get("/weather/strip?hours_each_side=4", headers={"Authorization": f"Bearer {token}"})
+    body = resp.json()
+    assert body["data_source"] == "synthetic"
+    for p in body["points"]:
+        assert isinstance(p["ghi_clearsky_w_m2"], float)
+        assert isinstance(p["cos_zenith"], float)
+        # No real observation exists at all in synthetic mode - these must
+        # stay honestly None, not a fabricated placeholder value.
+        assert p["cloud_index"] is None
+        assert p["relative_humidity_pct"] is None
+        assert p["wind_speed_ms"] is None
+    assert body["uv_daily"] == []
+
+
 def test_get_weather_strip_falls_back_to_synthetic_when_real_coverage_too_sparse(engine, tmp_path, monkeypatch):
     from nongfab_api.auth import create_access_token
 

@@ -91,6 +91,16 @@ export interface WeatherStripPoint {
   timestamp: string
   temp_c: number
   ssrd_w_m2: number
+  // The 9 jitkomut variables (2026-07-18) - see routes_weather.py's own
+  // docstring for the full audit of which were already used vs. newly
+  // surfaced, and why relative_humidity_pct/wind_speed_ms are deliberately
+  // null for future timestamps while ghi_clearsky_w_m2/cos_zenith (pure
+  // solar geometry, no forecast needed) never are.
+  ghi_clearsky_w_m2: number
+  cos_zenith: number
+  cloud_index: number | null
+  relative_humidity_pct: number | null
+  wind_speed_ms: number | null
 }
 
 // "real" once GET /weather/strip finds real accumulated NWP data covering
@@ -101,9 +111,18 @@ export interface WeatherStripPoint {
 // own `dataSource` prop against it too.
 export type ForecastDataSource = 'real' | 'synthetic'
 
+// UV index is daily-resolution only (NASA POWER's own granularity) - a
+// separate list, not part of `points`, since it can't share the hourly
+// series' shape without fabricating intra-day values that don't exist.
+export interface UvDailyPoint {
+  date: string
+  uv_index: number
+}
+
 export interface WeatherStripResponse {
   data_source: ForecastDataSource
   points: WeatherStripPoint[]
+  uv_daily: UvDailyPoint[]
 }
 
 // GET /weather/clouds - latest real Himawari cloud reading, site-wide (same

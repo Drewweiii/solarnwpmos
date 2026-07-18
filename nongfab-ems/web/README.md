@@ -2347,3 +2347,36 @@ with a real min/max/value once there's genuine overflow, dragging it
 actually moves `scrollLeft`, and the initial position lands centered on
 "now" rather than 0 - screenshotted before and after the CSS fix to
 confirm the before-state reproduced the bug exactly as diagnosed.
+
+### In progress - the 9-variable dashboard, part 1: types + backend wiring (2026-07-18, Track 1 work, done by Track 2 with permission)
+
+First checkpoint of a larger feature (3x3 real-time table + grouped graphs
+for jitkomut's 9 reference-paper variables), landed separately from the UI
+itself per this session's "commit after each real chunk" policy. The
+9-variable audit locked in earlier the same day (from a since-lost prior
+session - see `HANDOFF.md`/this session's own notes): **5 already used**
+- I (`ssrd_w_m2`), T (`temp_c`), I_clr, k-hat (as `cloud_index`), I_wrf
+(the same `ssrd_w_m2` field's future-forecast portion, split client-side
+by timestamp vs. now - see ForecastPage's existing actualPast/pred split,
+which this mirrors rather than inventing a new distinction). **4 newly
+surfaced**: RH and wind speed were collected into `nwp_history` but never
+read anywhere; UV index exists only as daily-resolution NASA POWER data;
+zenith angle was computed elsewhere (Solar3DPage) but never exposed via
+any weather endpoint.
+
+`lib/types.ts`'s `WeatherStripPoint`/`WeatherStripResponse` now match the
+extended `GET /weather/strip` response (see `api/README.md`'s matching
+entry for the backend side) - `ghi_clearsky_w_m2`, `cos_zenith`,
+`cloud_index`, `relative_humidity_pct`, `wind_speed_ms` per point, plus a
+separate `uv_daily` list. Planned graph grouping (already agreed, not yet
+built): I/I_clr/I_wrf together (same W/m² unit, all have actual+forecast),
+T alone (has its own NWP forecast), k-hat + cos(zenith) together (both
+unitless ~0-1, no forecast - derived-from-now only), RH/wind/UV each on
+their own graph (different units, genuinely no forecast model for any of
+them - not fabricating one).
+
+**Tested**: existing `weatherStrip.test.ts`/`assistant.test.ts`/
+`ForecastPage.test.tsx` mocks updated for the new required fields (a
+`point()` test factory added to `weatherStrip.test.ts` so each case only
+spells out what it actually varies). Full suite 316/316, `tsc` clean - no
+UI changes yet, so nothing new to live-verify at this checkpoint.
