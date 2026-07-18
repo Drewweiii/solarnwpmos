@@ -209,6 +209,38 @@ def test_file_backed_store_persists_across_reconnects(tmp_path):
     assert df.iloc[0]["ssrd_w_m2"] == 42.0
 
 
+def test_migrates_pre_candidate_errors_forecast_history_table(tmp_path):
+    # Simulates a forecast_history table created before the 2026-07-18
+    # candidate_errors column existed (e.g. Railway's persisted
+    # NONGFAB_REAL_DATA_DB volume from an older deploy) - opening it with the
+    # current RealDataStore must add the column rather than raising "no such
+    # column: candidate_errors" on the first record_forecast_points call.
+    import sqlite3
+
+    db_path = str(tmp_path / "legacy.db")
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE forecast_history (
+            zone TEXT NOT NULL, horizon TEXT NOT NULL, target_time TEXT NOT NULL, issued_at TEXT NOT NULL,
+            pred REAL NOT NULL, lower REAL, upper REAL, algorithm TEXT, error REAL,
+            PRIMARY KEY (zone, horizon, target_time)
+        );
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    store = RealDataStore(db_path=db_path)
+    now = datetime(2026, 7, 18, 9, tzinfo=timezone.utc)
+    store.record_forecast_points(
+        "GIS", "hour", now,
+        [_FakeForecastPoint(timestamp=now, pred=1.0, lower=None, upper=None, algorithm=None, error=None, candidate_errors={"lightgbm": 1.0})],
+    )
+    rows = store.forecast_history_points("GIS", "hour", since=now)
+    assert rows[0][-1] == {"lightgbm": 1.0}
+
+
 def test_two_in_memory_stores_do_not_share_state():
     store1 = RealDataStore(db_path=":memory:")
     store1.insert_nwp_points([
@@ -229,6 +261,7 @@ class _FakeForecastPoint:
     upper: float | None
     algorithm: str | None
     error: float | None
+    candidate_errors: dict[str, float] | None = None
 
 
 def test_record_and_read_forecast_points_roundtrips():
@@ -245,9 +278,41 @@ def test_record_and_read_forecast_points_roundtrips():
 
     rows = store.forecast_history_points("GIS", "hour", since=now)
     assert len(rows) == 2
-    target_time, pred, lower, upper, algorithm, error = rows[0]
+    target_time, pred, lower, upper, algorithm, error, candidate_errors = rows[0]
     assert target_time == now.isoformat()
     assert (pred, lower, upper, algorithm, error) == (10.0, 8.0, 12.0, "lightgbm", 1.5)
+    assert candidate_errors == {}
+
+
+def test_record_forecast_points_roundtrips_candidate_errors():
+    store = RealDataStore()
+    now = datetime(2026, 7, 18, 9, tzinfo=timezone.utc)
+    point = _FakeForecastPoint(
+        timestamp=now, pred=10.0, lower=8.0, upper=12.0, algorithm="lightgbm", error=1.5,
+        candidate_errors={"lightgbm": 1.5, "random_forest": 1.8, "sum_k_lstm": 1.6},
+    )
+    store.record_forecast_points("GIS", "hour", now, [point])
+
+    rows = store.forecast_history_points("GIS", "hour", since=now)
+    assert rows[0][-1] == {"lightgbm": 1.5, "random_forest": 1.8, "sum_k_lstm": 1.6}
+
+
+def test_record_forecast_points_defaults_missing_candidate_errors_attribute():
+    # A caller predating the 2026-07-18 candidate_errors field (e.g. a plain
+    # object without that attribute) shouldn't raise - getattr(..., None)
+    # covers it and the stored/read-back value is just an empty dict.
+    class _LegacyPoint:
+        timestamp = datetime(2026, 7, 18, 9, tzinfo=timezone.utc)
+        pred = 5.0
+        lower = None
+        upper = None
+        algorithm = None
+        error = None
+
+    store = RealDataStore()
+    store.record_forecast_points("GIS", "hour", _LegacyPoint.timestamp, [_LegacyPoint()])
+    rows = store.forecast_history_points("GIS", "hour", since=_LegacyPoint.timestamp)
+    assert rows[0][-1] == {}
 
 
 def test_forecast_history_points_excludes_rows_before_since():
@@ -277,7 +342,7 @@ def test_record_forecast_points_upserts_on_zone_horizon_target_time():
     )
     rows = store.forecast_history_points("GIS", "hour", since=target)
     assert len(rows) == 1
-    assert rows[0][1:] == (15.0, 13.0, 17.0, "random_forest", 1.0)
+    assert rows[0][1:] == (15.0, 13.0, 17.0, "random_forest", 1.0, {})
 
 
 def test_forecast_history_points_scoped_to_zone_and_horizon():

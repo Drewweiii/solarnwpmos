@@ -278,6 +278,26 @@
   color: var(--text-h);
 }
 
+.forecast-competition-panel {
+  padding: 16px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+}
+
+.forecast-competition-title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.forecast-competition-subtitle {
+  margin: 0 0 8px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
 .forecast-status {
   font-size: 14px;
   color: var(--text);

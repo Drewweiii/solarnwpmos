@@ -85,6 +85,15 @@ def test_hour_ahead_train_then_forecast_round_trip(client):
         # error line.
         assert point["algorithm"] in ("lightgbm", "random_forest", "sum_k_lstm")
         assert point["error"] >= 0
+        # candidate_errors (2026-07-18) carries every candidate's own RMSE for
+        # that lead hour, not just the winner's `error` above - lets the
+        # dashboard show all three models' error side by side. This fixture's
+        # synthetic data always clears Sum-k LSTM's training bar (see comment
+        # above), so all three keys are present for every lead hour here.
+        assert set(point["candidate_errors"]) == {"lightgbm", "random_forest", "sum_k_lstm"}
+        assert point["candidate_errors"]["lightgbm"] >= 0
+        # the winner's own `error` must equal its own entry in candidate_errors
+        assert point["candidate_errors"][point["algorithm"]] == pytest.approx(point["error"])
 
 
 @pytest.mark.slow

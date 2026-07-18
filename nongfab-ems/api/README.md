@@ -218,7 +218,11 @@ management, config writes) has somewhere to plug in without a schema change.
   for `hour`/`day` (not `minute`), `points` now also includes recent
   already-past target hours (persisted, not just this call's own forward-
   looking window) - see `forecast/README.md`'s "Forecast history
-  persistence" entry.
+  persistence" entry. Each hour-ahead point also carries `candidate_errors`
+  (every candidate's own RMSE for that lead hour, not just the winner's -
+  e.g. `{"lightgbm": 6.6, "random_forest": 7.4, "sum_k_lstm": 42.6}`) -
+  `None`/`{}` for minute/day/physics-baseline - see `forecast/README.md`'s
+  "Per-candidate model error exposed" entry.
 - **`POST /simulate/{zone}`** → what-if scenario (cloud/curtailment/
   degradation) applied to a baseline day, with an optional scenario-
   uncertainty Monte Carlo interval. Same request/response shape as Module

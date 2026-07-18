@@ -4,7 +4,7 @@ import { useForecastHistory } from '../forecastHistory'
 import type { ForecastPoint } from '../types'
 
 function point(timestamp: string, pred: number): ForecastPoint {
-  return { timestamp, pred, lower: pred - 2, upper: pred + 2, algorithm: null, error: null }
+  return { timestamp, pred, lower: pred - 2, upper: pred + 2, algorithm: null, error: null, candidate_errors: null }
 }
 
 describe('useForecastHistory', () => {

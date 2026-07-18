@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ForecastPage } from '../ForecastPage'
@@ -56,13 +56,22 @@ function makePerformance(zone: string, peakKw: number): PerformanceResponse {
 
 function makeForecast(zone: string, horizon: ForecastResponse['horizon'] = 'day'): ForecastResponse {
   const algorithm = horizon === 'hour' ? 'lightgbm' : horizon === 'minute' ? 'cnn_lstm' : 'neuralprophet'
+  const candidateErrors = horizon === 'hour' ? { lightgbm: 3.2, random_forest: 4.1, sum_k_lstm: 3.8 } : null
   return {
     zone,
     horizon,
     issued_at: '2026-07-14T00:00:00Z',
     model_version: 1,
     points: [
-      { timestamp: '2026-07-14T12:00:00Z', pred: 40, lower: 32, upper: 48, algorithm, error: horizon === 'hour' ? 3.2 : null },
+      {
+        timestamp: '2026-07-14T12:00:00Z',
+        pred: 40,
+        lower: 32,
+        upper: 48,
+        algorithm,
+        error: horizon === 'hour' ? 3.2 : null,
+        candidate_errors: candidateErrors,
+      },
     ],
     data_source: 'real',
     model_type: 'ml',
@@ -184,6 +193,32 @@ describe('ForecastPage', () => {
 
     await user.click(screen.getByRole('tab', { name: /Intra-day/i }))
     expect(await screen.findByText(/ดูสีจุดบนกราฟ/)).toBeInTheDocument()
+  })
+
+  it('always fetches and renders the Model Competition panel, not gated by the Day/Intra-day toggle', async () => {
+    renderPage()
+    await clickGisTab()
+
+    await waitFor(() => expect(api.getForecast).toHaveBeenCalledWith('GIS', 'hour', expect.any(String)))
+    expect(await screen.findByLabelText(/model competition panel/i)).toBeInTheDocument()
+  })
+
+  it('shows the Model Competition chart (not the "no data" placeholder) once the hour-ahead point is within the live window', async () => {
+    // jsdom's ResponsiveContainer never gets a real box (see setupTests.ts's
+    // ResizeObserver stub), so Recharts renders an empty 0-width SVG rather
+    // than actual bar/legend content here - this asserts the data-presence
+    // branch was taken (buildCompetitionRows found a row), which is what
+    // this test can actually observe in jsdom; buildCompetitionRows' own
+    // unit tests (chartData.test.ts) cover the winner/spread computation.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-07-14T12:00:00.000Z')) // matches makeForecast's fixed point timestamp
+
+    renderPage()
+    await clickGisTab()
+
+    const panel = await screen.findByLabelText(/model competition panel/i)
+    expect(within(panel).queryByText('No data yet.')).not.toBeInTheDocument()
+    expect(within(panel).queryByText(/no intra-day forecast model/i)).not.toBeInTheDocument()
   })
 })
 

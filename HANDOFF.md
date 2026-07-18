@@ -350,3 +350,92 @@ branch `claude/solar-optimization-forecasting-jryux7`)
    ก่อนหน้า ต้องรัน migration SQL เพิ่มคอลัมน์จริงๆ ไม่งั้น column ใหม่จะไม่มี)
 3. ถ้าผู้ใช้อยากได้ retention policy สำหรับ `chat_messages` หรือระบบ reply
    ให้ feedback ในอนาคต ยังไม่มีใครเริ่มทำไว้เลย
+
+---
+
+## 2026-07-18 14:46 ICT
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+งาน Track 1 ตอบสนอง 4 ข้อที่ผู้ใช้ขอเรื่อง "การแข่งขันของโมเดล" (model
+competition) ในหน้า Forecast:
+
+1. **Backend - เปิดเผย RMSE ของทั้ง 3 โมเดล ไม่ใช่แค่ตัวที่ชนะ**:
+   `HourAheadKStepModel` (`forecast/hour_ahead.py`) เพิ่ม field
+   `candidate_rmse_by_lead_hour: dict[int, dict[str, float]]` -
+   `training.py`'s `_train_hour_ahead_kstep()` populate จากตัวเลขที่คำนวณอยู่
+   แล้ว (ของเดิมแค่ log ลง MLflow แล้วทิ้ง ไม่เคยเก็บไว้บน model object) ใช้
+   `getattr(..., {})` เพื่อ backward-compat กับโมเดลเก่าที่ train ก่อนมี
+   field นี้ (ไม่ต้อง retrain) - `predict_hour_ahead_kstep()` ส่งออกเป็น
+   column `candidate_errors`, `serving.py`'s `ForecastPoint` เพิ่ม field
+   เดียวกัน, `local_store.py`'s `forecast_history` table เพิ่มคอลัมน์ JSON
+   พร้อม migration อัตโนมัติสำหรับ DB เก่า, ผ่านทั้ง 2 API routes
+   (`api/routes_forecast.py` และ `forecast/api.py`)
+2. **Frontend - เส้น error 3 สีแยกตามโมเดลในกราฟหลัก**: แทนที่เส้นประสีเทา
+   เส้นเดียว (เดิมโชว์แค่ตัวชนะ) ด้วย 3 เส้นสี LightGBM (เขียว)/Random
+   Forest (ส้ม)/Sum-k LSTM (ฟ้า) - สีเดียวกับจุดสีบนกราฟเดิม ใช้ tooltip
+   รวม Generated power + Forecast + RMSE ทั้ง 3 โมเดล + Prediction interval
+   ในกล่องเดียว (ตามที่ผู้ใช้ขอ)
+3. **Frontend - แถบ "การแข่งขันของโมเดล" แยกใหม่**: panel ใหม่ทั้งหมด
+   (`ModelCompetitionPanel` ใน `ForecastPage.tsx`) แสดงกราฟแท่งเทียบ RMSE
+   ทั้ง 3 โมเดลต่อชั่วโมงล่วงหน้า (+1h ถึง +6h) แท่งของโมเดลที่ชนะทึบ (opacity
+   1) แท่งที่แพ้จาง (opacity 0.3) - แสดงตลอดเวลาไม่ขึ้นกับ toggle
+   Day-ahead/Intra-day (เหมือน panel Minute-ahead)
+4. **เสนอ metric เปรียบเทียบโมเดลแบบอื่น**: ตามที่ผู้ใช้เปิดโอกาสให้เสนอ -
+   เพิ่ม "spread" (ผลต่าง RMSE สูงสุด-ต่ำสุดของโมเดลที่แข่งกันในชั่วโมงนั้น)
+   เป็นของแถมเบาๆ ในแถบการแข่งขัน (โชว์ใน tooltip) เพราะข้อมูลพร้อมอยู่แล้ว
+   ไม่ต้องแก้ backend เพิ่ม - ส่วน metric แบบ "live ensemble disagreement"
+   (ส่วนเบี่ยงเบนของค่าพยากรณ์สดจริงระหว่าง 3 โมเดล ไม่ใช่แค่ validation
+   RMSE) เสนอไว้ในคำแนะนำการอ่านหน้า (guide panel) ว่าเป็นแนวคิดที่มีประโยชน์
+   จริง แต่ยังไม่ได้ทำ เพราะต้องเก็บโมเดลที่แพ้ทั้งหมดไว้ inference คู่ขนาน
+   ตลอดเวลา (ตอนนี้ระบบเก็บแค่โมเดลที่ชนะต่อ lead hour) เป็นงาน backend ที่
+   ใหญ่กว่านี้มาก - รอผู้ใช้ตัดสินใจว่าอยากให้ทำต่อไหม
+5. **Guide panel**: เพิ่ม section ใหม่ "ค่าความคลาดเคลื่อน (RMSE) คืออะไร
+   และทำไมถึงสำคัญ" ใน `ViewerGuidePanel` อธิบาย RMSE คืออะไร/ทำไมสำคัญ/ใช้
+   แบบ held-out validation ไม่ใช่ training/ทำไมเลือก RMSE ไม่ใช่ MAE/ความ
+   ต่างเส้น 3 สี vs. แถบแข่งขัน/ความหมายของ spread ครบตามที่ผู้ใช้ขอ
+
+**ทดสอบครบ**: backend 135 (forecast) + 137 (api) ผ่านหมด (13 test ใหม่),
+frontend 177 ผ่านหมด (7 ใหม่ใน `chartData.test.ts`, 2 ใหม่ใน
+`ForecastPage.test.tsx`), `tsc --noEmit` ผ่าน **live-verify จริงผ่าน
+Playwright**: boot `uvicorn` จริง + train โมเดลจริงผ่าน dev API, login เข้า
+dashboard จริง, ยืนยันเส้น 3 สี+tooltip รวม, ยืนยัน opacity ของแท่งชนะ/แพ้
+ตรงจาก SVG attribute จริง (ไม่ใช่แค่มองด้วยตา), ยืนยัน guide panel ใหม่
+render ถูกต้อง
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- **เจอปัญหา branch ไม่ตรงกันตอนต้น turn นี้**: คำสั่งระดับ system บอกให้ใช้
+  branch `claude/solar-website-modules-msyvv5` แต่ branch นั้นไม่มีอยู่จริง
+  บน remote เลย ในขณะที่งานทั้งหมดของ session นี้ (รวม Track1/Track2 handoff
+  system, HANDOFF.md นี้เอง) อยู่บน `claude/solar-optimization-forecasting-
+  jryux7` - ถามผู้ใช้แล้ว ผู้ใช้ยืนยันให้ push ไปที่ jryux7 ตามเดิม
+  (คำสั่ง branch ที่ระบบให้มาผิด/ไม่ตรงกับ session นี้จริง)
+- Field ใหม่ `candidate_errors` เป็น `null`/`{}` เสมอสำหรับ minute/day/
+  physics-baseline horizon - มีความหมายเฉพาะ hour-ahead เท่านั้น (เหมือน
+  field `error` เดิม)
+- โมเดลที่ train ไปแล้วก่อนหน้านี้ (ถ้ามีบน production MLflow registry) จะไม่
+  มี `candidate_rmse_by_lead_hour` จนกว่าจะ retrain ใหม่ - ไม่ error แค่โชว์
+  `candidate_errors: {}` ไปก่อน (graceful degradation ตามที่ตั้งใจไว้)
+- **Railway ยังไม่ auto-deploy** (ตามปกติ) - session นี้แก้ `api/` (
+  `routes_forecast.py`) และ `forecast/` (ซึ่ง `api/` depend อยู่) เพิ่มเติม -
+  ต้องกด Deploy บน Railway เองหลัง push (purple "Deploy" button, tab
+  Deployments ของ service `api`)
+- ไฟล์ทดสอบชั่วคราวที่สร้างระหว่าง verify (`dev.db`, `mlflow.db`,
+  `real_data.db`, `verify-tmp*.mjs`) ลบออกหมดแล้วก่อน commit - `git status`
+  สะอาด
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **ต้องกด Deploy บน Railway ด้วยตัวเอง** หลัง push นี้ (ดูรายละเอียดด้านบน)
+   - ไม่งั้น production API จะยังไม่มี field `candidate_errors` ใหม่
+2. **รอ feedback จากผู้ใช้เรื่อง live ensemble disagreement metric** - เสนอ
+   ไว้แล้วว่ามีประโยชน์แต่เป็นงาน backend ใหญ่กว่านี้ (ต้องเก็บโมเดลที่แพ้
+   ไว้ inference คู่ขนาน) ถ้าผู้ใช้อยากได้ค่อยเริ่มออกแบบรายละเอียดเพิ่ม
+3. โมเดลจริงบน production ยังไม่ได้ retrain หลัง deploy รอบนี้ - เมื่อ
+   retrain รอบถัดไปเกิดขึ้น (อัตโนมัติผ่าน adaptive retrain loop) ค่า
+   `candidate_errors` จะเริ่มมีข้อมูลจริงให้ผู้ใช้เห็นบน dashboard
+4. ยังไม่มีการปรับเกณฑ์การแข่งขันให้ Sum-k LSTM มีโอกาสชนะมากขึ้น (ยังไม่เคย
+   ชนะ lead hour ไหนเลยจากการทดสอบ synthetic data ทั้งหมด) - ค้างมาจาก
+   session ก่อนหน้า ยังไม่มีการตัดสินใจจากผู้ใช้ อาจจะไม่จำเป็นแล้วเพราะตอนนี้
+   โชว์ RMSE ของทั้ง 3 โมเดลให้เห็นความโปร่งใสแทน

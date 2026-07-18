@@ -108,3 +108,46 @@ def test_predict_hour_ahead_kstep_leaves_error_rmse_none_when_not_recorded():
     X_test, _ = _synthetic_dataset(n=1, seed=8)
     result = predict_hour_ahead_kstep(kstep_model, {1: X_test})
     assert pd.isna(result.loc[1, "error_rmse"])
+
+
+def test_predict_hour_ahead_kstep_attaches_every_candidates_own_rmse(trained_model):
+    """The new Model Competition panel needs all three candidates' RMSE per
+    lead hour, not just the winner's - HourAheadKStepModel.
+    candidate_rmse_by_lead_hour carries that, and predict_hour_ahead_kstep
+    must surface it as its own column so serving.py can pass it straight to
+    ForecastPoint.candidate_errors."""
+    X, y = _synthetic_dataset(n=300, seed=5)
+    rf_model = train_rf_hour_ahead_model(X.iloc[:200], y.iloc[:200], X.iloc[200:], y.iloc[200:])
+
+    kstep_model = HourAheadKStepModel(
+        models_by_lead_hour={1: trained_model, 2: rf_model},
+        algorithm_by_lead_hour={1: "lightgbm", 2: "random_forest"},
+        rmse_by_lead_hour={1: 12.5, 2: 9.75},
+        candidate_rmse_by_lead_hour={
+            1: {"lightgbm": 12.5, "random_forest": 14.0, "sum_k_lstm": 13.2},
+            2: {"lightgbm": 11.0, "random_forest": 9.75},
+        },
+        lead_hours=(1, 2),
+    )
+    X_test, _ = _synthetic_dataset(n=1, seed=6)
+    result = predict_hour_ahead_kstep(kstep_model, {1: X_test, 2: X_test})
+
+    assert result.loc[1, "candidate_errors"] == {"lightgbm": 12.5, "random_forest": 14.0, "sum_k_lstm": 13.2}
+    assert result.loc[2, "candidate_errors"] == {"lightgbm": 11.0, "random_forest": 9.75}
+
+
+def test_predict_hour_ahead_kstep_defaults_candidate_errors_for_pre_field_model(trained_model):
+    """A model pickled before candidate_rmse_by_lead_hour existed unpickles
+    without that attribute at all (plain-dataclass unpickling skips
+    __init__/field defaults) - simulate that by deleting the attribute after
+    construction, and confirm the dispatch degrades to {} instead of raising
+    AttributeError."""
+    kstep_model = HourAheadKStepModel(
+        models_by_lead_hour={1: trained_model}, algorithm_by_lead_hour={1: "lightgbm"},
+        rmse_by_lead_hour={1: 12.5}, lead_hours=(1,),
+    )
+    del kstep_model.__dict__["candidate_rmse_by_lead_hour"]
+
+    X_test, _ = _synthetic_dataset(n=1, seed=6)
+    result = predict_hour_ahead_kstep(kstep_model, {1: X_test})
+    assert result.loc[1, "candidate_errors"] == {}

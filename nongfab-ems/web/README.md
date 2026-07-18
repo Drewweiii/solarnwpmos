@@ -994,6 +994,91 @@ while live-verifying it. Re-verified live after that fix: a brand-new
 login on a freshly-booted API immediately showed multiple full day/night
 cycles of history on the Day-ahead chart, no gap.
 
+### Added - Per-model error lines + Model Competition panel + RMSE guide (2026-07-18)
+
+The single gray dashed "Model error (RMSE)" line on the main Forecast chart
+only ever showed the *winning* candidate's own held-out validation RMSE -
+the user asked to see all three (LightGBM/Random Forest/Sum-k LSTM) side by
+side, distinctly colored so it's clear which line belongs to which model,
+plus a brand-new dashboard panel dedicated to the model competition
+(separate from the main chart), plus an explanation of what RMSE even is in
+the existing viewer guide.
+
+- **`lib/types.ts`**: `ForecastPoint` gained `candidate_errors: Record<
+  string, number> | null` - see `forecast/README.md`'s "Per-candidate model
+  error exposed" entry for the backend half.
+- **`lib/chartData.ts`**: `ChartRow` gained `errorLightgbm`/
+  `errorRandomForest`/`errorSumKLstm` (flattened out of `candidate_errors`
+  for Recharts `<Line dataKey=...>`), populated in
+  `mergeGeneratedAndForecast`; `sumForecastAcrossZones` now also sums
+  `candidate_errors` per algorithm across zones for the "All" (รวม)
+  aggregate, same "roughly extensive" spirit as the existing `error` sum.
+  New `buildCompetitionRows(points, nowIso?)` builds the Model Competition
+  panel's rows straight from hour-ahead `ForecastPoint`s: one row per live
+  lead hour (`+1h`..`+6h`, filtered to points at/after `now` and capped at
+  6), each candidate's own RMSE, the winner (`algorithm`), and a `spread`
+  (max - min across whichever candidates competed) - see below.
+- **`lib/forecastHistory.ts`**: `pointsEqual`'s field comparison now also
+  compares `candidate_errors` (shallow key/value check) - without this, a
+  point accumulated before a model had trained (empty `candidate_errors`)
+  would never get updated once real values arrived, since every *other*
+  field could already match.
+- **`pages/ForecastPage.tsx`**:
+  - Main chart: the single winner-only error `<Line>` replaced with three -
+    `errorLightgbm`/`errorRandomForest`/`errorSumKLstm` - reusing the
+    existing `--chart-lgbm`/`--chart-rf`/`--chart-sumk` colors (same colors
+    already used for the per-point forecast-dot coloring, so a color means
+    the same model everywhere on this page), dashed, shown only when
+    `horizonToggle === 'hour'`.
+  - New `ModelCompetitionPanel` component/section: always-visible
+    regardless of the Day-ahead/Intra-day toggle (same pattern as the
+    existing Minute-ahead panel - a dedicated `useForecast(zoneId, 'hour')`/
+    `useAllZonesForecast('hour')` fetch, deduplicated against the main
+    toggle's own fetch by react-query's shared `['forecast', zone, 'hour']`
+    cache key when they coincide). Grouped `<BarChart>`, one group per lead
+    hour, all three candidates' RMSE side by side; the actual winner's bar
+    is full opacity, the two losing candidates are dimmed (`fillOpacity`
+    `1` vs `0.3`, applied per-bar via `<Cell>` - verified by inspecting the
+    rendered SVG's `fill-opacity` attributes directly in a live Playwright
+    session, not just visually). Hovering shows the winner and the
+    `spread` value in the tooltip label.
+  - `ViewerGuidePanel`: new "ค่าความคลาดเคลื่อน (RMSE) คืออะไร และทำไมถึงสำคัญ"
+    section explaining what RMSE is, why it's the selection criterion, that
+    it's *held-out validation* RMSE specifically (not training RMSE), why
+    RMSE over MAE for this use case, and how the main chart's 3 lines relate
+    to the competition panel's bars - the user's explicit ask ("บอกว่า error
+    คืออะไร สำคัญยังไง แล้วเราใช้แบบไหน เพราะอะไร"). Also documents `spread` and
+    explicitly notes it is a *validation-time* comparison, not a live
+    prediction-disagreement/ensemble-spread metric (see below).
+- **Proposed but not built**: the user explicitly invited a proposal for an
+  alternative inter-model comparison metric ("ระหว่างโมเดลกันเอง"). The
+  `spread` value above (max-min of validation RMSE) was cheap to add since
+  every input it needs was already flowing through `candidate_errors`. A
+  richer *live* version - standard deviation across the three candidates'
+  *current* predictions, a classic ensemble-uncertainty signal that's
+  available even for a still-future point with no ground truth yet, unlike
+  RMSE - was assessed and explained to the user as a real follow-up
+  candidate, not implemented here: it needs every losing candidate's
+  trained model object kept around for inference at serving time (today
+  `HourAheadKStepModel.models_by_lead_hour` only retains the *winner*'s
+  model per lead; a losing candidate's trained object is discarded right
+  after `training.py`'s `min()` selection, only its RMSE score survives) -
+  a materially bigger storage/compute change than this pass's other
+  additions.
+
+**Live-verified end to end via Playwright**, not just `vitest run` (177/177,
+7 new in `chartData.test.ts`, 2 new in `ForecastPage.test.tsx`) and `tsc
+-b` (clean): booted a real `uvicorn` (production `api/`, file-backed SQLite)
+plus this module's own dev API sharing the same MLflow tracking store,
+trained a real k-step model, then loaded the dashboard in a real browser
+and confirmed (a) the main chart's 3 colored dashed error lines and their
+legend entries, (b) a combined tooltip showing Generated power, Forecast,
+all three per-model RMSE values, and Prediction interval together at one
+hovered point - the original ask - (c) the Model Competition panel's bars
+with the winner's `fill-opacity: 1` vs losers' `0.3` confirmed directly
+against the rendered SVG, and (d) the expanded guide panel's new RMSE
+section rendering correctly.
+
 ## Run locally
 
 ```bash

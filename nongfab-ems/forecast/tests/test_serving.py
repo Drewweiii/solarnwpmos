@@ -27,6 +27,7 @@ class _FakePoint:
     upper: float | None
     algorithm: str | None
     error: float | None
+    candidate_errors: dict[str, float] | None = None
 
 
 def test_validate_zone_accepts_known_zones():
@@ -161,6 +162,32 @@ def test_get_forecast_with_fallback_includes_a_point_recorded_earlier_for_an_hou
     matched = next((p for p in result.points if p.timestamp == past_target), None)
     assert matched is not None
     assert matched.pred == 42.0
+
+
+def test_get_forecast_with_fallback_carries_candidate_errors_for_a_past_point(tmp_path, monkeypatch):
+    """candidate_errors (every hour-ahead candidate's own RMSE, not just the
+    winner's) must survive the persist-then-merge round trip the same way
+    algorithm/error already do - the Model Competition panel reads it off a
+    past point exactly like the main chart's per-model error lines do."""
+    db_path = tmp_path / "mlflow.db"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{db_path}")
+    store = RealDataStore()
+    now = datetime.now(timezone.utc)
+    past_target = _ceil_to(now, timedelta(hours=1)) - timedelta(hours=2)
+    store.record_forecast_points(
+        "GIS", "hour", now - timedelta(hours=3),
+        [
+            _FakePoint(
+                timestamp=past_target, pred=42.0, lower=30.0, upper=50.0, algorithm="lightgbm", error=1.2,
+                candidate_errors={"lightgbm": 1.2, "random_forest": 1.6, "sum_k_lstm": 1.4},
+            )
+        ],
+    )
+
+    result = get_forecast_with_fallback("GIS", "hour", store=store)
+
+    matched = next(p for p in result.points if p.timestamp == past_target)
+    assert matched.candidate_errors == {"lightgbm": 1.2, "random_forest": 1.6, "sum_k_lstm": 1.4}
 
 
 def test_get_forecast_with_fallback_lets_a_newer_issuance_overwrite_an_older_one(tmp_path, monkeypatch):

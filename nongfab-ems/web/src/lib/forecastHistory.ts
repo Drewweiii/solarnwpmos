@@ -42,8 +42,22 @@ import type { ForecastPoint } from './types'
 // ("Maximum update depth exceeded", found live testing this fix). Comparing
 // by value instead means the effect below settles once the accumulated
 // value actually matches what's already stored, letting React bail out.
+function candidateErrorsEqual(a: Record<string, number> | null, b: Record<string, number> | null): boolean {
+  const aEntries = Object.entries(a ?? {})
+  const bEntries = Object.entries(b ?? {})
+  if (aEntries.length !== bEntries.length) return false
+  return aEntries.every(([algo, rmse]) => b?.[algo] === rmse)
+}
+
 function pointsEqual(a: ForecastPoint, b: ForecastPoint): boolean {
-  return a.pred === b.pred && a.lower === b.lower && a.upper === b.upper && a.algorithm === b.algorithm && a.error === b.error
+  return (
+    a.pred === b.pred &&
+    a.lower === b.lower &&
+    a.upper === b.upper &&
+    a.algorithm === b.algorithm &&
+    a.error === b.error &&
+    candidateErrorsEqual(a.candidate_errors, b.candidate_errors)
+  )
 }
 
 export function useForecastHistory(latest: ForecastPoint[], resetKey: string): ForecastPoint[] {

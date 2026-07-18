@@ -10,6 +10,16 @@ export interface ChartRow {
   band: number | null
   algorithm: string | null
   error: number | null
+  // Every hour-ahead candidate's own RMSE, flattened out of
+  // ForecastPoint.candidate_errors into one Recharts-friendly numeric field
+  // per model (added 2026-07-18, replacing the single winner-only `error`
+  // line on the main chart) - null wherever that candidate didn't compete
+  // that lead hour (e.g. sum_k_lstm failed to train) or the point predates
+  // this field. Flat fields rather than a nested object so each becomes its
+  // own <Line dataKey=...> without relying on Recharts' dot-path lookup.
+  errorLightgbm: number | null
+  errorRandomForest: number | null
+  errorSumKLstm: number | null
 }
 
 /** Buckets by hour (not exact timestamp): independent backend calls for
@@ -63,12 +73,18 @@ export function mergeGeneratedAndForecast(hourly: HourlyPoint[], forecastPoints:
       band: null,
       algorithm: null,
       error: null,
+      errorLightgbm: null,
+      errorRandomForest: null,
+      errorSumKLstm: null,
     })
   }
 
   for (const point of forecastPoints) {
     const key = hourKey(point.timestamp)
     const band = point.lower != null && point.upper != null ? point.upper - point.lower : null
+    const errorLightgbm = point.candidate_errors?.lightgbm ?? null
+    const errorRandomForest = point.candidate_errors?.random_forest ?? null
+    const errorSumKLstm = point.candidate_errors?.sum_k_lstm ?? null
     const existing = rows.get(key)
     if (existing) {
       existing.pred = point.pred
@@ -77,6 +93,9 @@ export function mergeGeneratedAndForecast(hourly: HourlyPoint[], forecastPoints:
       existing.band = band
       existing.algorithm = point.algorithm
       existing.error = point.error
+      existing.errorLightgbm = errorLightgbm
+      existing.errorRandomForest = errorRandomForest
+      existing.errorSumKLstm = errorSumKLstm
     } else {
       rows.set(key, {
         key,
@@ -88,6 +107,9 @@ export function mergeGeneratedAndForecast(hourly: HourlyPoint[], forecastPoints:
         band,
         algorithm: point.algorithm,
         error: point.error,
+        errorLightgbm,
+        errorRandomForest,
+        errorSumKLstm,
       })
     }
   }
@@ -146,15 +168,26 @@ export function sumHourlyAcrossZones(perZone: HourlyPoint[][]): HourlyPoint[] {
  * - callers aggregating a finer-resolution series (minute-ahead) must pass
  * `exactTimeKey` instead, see that function's own docstring. */
 export function sumForecastAcrossZones(perZone: ForecastPoint[][], keyFn: (iso: string) => string = hourKey): ForecastPoint[] {
-  const acc = new Map<string, { timestamp: string; pred: number; lower: number; upper: number; error: number; n: number }>()
+  const acc = new Map<
+    string,
+    { timestamp: string; pred: number; lower: number; upper: number; error: number; candidateErrors: Record<string, number>; n: number }
+  >()
   for (const series of perZone) {
     for (const point of series) {
       const key = keyFn(point.timestamp)
-      const entry = acc.get(key) ?? { timestamp: point.timestamp, pred: 0, lower: 0, upper: 0, error: 0, n: 0 }
+      const entry = acc.get(key) ?? { timestamp: point.timestamp, pred: 0, lower: 0, upper: 0, error: 0, candidateErrors: {}, n: 0 }
       entry.pred += point.pred
       entry.lower += point.lower ?? point.pred
       entry.upper += point.upper ?? point.pred
       entry.error += point.error ?? 0
+      // Summed the same approximate "roughly extensive" way `error` above
+      // already is - each zone's per-candidate RMSE is its own independent
+      // measurement, not a value that averages meaningfully, but a sum still
+      // lets the "All" (รวม) competition panel show relative model ranking
+      // across the whole site rather than going blank for it.
+      for (const [algo, rmse] of Object.entries(point.candidate_errors ?? {})) {
+        entry.candidateErrors[algo] = (entry.candidateErrors[algo] ?? 0) + rmse
+      }
       entry.n += 1
       acc.set(key, entry)
     }
@@ -168,8 +201,69 @@ export function sumForecastAcrossZones(perZone: ForecastPoint[][], keyFn: (iso: 
       upper: entry.upper,
       algorithm: null,
       error: entry.error,
+      candidate_errors: entry.candidateErrors,
     }))
     .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+}
+
+export interface CompetitionRow {
+  key: string
+  timestamp: string
+  // "+1h".."+6h" - HourAheadKStepModel always trains HOUR_LEAD_HOURS = 1..6,
+  // and rows here are already sorted ascending by timestamp, so index+1 is
+  // exactly that model's own lead hour without needing to recompute an
+  // offset from `timestamp` (which would need a clock and a "now" anchor
+  // this function otherwise has no reason to take a dependency on).
+  leadLabel: string
+  winner: string | null
+  lightgbm: number | null
+  randomForest: number | null
+  sumKLstm: number | null
+  // max - min across whichever candidates competed that lead hour - a cheap
+  // "how much did the model choice actually matter here" signal (added
+  // 2026-07-18 per the user's own suggestion of an inter-model comparison
+  // metric, alongside RMSE-vs-actual): a small spread means all candidates
+  // were close, so the auto-select winner barely outperformed the
+  // alternatives; a large spread means the winner meaningfully beat the
+  // others. This is still a *validation-time* comparison (computed from the
+  // same held-out RMSE candidate_errors already carries), not a live
+  // prediction-disagreement/ensemble-spread metric - see ForecastPage.tsx's
+  // ViewerGuidePanel for why the richer live version isn't built here (it
+  // would need every losing candidate's trained model kept around for
+  // inference, not just its validation score - a materially bigger backend
+  // change than this session's other additions). null if fewer than 2
+  // candidates have a recorded RMSE for that lead hour.
+  spread: number | null
+}
+
+/** Builds the Model Competition panel's rows straight from hour-ahead
+ * ForecastPoints - one row per lead hour, all three candidates' own RMSE
+ * side by side plus which one actually won (`winner`, from `algorithm`).
+ * Only points at/after `nowIso` are kept (a live k-step forecast's 6 lead
+ * hours), then capped to 6: `points` may also carry accumulated *past*
+ * history (server-side forecast_history persistence, see serving.py) mixed
+ * into the same array by the caller's existing per-poll accumulation - that
+ * history is exactly what the main chart's error lines want to show over
+ * time, but this panel is "right now's competition", not a timeline. */
+export function buildCompetitionRows(points: ForecastPoint[], nowIso: string = new Date().toISOString()): CompetitionRow[] {
+  const nowMs = new Date(nowIso).getTime()
+  return points
+    .filter((p) => new Date(p.timestamp).getTime() >= nowMs - 60 * 60 * 1000)
+    .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+    .slice(0, 6)
+    .map((p, i) => {
+      const values = Object.values(p.candidate_errors ?? {})
+      return {
+        key: p.timestamp,
+        timestamp: p.timestamp,
+        leadLabel: `+${i + 1}h`,
+        winner: p.algorithm,
+        lightgbm: p.candidate_errors?.lightgbm ?? null,
+        randomForest: p.candidate_errors?.random_forest ?? null,
+        sumKLstm: p.candidate_errors?.sum_k_lstm ?? null,
+        spread: values.length >= 2 ? Math.max(...values) - Math.min(...values) : null,
+      }
+    })
 }
 
 /** The point (of any series carrying a `timestamp`) whose timestamp is

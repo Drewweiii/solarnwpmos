@@ -18,6 +18,7 @@ from asyncio.to_thread).
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from collections.abc import Iterable
@@ -63,6 +64,7 @@ CREATE TABLE IF NOT EXISTS forecast_history (
     upper REAL,
     algorithm TEXT,
     error REAL,
+    candidate_errors TEXT,
     PRIMARY KEY (zone, horizon, target_time)
 );
 """
@@ -89,11 +91,29 @@ class RealDataStore:
         self._memory_conn = sqlite3.connect(self._path) if self._path == ":memory:" else None
         if self._memory_conn is not None:
             self._memory_conn.executescript(_SCHEMA)
+            self._migrate(self._memory_conn)
             self._memory_conn.commit()
         else:
             with self._connect() as conn:
                 conn.executescript(_SCHEMA)
+                self._migrate(conn)
                 conn.commit()
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """`CREATE TABLE IF NOT EXISTS` (above) never adds columns to a table
+        that already existed from before this column was introduced - a
+        pre-2026-07-18 `forecast_history` table (e.g. Railway's persisted
+        NONGFAB_REAL_DATA_DB volume) would otherwise raise "no such column:
+        candidate_errors" the first time record_forecast_points runs.
+        `ALTER TABLE ... ADD COLUMN` is idempotent-by-hand here since SQLite
+        has no `IF NOT EXISTS` for columns - the duplicate-column error is
+        caught and ignored on every subsequent boot.
+        """
+        try:
+            conn.execute("ALTER TABLE forecast_history ADD COLUMN candidate_errors TEXT")
+        except sqlite3.OperationalError:
+            pass
 
     @contextmanager
     def _connect(self):
@@ -206,7 +226,9 @@ class RealDataStore:
     def record_forecast_points(self, zone: str, horizon: str, issued_at: datetime, points: Iterable) -> int:
         """Upserts each point keyed by (zone, horizon, target_time) - `points`
         are serving.ForecastPoint (or anything with the same
-        timestamp/pred/lower/upper/algorithm/error attributes). A later call
+        timestamp/pred/lower/upper/algorithm/error/candidate_errors
+        attributes - the last defaults to None via getattr for any caller
+        that predates the 2026-07-18 candidate_errors field). A later call
         for the same target hour overwrites the earlier one: a forecast
         issued closer to its target time is more accurate, so the freshest
         issuance for a given hour should be what gets served back.
@@ -219,9 +241,17 @@ class RealDataStore:
         stayed open across every poll to remember it - see
         `forecast_history_points()` below, which is what actually serves the
         merged past+future window back.
+
+        `candidate_errors` (per-candidate-model RMSE dict) is JSON-encoded
+        into a TEXT column - SQLite has no native dict/JSON column type, and
+        this store otherwise avoids `json1`-extension-specific SQL to stay
+        portable across whatever SQLite build a given deployment ships.
         """
         rows = [
-            (zone, horizon, p.timestamp.isoformat(), issued_at.isoformat(), float(p.pred), p.lower, p.upper, p.algorithm, p.error)
+            (
+                zone, horizon, p.timestamp.isoformat(), issued_at.isoformat(), float(p.pred), p.lower, p.upper, p.algorithm,
+                p.error, json.dumps(getattr(p, "candidate_errors", None)) if getattr(p, "candidate_errors", None) else None,
+            )
             for p in points
         ]
         if not rows:
@@ -229,29 +259,36 @@ class RealDataStore:
         with self._connect() as conn:
             conn.executemany(
                 "INSERT OR REPLACE INTO forecast_history "
-                "(zone, horizon, target_time, issued_at, pred, lower, upper, algorithm, error) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "(zone, horizon, target_time, issued_at, pred, lower, upper, algorithm, error, candidate_errors) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
             )
             conn.commit()
         return len(rows)
 
     def forecast_history_points(self, zone: str, horizon: str, since: datetime) -> list[tuple]:
-        """Rows `(target_time, pred, lower, upper, algorithm, error)` for one
-        zone/horizon, `target_time >= since`, oldest first - the persisted
-        counterpart to whatever `serving.py` just computed fresh, so a caller
-        can merge "what's recorded" (which may include hours now in the
-        past) with "what was just predicted forward" into one series. Bounded
-        by `since` rather than returned in full, so a long-running deployment
-        doesn't grow the response by however many days it's been up.
+        """Rows `(target_time, pred, lower, upper, algorithm, error,
+        candidate_errors)` for one zone/horizon, `target_time >= since`,
+        oldest first - the persisted counterpart to whatever `serving.py`
+        just computed fresh, so a caller can merge "what's recorded" (which
+        may include hours now in the past) with "what was just predicted
+        forward" into one series. Bounded by `since` rather than returned in
+        full, so a long-running deployment doesn't grow the response by
+        however many days it's been up. `candidate_errors` is decoded back
+        from JSON into a dict ({} for a row with no stored value, e.g. any
+        horizon other than hour-ahead, or a row written before this column
+        existed).
         """
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT target_time, pred, lower, upper, algorithm, error FROM forecast_history "
+                "SELECT target_time, pred, lower, upper, algorithm, error, candidate_errors FROM forecast_history "
                 "WHERE zone = ? AND horizon = ? AND target_time >= ? ORDER BY target_time",
                 (zone, horizon, since.isoformat()),
             ).fetchall()
-        return rows
+        return [
+            (target_time, pred, lower, upper, algorithm, error, json.loads(candidate_errors) if candidate_errors else {})
+            for target_time, pred, lower, upper, algorithm, error, candidate_errors in rows
+        ]
 
     def counts(self) -> dict[str, int]:
         with self._connect() as conn:

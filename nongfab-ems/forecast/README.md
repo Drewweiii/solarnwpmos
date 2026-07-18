@@ -635,6 +635,72 @@ points (24 backfilled past + 6 forward) starting the previous day - the
 dashboard's Day-ahead chart on a brand-new login showed multiple complete
 day/night cycles before "now" immediately, no gap.
 
+## Per-candidate model error exposed, not just the winner's (2026-07-18)
+
+`HourAheadKStepModel.rmse_by_lead_hour` (2026-07-16) only ever carried the
+*winning* candidate's held-out validation RMSE per lead hour - LightGBM's,
+Random Forest's, and Sum-k LSTM's own RMSE were all computed during
+`training.py`'s `min()`-selection (and already logged flat into MLflow as
+`lead{N}_lgbm_rmse`/`lead{N}_rf_rmse`/`lead{N}_sum_k_rmse`), but the two
+losing candidates' numbers were discarded from the model object itself once
+a winner was picked - there was no way for `serving.py`/the dashboard to
+show "how did all three models actually do", only "how did the one that
+won do". The user asked for exactly that (a per-model error line per
+candidate, plus a dedicated "which model is winning" dashboard panel).
+
+- **`hour_ahead.py`**: `HourAheadKStepModel` gained `candidate_rmse_by_lead_
+  hour: dict[int, dict[str, float]]` (`{lead_hour: {"lightgbm": ..., "random_
+  forest": ..., "sum_k_lstm": ...}}` - a candidate only present if it
+  actually competed that lead). `predict_hour_ahead_kstep()`'s output frame
+  gained a matching `candidate_errors` column. Both use
+  `getattr(model, "candidate_rmse_by_lead_hour", {})` rather than direct
+  attribute access, so a model object pickled/registered before this field
+  existed degrades to an empty dict instead of raising `AttributeError` -
+  no retrain is required for old registered model versions to keep serving,
+  they just won't have per-candidate detail until retrained.
+- **`training.py`**: `_train_hour_ahead_kstep()` now also populates
+  `candidate_rmse_by_lead_hour` from the same `lgbm_rmse_by_lead`/
+  `rf_rmse_by_lead`/`sum_k_rmse_by_lead` dicts it was already computing for
+  the `min()` comparison and the flat MLflow metrics - no new computation,
+  just no longer discarding two-thirds of it.
+- **`serving.py`**: `ForecastPoint` gained `candidate_errors: dict[str,
+  float] | None`, populated from `predict_hour_ahead_kstep()`'s new column
+  in `get_latest_forecast()`'s hour-ahead branch; `None`/`{}` for minute/day/
+  physics-baseline, same convention as `error`.
+- **`local_store.py`**: `forecast_history` gained a `candidate_errors TEXT`
+  column (JSON-encoded dict - SQLite has no native dict column, and this
+  store avoids `json1`-extension-specific SQL to stay portable). A
+  same-process `_migrate()` step (`ALTER TABLE ... ADD COLUMN`, duplicate-
+  column error caught and ignored) runs on every `RealDataStore.__init__`
+  so a pre-existing persisted volume (e.g. Railway's) upgrades in place
+  instead of erroring on the first write after this deploys.
+- Threaded through both API surfaces (`api/routes_forecast.py` and this
+  module's own dev `api.py`) as `ForecastPointOut.candidate_errors`.
+
+**Also added** (per the user's own suggestion of an "inter-model
+comparison" metric, alongside RMSE-vs-actual): the web dashboard's Model
+Competition panel computes a `spread` value (max - min across whichever
+candidates competed a given lead hour) from `candidate_errors` - a cheap,
+already-available "how much did the model choice actually matter here"
+signal. This is still a *validation-time* comparison (derived from the same
+held-out RMSE `candidate_errors` already carries), not a live prediction-
+disagreement/ensemble-spread metric across the models' *current* outputs -
+that richer version would need every losing candidate's trained model
+object kept around for inference at serving time (not just its validation
+score, which is all `HourAheadKStepModel` currently retains for a losing
+candidate), a materially bigger storage/compute change than this pass -
+proposed to the user as a possible follow-up rather than built here.
+
+**Live-verified end to end** (not just unit tests): trained a real k-step
+model via this module's dev API, confirmed the training response's flat
+MLflow metrics matched the new `candidate_rmse_by_lead_hour` field, then
+queried the production `api/`'s `/forecast/GIS/hour` and confirmed every
+live lead-hour point carried all three candidates' RMSE in
+`candidate_errors` (matching training's own numbers exactly), while
+physics-baseline-backfilled past points correctly carried `{}` (no ML ran
+for those). See `web/README.md`'s matching dated entry for the frontend
+side and screenshot evidence.
+
 ## Known gaps / next steps
 
 - **No automatic retraining pipeline of its own** - `registry.log_run()` +

@@ -221,6 +221,20 @@ class HourAheadKStepModel:
     # training, not invented" spirit as bias_correctors_by_lead_hour's
     # residual_std_train.
     rmse_by_lead_hour: dict[int, float] = field(default_factory=dict)
+    # Every candidate's own held-out validation RMSE per lead hour (not just
+    # the winner's) - {lead_hour: {"lightgbm": ..., "random_forest": ...,
+    # "sum_k_lstm": ...}}, a candidate only present if it actually competed
+    # that lead (sum_k_lstm is absent for a lead where Sum-k LSTM failed to
+    # train/score - see training.py's own try/except). Added 2026-07-18 so
+    # the dashboard can show all three models' error side by side, not just
+    # whichever one training.py's min() picked - rmse_by_lead_hour above is
+    # kept unchanged (still the single source of truth for "the winner's
+    # error") so old callers/serialized models reading only that field are
+    # unaffected. A model pickled before this field existed loads back
+    # without it (plain dataclass unpickling skips __init__/field defaults) -
+    # callers must use getattr(model, "candidate_rmse_by_lead_hour", {}), not
+    # direct attribute access.
+    candidate_rmse_by_lead_hour: dict[int, dict[str, float]] = field(default_factory=dict)
     lead_hours: tuple[int, ...] = (1, 2, 3, 4, 5, 6)
     # The one jointly-trained Sum-k LSTM model (see sum_k_lstm.py), shared by
     # every lead hour in algorithm_by_lead_hour that it won - None if Sum-k
@@ -234,13 +248,18 @@ def predict_hour_ahead_kstep(model: HourAheadKStepModel, X_by_lead_hour: dict[in
     and `X_by_lead_hour` (a lead hour missing real/synthetic input data at
     serving time is silently skipped, not an error - see serving.py's caller),
     indexed by lead_hour ascending, columns pred/lower/upper/algorithm/
-    error_rmse. `algorithm` ("lightgbm"/"random_forest"/"sum_k_lstm") and
-    `error_rmse` (that lead's winning validation RMSE) come straight from the
-    model's own `algorithm_by_lead_hour`/`rmse_by_lead_hour` - this is what
-    lets the dashboard show which candidate actually won each lead hour's
-    competition, and how far off its own validation run was, not just the
-    point forecast. Applies each lead's bias corrector (if one was trained)
-    after the base prediction - see bias_correction.py.
+    error_rmse/candidate_errors. `algorithm` ("lightgbm"/"random_forest"/
+    "sum_k_lstm") and `error_rmse` (that lead's winning validation RMSE) come
+    straight from the model's own `algorithm_by_lead_hour`/`rmse_by_lead_hour`
+    - this is what lets the dashboard show which candidate actually won each
+    lead hour's competition, and how far off its own validation run was, not
+    just the point forecast. `candidate_errors` (added 2026-07-18) is every
+    candidate's own RMSE for that lead hour, e.g. {"lightgbm": 1.2,
+    "random_forest": 1.5, "sum_k_lstm": 1.4} - lets the dashboard show all
+    three models' error side by side instead of only the winner's; empty
+    dict for a model pickled before this field existed (see
+    HourAheadKStepModel's own docstring). Applies each lead's bias corrector
+    (if one was trained) after the base prediction - see bias_correction.py.
 
     A lead whose winner is Sum-k LSTM (`sub_model is None` - see
     HourAheadKStepModel's own docstring) dispatches to `model.sum_k_model`
@@ -252,6 +271,8 @@ def predict_hour_ahead_kstep(model: HourAheadKStepModel, X_by_lead_hour: dict[in
     lead above), since there is nothing to build its auto-lagged sequence from.
     """
     from .bias_correction import apply_bias_correction
+
+    candidate_rmse_by_lead_hour = getattr(model, "candidate_rmse_by_lead_hour", {})
 
     rows = []
     for lead_hour, sub_model in model.models_by_lead_hour.items():
@@ -276,6 +297,7 @@ def predict_hour_ahead_kstep(model: HourAheadKStepModel, X_by_lead_hour: dict[in
                 "upper": upper,
                 "algorithm": model.algorithm_by_lead_hour.get(lead_hour),
                 "error_rmse": model.rmse_by_lead_hour.get(lead_hour),
+                "candidate_errors": candidate_rmse_by_lead_hour.get(lead_hour, {}),
             }
         )
     return pd.DataFrame(rows).set_index("lead_hour").sort_index()

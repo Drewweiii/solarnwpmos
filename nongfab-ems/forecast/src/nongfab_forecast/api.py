@@ -63,6 +63,7 @@ class ForecastPointOut(BaseModel):
     upper: float | None = None
     algorithm: str | None = None
     error: float | None = None
+    candidate_errors: dict[str, float] | None = None
 
 
 class ForecastResponse(BaseModel):
@@ -129,7 +130,10 @@ async def get_forecast(zone: str, horizon: str) -> ForecastResponse:
     return ForecastResponse(
         zone=result.zone, horizon=result.horizon, issued_at=result.issued_at, model_version=result.model_version,
         points=[
-            ForecastPointOut(timestamp=p.timestamp, pred=p.pred, lower=p.lower, upper=p.upper, algorithm=p.algorithm, error=p.error)
+            ForecastPointOut(
+                timestamp=p.timestamp, pred=p.pred, lower=p.lower, upper=p.upper, algorithm=p.algorithm, error=p.error,
+                candidate_errors=p.candidate_errors,
+            )
             for p in result.points
         ],
     )

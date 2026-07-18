@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  buildCompetitionRows,
   exactTimeKey,
   hourKey,
   mergeGeneratedAndForecast,
@@ -23,8 +24,17 @@ function forecastPoint(
   upper: number | null = null,
   algorithm: string | null = null,
   error: number | null = null,
+  candidateErrors: Record<string, number> | null = null,
 ): ForecastPoint {
-  return { timestamp: `2026-07-14T${String(hourUtc).padStart(2, '0')}:00:00Z`, pred, lower, upper, algorithm, error }
+  return {
+    timestamp: `2026-07-14T${String(hourUtc).padStart(2, '0')}:00:00Z`,
+    pred,
+    lower,
+    upper,
+    algorithm,
+    error,
+    candidate_errors: candidateErrors,
+  }
 }
 
 describe('hourKey', () => {
@@ -152,7 +162,7 @@ describe('sumForecastAcrossZones', () => {
       '2026-07-14T22:20:00Z', '2026-07-14T22:30:00Z', '2026-07-14T22:40:00Z',
     ]
     const zoneSeries = (): ForecastPoint[] =>
-      minuteTimestamps.map((timestamp) => ({ timestamp, pred: 10, lower: null, upper: null, algorithm: null, error: null }))
+      minuteTimestamps.map((timestamp) => ({ timestamp, pred: 10, lower: null, upper: null, algorithm: null, error: null, candidate_errors: null }))
 
     const rowsWithDefaultKey = sumForecastAcrossZones([zoneSeries(), zoneSeries(), zoneSeries()])
     expect(rowsWithDefaultKey.length).toBeLessThan(6) // demonstrates the bug, not the desired behavior
@@ -164,7 +174,15 @@ describe('sumForecastAcrossZones', () => {
       '2026-07-14T22:20:00Z', '2026-07-14T22:30:00Z', '2026-07-14T22:40:00Z',
     ]
     const zoneSeries = (predBase: number): ForecastPoint[] =>
-      minuteTimestamps.map((timestamp) => ({ timestamp, pred: predBase, lower: null, upper: null, algorithm: null, error: null }))
+      minuteTimestamps.map((timestamp) => ({
+        timestamp,
+        pred: predBase,
+        lower: null,
+        upper: null,
+        algorithm: null,
+        error: null,
+        candidate_errors: null,
+      }))
 
     const rows = sumForecastAcrossZones([zoneSeries(10), zoneSeries(20), zoneSeries(30)], exactTimeKey)
     expect(rows.map((r) => r.timestamp)).toEqual(minuteTimestamps)
@@ -205,6 +223,49 @@ describe('nearestToTimestamp', () => {
 
   it('returns undefined for an empty series', () => {
     expect(nearestToTimestamp([], '2026-07-14T12:00:00Z')).toBeUndefined()
+  })
+})
+
+describe('buildCompetitionRows', () => {
+  const nowIso = '2026-07-14T12:00:00Z'
+
+  it('builds one row per lead hour, labeled +1h..+6h in order, with each candidate RMSE and the winner', () => {
+    const points = [
+      forecastPoint(13, 40, null, null, 'lightgbm', 1.2, { lightgbm: 1.2, random_forest: 1.5, sum_k_lstm: 1.4 }),
+      forecastPoint(14, 41, null, null, 'random_forest', 0.9, { lightgbm: 1.1, random_forest: 0.9 }),
+    ]
+    const rows = buildCompetitionRows(points, nowIso)
+
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({ leadLabel: '+1h', winner: 'lightgbm', lightgbm: 1.2, randomForest: 1.5, sumKLstm: 1.4 })
+    expect(rows[1]).toMatchObject({ leadLabel: '+2h', winner: 'random_forest', lightgbm: 1.1, randomForest: 0.9, sumKLstm: null })
+  })
+
+  it('drops points more than an hour in the past (only the live k-step race, not accumulated history)', () => {
+    const stale = forecastPoint(9, 10, null, null, 'lightgbm', 1, { lightgbm: 1 })
+    const live = forecastPoint(13, 40, null, null, 'lightgbm', 1.2, { lightgbm: 1.2 })
+    const rows = buildCompetitionRows([stale, live], nowIso)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].leadLabel).toBe('+1h')
+  })
+
+  it('caps at 6 rows even if more future points are present', () => {
+    const points = Array.from({ length: 8 }, (_, i) =>
+      forecastPoint(13 + i, 40, null, null, 'lightgbm', 1, { lightgbm: 1 }),
+    )
+    expect(buildCompetitionRows(points, nowIso)).toHaveLength(6)
+  })
+
+  it('computes spread as max - min across whichever candidates competed', () => {
+    const point = forecastPoint(13, 40, null, null, 'lightgbm', 1.2, { lightgbm: 1.2, random_forest: 1.5, sum_k_lstm: 1.4 })
+    const [row] = buildCompetitionRows([point], nowIso)
+    expect(row.spread).toBeCloseTo(0.3) // 1.5 - 1.2
+  })
+
+  it('leaves spread null when fewer than 2 candidates have a recorded RMSE', () => {
+    const point = forecastPoint(13, 40, null, null, 'lightgbm', 1.2, { lightgbm: 1.2 })
+    const [row] = buildCompetitionRows([point], nowIso)
+    expect(row.spread).toBeNull()
   })
 })
 

@@ -3,7 +3,9 @@ import type { DotItemDotProps } from 'recharts'
 import {
   Area,
   Bar,
+  BarChart,
   CartesianGrid,
+  Cell,
   ComposedChart,
   Legend,
   Line,
@@ -16,6 +18,7 @@ import {
 import { ZoneSelector } from '../components/ZoneSelector'
 import { WeatherStrip } from '../components/WeatherStrip'
 import {
+  buildCompetitionRows,
   exactTimeKey,
   mergeGeneratedAndForecast,
   nearestToNow,
@@ -23,6 +26,7 @@ import {
   sumHourlyAcrossZones,
   truncateGeneratedToNow,
 } from '../lib/chartData'
+import type { CompetitionRow } from '../lib/chartData'
 import {
   ALL_ZONES_ID,
   useAllZonesForecast,
@@ -48,6 +52,12 @@ const ALGORITHM_DOT_COLOR: Record<string, string> = {
   lightgbm: 'var(--chart-lgbm)',
   random_forest: 'var(--chart-rf)',
   sum_k_lstm: 'var(--chart-sumk)',
+}
+
+const ALGORITHM_LABEL: Record<string, string> = {
+  lightgbm: 'LightGBM',
+  random_forest: 'Random Forest',
+  sum_k_lstm: 'Sum-k LSTM',
 }
 
 function forecastDot(props: DotItemDotProps) {
@@ -77,6 +87,16 @@ export function ForecastPage() {
   // distort that axis's spacing.
   const singleMinuteForecast = useForecast(zoneId, 'minute')
   const allMinuteForecast = useAllZonesForecast('minute')
+
+  // The Model Competition panel (below) always shows the hour-ahead 3-way
+  // race regardless of which Day-ahead/Intra-day tab is active - same
+  // "always-visible, not gated by the main toggle" pattern as Minute-ahead
+  // above. Shares the exact same react-query cache key ['forecast', zone,
+  // 'hour'] as `singleForecast`/`allForecast` above when horizonToggle is
+  // already 'hour', so this is a no-op extra network request in that case,
+  // not a duplicate poll.
+  const singleHourForecast = useForecast(zoneId, 'hour')
+  const allHourForecast = useAllZonesForecast('hour')
 
   const isAllZones = zoneId === ALL_ZONES_ID
 
@@ -148,6 +168,20 @@ export function ForecastPage() {
   const minuteIsPhysicsBaseline = isAllZones
     ? allMinuteForecast.some((q) => q.data?.model_type === 'physics_baseline')
     : singleMinuteForecast.data?.model_type === 'physics_baseline'
+
+  const hourAheadPoints: ForecastPoint[] = useMemo(() => {
+    if (isAllZones) return sumForecastAcrossZones(allHourForecast.map((q) => q.data?.points ?? []))
+    return singleHourForecast.data?.points ?? []
+  }, [isAllZones, allHourForecast, singleHourForecast.data])
+
+  const competitionRows = useMemo(() => buildCompetitionRows(hourAheadPoints), [hourAheadPoints])
+
+  const competitionLoading = isAllZones ? allHourForecast.some((q) => q.isLoading) : singleHourForecast.isLoading
+  const competitionError = isAllZones
+    ? allHourForecast.find((q) => q.error)
+    : singleHourForecast.error
+      ? singleHourForecast
+      : undefined
 
   return (
     <div className="forecast-page">
@@ -288,14 +322,35 @@ export function ForecastPage() {
                   connectNulls
                 />
                 {horizonToggle === 'hour' && (
-                  <Line
-                    dataKey="error"
-                    name="Model error (RMSE)"
-                    stroke="var(--chart-error)"
-                    strokeWidth={1.5}
-                    strokeDasharray="4 4"
-                    dot={false}
-                  />
+                  <>
+                    <Line
+                      dataKey="errorLightgbm"
+                      name="Error - LightGBM (RMSE)"
+                      stroke="var(--chart-lgbm)"
+                      strokeWidth={1.5}
+                      strokeDasharray="4 4"
+                      dot={false}
+                      connectNulls
+                    />
+                    <Line
+                      dataKey="errorRandomForest"
+                      name="Error - Random Forest (RMSE)"
+                      stroke="var(--chart-rf)"
+                      strokeWidth={1.5}
+                      strokeDasharray="4 4"
+                      dot={false}
+                      connectNulls
+                    />
+                    <Line
+                      dataKey="errorSumKLstm"
+                      name="Error - Sum-k LSTM (RMSE)"
+                      stroke="var(--chart-sumk)"
+                      strokeWidth={1.5}
+                      strokeDasharray="4 4"
+                      dot={false}
+                      connectNulls
+                    />
+                  </>
                 )}
               </ComposedChart>
             </ResponsiveContainer>
@@ -309,7 +364,8 @@ export function ForecastPage() {
           {!isLoading && !forecastError && showsAlgorithmDots && (
             <p className="forecast-status forecast-status-caption">
               🟢 LightGBM &nbsp; 🟠 Random Forest &nbsp; 🔵 Sum-k LSTM — ระบบเลือกโมเดลที่แม่นยำกว่าโดยอัตโนมัติในแต่ละชั่วโมง (ดูสีจุดบนกราฟ)
-              | เส้นประ "Model error (RMSE)" คือค่าความคลาดเคลื่อนของโมเดลที่ชนะ วัดจากชุดข้อมูล validation จริง ไม่ใช่ค่าประมาณ
+              | เส้นประสีเดียวกันคือค่าความคลาดเคลื่อน (RMSE) ของโมเดลแต่ละตัว เทียบกับค่าจริงจากชุดข้อมูล validation — ไม่ใช่แค่โมเดลที่ชนะ
+              เท่านั้น ดูรายละเอียดเพิ่มเติมได้ที่แถบ "การแข่งขันของโมเดล" ด้านล่าง
             </p>
           )}
         </section>
@@ -322,6 +378,8 @@ export function ForecastPage() {
         hasError={Boolean(minuteError)}
         isPhysicsBaseline={minuteIsPhysicsBaseline}
       />
+
+      <ModelCompetitionPanel rows={competitionRows} isLoading={competitionLoading} hasError={Boolean(competitionError)} />
 
       <WeatherStrip
         points={weatherStrip.data?.points ?? []}
@@ -412,8 +470,9 @@ function ViewerGuidePanel() {
             ยิ่งแถบกว้าง ยิ่งไม่แน่นอน (แสดงค้างไว้เหมือนเส้น Forecast เช่นกัน)
           </li>
           <li>
-            <strong>เส้นประสีเทา "Model error (RMSE)" (เฉพาะ Intra-day):</strong> ความคลาดเคลื่อนของโมเดลที่ชนะการแข่งขันในชั่วโมงนั้น
-            วัดจากข้อมูลจริง ไม่ใช่ค่าประมาณ
+            <strong>เส้นประ 3 สี "Error - LightGBM / Random Forest / Sum-k LSTM" (เฉพาะ Intra-day):</strong>{' '}
+            ค่าความคลาดเคลื่อน (RMSE) ของโมเดลทั้ง 3 ตัวในชั่วโมงล่วงหน้านั้น ๆ แยกสีตามโมเดล (เขียว = LightGBM, ส้ม = Random Forest, ฟ้า
+            = Sum-k LSTM) ไม่ใช่แค่โมเดลที่ชนะเท่านั้น - ดูคำอธิบายเต็มในหัวข้อ "ค่าความคลาดเคลื่อน (RMSE) คืออะไร" ด้านล่าง
           </li>
           <li>
             <strong>เอาเมาส์ไปชี้บนเส้นหรือแท่งกราฟ:</strong> จะมีป้ายกำกับ (tooltip) เด้งขึ้นมาบอกตัวเลขที่จุดนั้นแบบละเอียด
@@ -431,6 +490,46 @@ function ViewerGuidePanel() {
           <li>
             <strong>Intra-day (พยากรณ์ภายในวัน):</strong> พยากรณ์ล่วงหน้าแค่ 1-6 ชั่วโมง แม่นยำกว่าเพราะใกล้เวลาจริงมากกว่า
             เหมาะกับการตัดสินใจระยะสั้น
+          </li>
+        </ul>
+      </section>
+
+      <section className="viewer-guide-section">
+        <h4>ค่าความคลาดเคลื่อน (RMSE) คืออะไร และทำไมถึงสำคัญ</h4>
+        <ul>
+          <li>
+            <strong>RMSE คืออะไร:</strong> ย่อมาจาก Root Mean Squared Error - นำผลต่างระหว่างค่าที่โมเดลทำนายกับค่าจริงในแต่ละจุด
+            มายกกำลังสอง แล้วเฉลี่ย แล้วถอดรากที่สอง ผลลัพธ์มีหน่วยเดียวกับกำลังไฟฟ้า (kW) จึงอ่านตรงตัวได้ว่า
+            "โดยเฉลี่ยโมเดลนี้ทำนายคลาดเคลื่อนไปกี่ kW" ยิ่งตัวเลขต่ำ ยิ่งแม่นยำ
+          </li>
+          <li>
+            <strong>ทำไมถึงสำคัญ:</strong> เป็นเกณฑ์ที่ระบบใช้ตัดสิน "ใครชนะ" ในการแข่งขันของ 3 โมเดลในแต่ละชั่วโมงล่วงหน้า (ดูแถบ
+            "การแข่งขันของโมเดล" ด้านล่างกราฟ) - โมเดลที่มี RMSE ต่ำที่สุดในชั่วโมงนั้นจะถูกเลือกมาใช้ทำนายจริง เพราะการยกกำลังสองก่อนเฉลี่ยทำให้
+            RMSE ลงโทษ "ความผิดพลาดครั้งใหญ่" (เช่น ตอนเมฆเปลี่ยนเร็วผิดปกติ) หนักกว่าความผิดพลาดเล็กน้อยที่กระจายทั่วไป
+            ซึ่งตรงกับสิ่งที่เราต้องการหลีกเลี่ยงจริง ๆ ในการพยากรณ์พลังงาน
+          </li>
+          <li>
+            <strong>ระบบนี้ใช้ RMSE แบบไหน:</strong> เป็น "held-out validation RMSE" คือวัดจากชุดข้อมูลที่โมเดลไม่เคยเห็นตอนฝึก (ไม่ใช่
+            ข้อมูลที่ใช้ฝึกโมเดลเอง) เพื่อให้ตัวเลขสะท้อนความแม่นยำที่แท้จริงเมื่อเจอสถานการณ์ใหม่ ไม่ใช่แค่ "จำ" ข้อมูลเก่าได้แม่น -
+            เป็นค่าที่วัดจริงจากการฝึกแต่ละครั้ง ไม่ใช่ค่าประมาณหรือสมมติขึ้น
+          </li>
+          <li>
+            <strong>ทำไมเลือกใช้ RMSE ไม่ใช่ตัวชี้วัดอื่น:</strong> RMSE เป็นมาตรฐานที่งานวิจัยด้าน solar forecasting ใช้เปรียบเทียบโมเดล
+            (เช่นงานอ้างอิงที่ระบบนี้ยึดหลักการมา ซึ่งเทียบ RF/SVR/MARS/ANN ด้วย RMSE เช่นกัน) และเหมาะกับบริบทนี้เพราะลงโทษความผิดพลาด
+            ก้อนใหญ่มากกว่า MAE (Mean Absolute Error) - เหมาะกับการเลือกโมเดลที่ไม่พลาดหนักในบางชั่วโมงมากกว่าการดูค่าเฉลี่ยเฉย ๆ
+          </li>
+          <li>
+            <strong>เส้น 3 สีในกราฟหลัก vs. แถบการแข่งขันด้านล่าง:</strong> เส้นประ 3 สีบนกราฟหลักโชว์ RMSE ของแต่ละโมเดลตามแกนเวลา
+            (เทียบง่ายว่าคลาดเคลื่อนมากขึ้น/น้อยลงตามชั่วโมงล่วงหน้าอย่างไร) ส่วนแถบ "การแข่งขันของโมเดล" ด้านล่างกราฟโชว์ RMSE ของทั้ง 3
+            โมเดลเทียบกันแบบแท่งกราฟในแต่ละชั่วโมงล่วงหน้า พร้อมไฮไลต์ว่าใครชนะ - ดูข้อมูลชุดเดียวกัน แค่คนละมุมมอง
+          </li>
+          <li>
+            <strong>"ส่วนต่างระหว่างโมเดล" (spread) ในแถบการแข่งขัน:</strong> ผลต่างระหว่าง RMSE สูงสุดกับต่ำสุดของทั้ง 3 โมเดลในชั่วโมงนั้น
+            (เอาเมาส์ชี้แท่งกราฟเพื่อดู) - เป็นการเปรียบเทียบ "ระหว่างโมเดลกันเอง" อีกแบบหนึ่ง นอกเหนือจาก RMSE เทียบค่าจริง: ค่ามาก แปลว่า
+            โมเดลที่ชนะแม่นยำกว่าตัวอื่นชัดเจน ค่าน้อย แปลว่าทั้ง 3 โมเดลให้ผลใกล้เคียงกันมาก การเลือกผู้ชนะแทบไม่กระทบผลลัพธ์
+            ข้อควรทราบ: นี่คำนวณจากผลการ validation ตอนฝึกโมเดล (ค่าคงที่จนกว่าจะฝึกใหม่) ไม่ใช่ความไม่ลงรอยกันของค่าพยากรณ์สดแบบเรียลไทม์ -
+            แบบหลังจะต้องเก็บโมเดลที่แพ้การแข่งขันทั้งหมดไว้ทำนายคู่ขนานตลอดเวลา ซึ่งเป็นการเปลี่ยนแปลงระบบหลังบ้านที่ใหญ่กว่านี้
+            จึงยังไม่ได้ทำในตอนนี้
           </li>
         </ul>
       </section>
@@ -511,6 +610,80 @@ function MinuteAheadPanel({ points, isLoading, hasError, isPhysicsBaseline }: Mi
       )}
       {!isLoading && !hasError && isPhysicsBaseline && points.length > 0 && (
         <p className="forecast-status forecast-status-caption">Physics-baseline fallback shown (no trained CNN-LSTM model yet).</p>
+      )}
+    </section>
+  )
+}
+
+interface ModelCompetitionPanelProps {
+  rows: CompetitionRow[]
+  isLoading: boolean
+  hasError: boolean
+}
+
+// A dedicated panel for "which model is winning" - separate from the main
+// chart's per-model error *lines* (which show error over time), this shows
+// one grouped-bar comparison of all three candidates' RMSE per lead hour
+// (+1h..+6h) side by side, with the actual winner's bar highlighted (full
+// opacity; the two losing candidates are dimmed) - added 2026-07-18 per the
+// user's explicit request for "a new dashboard section for the competition,
+// separate [from the main chart]" (แถบ dashboard เพิ่มเรื่องการแข่งขัน...แยกออกมาใหม่).
+// Always shows the live hour-ahead race regardless of which Day-ahead/
+// Intra-day tab is active on the main chart above - same pattern as
+// MinuteAheadPanel.
+function ModelCompetitionPanel({ rows, isLoading, hasError }: ModelCompetitionPanelProps) {
+  return (
+    <section className="forecast-competition-panel" aria-label="Model competition panel">
+      <h3 className="forecast-competition-title">การแข่งขันของโมเดล (Model Competition) — Intra-day, +1h ถึง +6h</h3>
+      <p className="forecast-competition-subtitle">
+        เปรียบเทียบค่าความคลาดเคลื่อน (RMSE) ของทั้ง 3 โมเดลในแต่ละชั่วโมงล่วงหน้า — แท่งทึบคือโมเดลที่ชนะและถูกเลือกใช้จริงในชั่วโมงนั้น
+        แท่งจางคือโมเดลที่แพ้การแข่งขัน (ยิ่ง RMSE ต่ำยิ่งแม่นยำ)
+      </p>
+      {isLoading && <p className="forecast-status">Loading…</p>}
+      {!isLoading && hasError && (
+        <p className="forecast-status forecast-status-warn">No intra-day forecast model has been trained for this zone yet.</p>
+      )}
+      {!isLoading && !hasError && rows.length === 0 && <p className="forecast-status">No data yet.</p>}
+      {rows.length > 0 && (
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={rows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+            <XAxis dataKey="leadLabel" />
+            <YAxis unit=" kW" width={80} label={{ value: 'RMSE (kW)', angle: -90, position: 'insideLeft' }} />
+            <Tooltip
+              formatter={(value, name) => [typeof value === 'number' ? `${value.toFixed(2)} kW` : String(value), name]}
+              labelFormatter={(label, payload) => {
+                const row = payload?.[0]?.payload as CompetitionRow | undefined
+                const winnerLabel = row?.winner ? (ALGORITHM_LABEL[row.winner] ?? row.winner) : 'ไม่ทราบ'
+                const spreadLabel = row?.spread != null ? ` | ส่วนต่างระหว่างโมเดล: ${row.spread.toFixed(2)} kW` : ''
+                return `${label} — ผู้ชนะ: ${winnerLabel}${spreadLabel}`
+              }}
+            />
+            <Legend />
+            <Bar dataKey="lightgbm" name="LightGBM" fill="var(--chart-lgbm)">
+              {rows.map((row) => (
+                <Cell key={`lgbm-${row.key}`} fillOpacity={row.winner === 'lightgbm' ? 1 : 0.3} />
+              ))}
+            </Bar>
+            <Bar dataKey="randomForest" name="Random Forest" fill="var(--chart-rf)">
+              {rows.map((row) => (
+                <Cell key={`rf-${row.key}`} fillOpacity={row.winner === 'random_forest' ? 1 : 0.3} />
+              ))}
+            </Bar>
+            <Bar dataKey="sumKLstm" name="Sum-k LSTM" fill="var(--chart-sumk)">
+              {rows.map((row) => (
+                <Cell key={`sumk-${row.key}`} fillOpacity={row.winner === 'sum_k_lstm' ? 1 : 0.3} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+      {rows.length > 0 && (
+        <p className="forecast-status forecast-status-caption">
+          เอาเมาส์ไปชี้แท่งกราฟเพื่อดู "ส่วนต่างระหว่างโมเดล" (spread) ของชั่วโมงนั้น — ยิ่งค่านี้น้อย ยิ่งแปลว่าทั้ง 3 โมเดลให้ผลใกล้เคียงกัน
+          (การเลือกผู้ชนะแทบไม่ต่างผล) ยิ่งค่านี้มาก ยิ่งแปลว่าโมเดลที่ชนะแม่นยำกว่าตัวอื่นอย่างมีนัยสำคัญ — นี่คือค่าที่คำนวณจากผลการ
+          validation ของแต่ละโมเดล ไม่ใช่ค่าความไม่ลงรอยกันของค่าพยากรณ์สดแบบเรียลไทม์ (ดูรายละเอียดในคำแนะนำการอ่านหน้านี้ด้านบน)
+        </p>
       )}
     </section>
   )

@@ -161,10 +161,19 @@ def _train_hour_ahead_kstep(zone: str, store: RealDataStore) -> tuple[HourAheadK
     Returns (model, params, metrics, data_source) in the same shape train_now()
     logs for every other horizon - data_source is "real" if *any* lead hour
     found enough real history, "synthetic" only if every lead hour fell back.
+
+    Every candidate's own RMSE (not just the winner's) is already computed
+    below for the min() comparison and logged flat into `metrics` as
+    lead{N}_lgbm_rmse/lead{N}_rf_rmse/lead{N}_sum_k_rmse (unchanged, 2026-07-16)
+    - `model.candidate_rmse_by_lead_hour` (added 2026-07-18) is the same
+    numbers reshaped onto the model itself as {lead: {algo: rmse}}, so
+    serving.py can hand all three back per forecast point without a separate
+    MLflow metrics lookup at request time (same spirit as rmse_by_lead_hour).
     """
     models_by_lead: dict[int, object] = {}
     algo_by_lead: dict[int, str] = {}
     rmse_by_lead: dict[int, float] = {}
+    candidate_rmse_by_lead: dict[int, dict[str, float]] = {}
     source_by_lead: dict[int, str] = {}
     bias_correctors_by_lead: dict[int, object] = {}
     metrics: dict[str, float] = {}
@@ -240,6 +249,11 @@ def _train_hour_ahead_kstep(zone: str, store: RealDataStore) -> tuple[HourAheadK
         models_by_lead[lead] = winner_model
         algo_by_lead[lead] = algo
         rmse_by_lead[lead] = winner_rmse
+        candidate_rmse_by_lead[lead] = {
+            "lightgbm": lgbm_rmse_by_lead[lead],
+            "random_forest": rf_rmse_by_lead[lead],
+            **({"sum_k_lstm": sum_k_rmse_by_lead[lead]} if lead in sum_k_rmse_by_lead else {}),
+        }
 
         day_corrector = train_bias_correction(winner_X, winner_pred["pred"], winner_y)
         bias_correctors_by_lead[lead] = day_corrector
@@ -259,6 +273,7 @@ def _train_hour_ahead_kstep(zone: str, store: RealDataStore) -> tuple[HourAheadK
     model = HourAheadKStepModel(
         models_by_lead_hour=models_by_lead, algorithm_by_lead_hour=algo_by_lead,
         bias_correctors_by_lead_hour=bias_correctors_by_lead, rmse_by_lead_hour=rmse_by_lead,
+        candidate_rmse_by_lead_hour=candidate_rmse_by_lead,
         lead_hours=HOUR_LEAD_HOURS, sum_k_model=sum_k_model,
     )
     params = {f"lead{lead}_algorithm": algo for lead, algo in algo_by_lead.items()}

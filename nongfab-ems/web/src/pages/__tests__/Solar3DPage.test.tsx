@@ -71,7 +71,9 @@ function makeForecast(zone: string): ForecastResponse {
     horizon: 'day',
     issued_at: '2026-07-14T00:00:00Z',
     model_version: 1,
-    points: [{ timestamp: '2026-07-14T10:00:00Z', pred: 42.5, lower: 35, upper: 50, algorithm: 'neuralprophet', error: null }],
+    points: [
+      { timestamp: '2026-07-14T10:00:00Z', pred: 42.5, lower: 35, upper: 50, algorithm: 'neuralprophet', error: null, candidate_errors: null },
+    ],
     data_source: 'real',
     model_type: 'ml',
   }

@@ -189,6 +189,14 @@ class ForecastPoint:
     # the same "honestly-labeled approximation" spirit). None where no such
     # validation metric exists (minute/day/physics-baseline).
     error: float | None = None
+    # Every hour-ahead candidate's own validation RMSE for this lead hour
+    # (not just the winner's `error` above), e.g. {"lightgbm": 1.2,
+    # "random_forest": 1.5, "sum_k_lstm": 1.4} - from HourAheadKStepModel.
+    # candidate_rmse_by_lead_hour (added 2026-07-18). None (not {}) for
+    # minute/day/physics-baseline, same "no such metric exists" convention
+    # as `error`; a hour-ahead point can still be {} if served from a model
+    # pickled before this field existed.
+    candidate_errors: dict[str, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -234,9 +242,10 @@ def _persist_and_merge_history(
     rows = store.forecast_history_points(zone, horizon, since)
     return [
         ForecastPoint(
-            timestamp=datetime.fromisoformat(target_time), pred=pred, lower=lower, upper=upper, algorithm=algorithm, error=error
+            timestamp=datetime.fromisoformat(target_time), pred=pred, lower=lower, upper=upper, algorithm=algorithm,
+            error=error, candidate_errors=candidate_errors,
         )
-        for target_time, pred, lower, upper, algorithm, error in rows
+        for target_time, pred, lower, upper, algorithm, error, candidate_errors in rows
     ]
 
 
@@ -357,6 +366,7 @@ def get_latest_forecast(zone: str, horizon: str, store: RealDataStore | None = N
                 upper=float(row.upper),
                 algorithm=row.algorithm,
                 error=float(row.error_rmse) if pd.notna(row.error_rmse) else None,
+                candidate_errors=dict(row.candidate_errors) if row.candidate_errors else {},
             )
             for lead, row in result.iterrows()
         ]

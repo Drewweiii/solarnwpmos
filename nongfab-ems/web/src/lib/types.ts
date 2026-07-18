@@ -62,6 +62,14 @@ export interface ForecastPoint {
   // didn't train on" figure, not a live/real-time error. null where no such
   // metric exists (minute/day/physics-baseline).
   error: number | null
+  // Every hour-ahead candidate's own validation RMSE for this lead hour, not
+  // just the winner's `error` above - e.g. { lightgbm: 1.2, random_forest:
+  // 1.5, sum_k_lstm: 1.4 }. Lets the dashboard plot all three models' error
+  // side by side (ForecastPage's per-model error lines + the Model
+  // Competition panel), not just whichever one won. null/{} where no such
+  // per-candidate breakdown exists (minute/day/physics-baseline, or a point
+  // served from a model trained before this field existed).
+  candidate_errors: Record<string, number> | null
 }
 
 export interface ForecastResponse {

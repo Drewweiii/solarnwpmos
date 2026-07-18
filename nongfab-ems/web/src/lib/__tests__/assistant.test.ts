@@ -68,7 +68,9 @@ describe('answerQuestion', () => {
       horizon: 'day',
       issued_at: new Date().toISOString(),
       model_version: 1,
-      points: [{ timestamp: new Date().toISOString(), pred: 25.5, lower: 20, upper: 30, algorithm: 'neuralprophet', error: null }],
+      points: [
+        { timestamp: new Date().toISOString(), pred: 25.5, lower: 20, upper: 30, algorithm: 'neuralprophet', error: null, candidate_errors: null },
+      ],
       data_source: 'real',
       model_type: 'ml',
     }
