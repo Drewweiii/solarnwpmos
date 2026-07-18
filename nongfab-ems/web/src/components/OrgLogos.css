@@ -1,0 +1,63 @@
+.org-logos {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.org-logos-item {
+  width: auto;
+  object-fit: contain;
+}
+
+/* Login page: sits above the sign-in form, prominent since it's the first
+   thing a visitor sees. */
+.org-logos-login {
+  gap: 28px;
+  padding: 8px 20px 24px;
+}
+
+.org-logos-login .org-logos-item {
+  height: 46px;
+}
+
+/* Site-wide footer: deliberately small and sits in normal document flow
+   at the very end of the page (never position:fixed) - it only ever pushes
+   the page taller, so it can't cover the dashboard content, the mascot, or
+   the visitor-network widget above it. Generous bottom padding keeps it
+   clear of those two fixed corner buttons even on a short page. */
+.org-logos-footer {
+  gap: 20px;
+  padding: 24px 20px 140px;
+  border-top: 1px solid var(--border);
+  margin-top: 32px;
+}
+
+.org-logos-footer .org-logos-item {
+  height: 28px;
+  opacity: 0.85;
+}
+
+.org-logos-footer .org-logos-item:hover {
+  opacity: 1;
+}
+
+@media (max-width: 480px) {
+  .org-logos-login {
+    gap: 18px;
+  }
+
+  .org-logos-login .org-logos-item {
+    height: 34px;
+  }
+
+  .org-logos-footer {
+    gap: 14px;
+    padding-bottom: 120px;
+  }
+
+  .org-logos-footer .org-logos-item {
+    height: 22px;
+  }
+}
