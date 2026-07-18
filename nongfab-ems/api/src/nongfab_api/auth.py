@@ -28,10 +28,15 @@ ROLE_HIERARCHY = {"viewer": 0, "operator": 1, "admin": 2}
 # demo convenience ONLY (see README "Auth"). These are throwaway accounts for
 # interactive API verification, not real credentials. A real deployment must
 # set API_SEED_DEMO_USERS=false and provision real users via UserStore.create_user().
+#
+# The `viewer` role account is deliberately named/passworded `pttlng`/`12345`
+# (not the admin/operator-style `viewer-demo-pw` pattern) - this is the
+# public login the user asked to be handed out to site visitors so they can
+# use the chat/feedback visitor-network features, which require sign-in.
 DEMO_USERS = (
     ("admin", "admin-demo-pw", "admin"),
     ("operator", "operator-demo-pw", "operator"),
-    ("viewer", "viewer-demo-pw", "viewer"),
+    ("pttlng", "12345", "viewer"),
 )
 
 

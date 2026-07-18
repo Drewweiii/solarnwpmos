@@ -2,6 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { useDeployWatch } from '../lib/deployWatch'
 import { AIAssistant } from './AIAssistant'
+import { VisitorNetwork } from './VisitorNetwork'
 
 export function Layout() {
   const { username, role, logout, forceLogout } = useAuth()
@@ -32,6 +33,11 @@ export function Layout() {
           <NavLink to="/irradiance-map" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
             Irradiance Map
           </NavLink>
+          {role === 'admin' && (
+            <NavLink to="/admin/feedback" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
+              Feedback
+            </NavLink>
+          )}
         </nav>
         <div className="app-header-user">
           <span>
@@ -46,6 +52,7 @@ export function Layout() {
         <Outlet />
       </main>
       <AIAssistant />
+      <VisitorNetwork />
     </div>
   )
 }

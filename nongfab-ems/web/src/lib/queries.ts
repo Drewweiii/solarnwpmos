@@ -1,13 +1,15 @@
-import { keepPreviousData, useMutation, useQueries, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getAssets,
   getEnergyReport,
+  getFeedback,
   getForecast,
   getGeometry,
   getIrradianceMap,
   getPerformance,
   getSunPath,
   getWeatherStrip,
+  postFeedback,
   postFinancial,
   postSimulate,
 } from './api'
@@ -171,5 +173,31 @@ export function useFinancial() {
   const { token } = useAuth()
   return useMutation({
     mutationFn: (request: FinancialRequest) => postFinancial(request, token!),
+  })
+}
+
+/** POST /feedback (contact form) - a mutation, not a query, same as
+ * useSimulate/useFinancial above. Invalidates the admin inbox query so an
+ * admin who happens to have that page open sees new submissions without a
+ * manual refresh. */
+export function useSubmitFeedback() {
+  const { token } = useAuth()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (text: string) => postFeedback(text, token!),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['feedback'] }),
+  })
+}
+
+/** GET /feedback (admin-only inbox) - polled at the same cadence as the
+ * other "live" dashboard data so a new visitor message shows up without a
+ * manual refresh. */
+export function useFeedbackInbox() {
+  const { token, role } = useAuth()
+  return useQuery({
+    queryKey: ['feedback'],
+    queryFn: () => getFeedback(token!),
+    enabled: Boolean(token) && role === 'admin',
+    refetchInterval: LIVE_REFETCH_INTERVAL_MS,
   })
 }

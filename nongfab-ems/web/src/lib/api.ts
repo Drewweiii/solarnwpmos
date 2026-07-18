@@ -1,6 +1,7 @@
 import type {
   AssetRegistry,
   EnergyReportResponse,
+  FeedbackItem,
   FinancialRequest,
   FinancialResponse,
   ForecastHorizon,
@@ -121,3 +122,16 @@ export interface VersionResponse {
 // polls this regardless of whether the session has any other query running,
 // so an idle tab still notices a backend redeploy.
 export const getVersion = (): Promise<VersionResponse> => request('/version', null)
+
+export const postFeedback = (text: string, token: string): Promise<FeedbackItem> =>
+  request('/feedback', token, { method: 'POST', body: JSON.stringify({ text }) })
+
+export const getFeedback = (token: string): Promise<FeedbackItem[]> => request('/feedback', token)
+
+// ws_chat.py's `/ws/chat` handshake auth, same `?token=` convention as every
+// other authenticated call - derived from API_BASE_URL's http(s) scheme
+// rather than a second env var, so it can never drift out of sync with it.
+export function chatSocketUrl(token: string): string {
+  const wsBase = API_BASE_URL.replace(/^http/, 'ws')
+  return `${wsBase}/ws/chat?token=${encodeURIComponent(token)}`
+}

@@ -14,7 +14,7 @@ def test_login_with_demo_credentials_returns_bearer_token(app):
 
 def test_login_token_authorizes_requests(app):
     with TestClient(app) as client:
-        token = client.post("/auth/token", data={"username": "viewer", "password": "viewer-demo-pw"}).json()["access_token"]
+        token = client.post("/auth/token", data={"username": "pttlng", "password": "12345"}).json()["access_token"]
         resp = client.get("/assets", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
 

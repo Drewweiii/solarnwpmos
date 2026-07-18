@@ -32,7 +32,9 @@ Deployed and publicly reachable:
 
 Demo accounts (seeded on startup — throwaway credentials, see
 `api/src/nongfab_api/auth.py`): `admin`/`admin-demo-pw`,
-`operator`/`operator-demo-pw`, `viewer`/`viewer-demo-pw`.
+`operator`/`operator-demo-pw`, `pttlng`/`12345` (viewer role — this is the
+public login handed out to site visitors for the chat/feedback
+visitor-network features).
 
 Deployment notes:
 

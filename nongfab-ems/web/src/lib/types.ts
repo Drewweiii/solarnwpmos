@@ -337,3 +337,35 @@ export interface IrradianceMapResponse {
   grid: IrradianceGridPoint[]
   zones: ZonePin[]
 }
+
+// Visitor network (ws_chat.py / routes_feedback.py)
+
+export interface ChatMessage {
+  type: 'message'
+  id: number
+  username: string
+  role: string
+  text: string
+  created_at: string
+}
+
+export interface ChatPresence {
+  type: 'presence'
+  count: number
+  usernames: string[]
+}
+
+export interface ChatHistory {
+  type: 'history'
+  messages: ChatMessage[]
+}
+
+export type ChatEvent = ChatMessage | ChatPresence | ChatHistory
+
+export interface FeedbackItem {
+  id: number
+  username: string
+  role: string
+  text: string
+  created_at: string
+}
