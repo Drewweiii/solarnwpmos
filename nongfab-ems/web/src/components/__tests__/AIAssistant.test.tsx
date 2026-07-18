@@ -50,7 +50,7 @@ describe('AIAssistant', () => {
     await user.click(screen.getByRole('button', { name: /เปิดผู้ช่วย AI/i }))
 
     expect(await screen.findByRole('dialog', { name: /ผู้ช่วย AI/i })).toBeInTheDocument()
-    expect(screen.getByText(/หนูเป็นผู้ช่วย AI/)).toBeInTheDocument()
+    expect(screen.getByText(/ผมชื่อ "น้อง Solar"/)).toBeInTheDocument()
   })
 
   it('closes the panel when the mascot is clicked again', async () => {
@@ -100,5 +100,24 @@ describe('AIAssistant', () => {
 
     await waitFor(() => expect(screen.getByText(/กิโลวัตต์พีค/)).toBeInTheDocument())
     expect(screen.getByText('kWp คือ อะไร')).toBeInTheDocument() // the user's own message echoed back
+  })
+
+  it('the mascot smiles after a real answer and looks sad after a fallback', async () => {
+    const user = userEvent.setup()
+    const { container } = renderAssistant()
+    await user.click(screen.getByRole('button', { name: /เปิดผู้ช่วย AI/i }))
+    const mouth = () => container.querySelector('.mascot-mouth')?.getAttribute('d')
+    const idleMouth = mouth()
+
+    const input = await screen.findByLabelText('พิมพ์คำถามถึงผู้ช่วย AI')
+    await user.type(input, 'kWp คือ อะไร')
+    await user.click(screen.getByRole('button', { name: 'ส่ง' }))
+    await waitFor(() => expect(mouth()).not.toBe(idleMouth))
+    const happyMouth = mouth()
+
+    await user.clear(input)
+    await user.type(input, 'อยากรู้เรื่องดวงจันทร์')
+    await user.click(screen.getByRole('button', { name: 'ส่ง' }))
+    await waitFor(() => expect(mouth()).not.toBe(happyMouth))
   })
 })

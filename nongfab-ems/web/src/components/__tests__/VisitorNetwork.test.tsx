@@ -89,6 +89,14 @@ describe('VisitorNetwork', () => {
     expect(screen.getByText('Alice')).toBeInTheDocument()
   })
 
+  it('shows น้อง Solar in the name+avatar setup form', async () => {
+    const user = userEvent.setup()
+    renderWidget(VIEWER_TOKEN)
+    await openWidget(user)
+
+    expect(screen.getByText(/น้อง Solar/)).toBeInTheDocument()
+  })
+
   it('a viewer without a saved profile sees the name+avatar setup form before they can chat', async () => {
     const user = userEvent.setup()
     renderWidget(VIEWER_TOKEN)

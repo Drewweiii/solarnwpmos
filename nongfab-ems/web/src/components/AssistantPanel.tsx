@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { answerQuestion, ASSISTANT_INTENTS } from '../lib/assistant'
+import { answerQuestionWithMood, ASSISTANT_INTENTS, type AssistantMood } from '../lib/assistant'
 import { useAuth } from '../lib/auth'
 import './AssistantPanel.css'
 
@@ -12,7 +12,7 @@ interface ChatMessage {
 const GREETING: ChatMessage = {
   id: 'greeting',
   role: 'assistant',
-  text: 'สวัสดีค่ะ ☀️ หนูเป็นผู้ช่วย AI ของเว็บนี้ ถามได้เลยว่าเว็บนี้ใช้งานยังไง หรือถามข้อมูลจริงในระบบ เช่น "ตอนนี้ผลิตไฟเท่าไหร่" ค่ะ',
+  text: 'สวัสดีครับ ☀️ ผมชื่อ "น้อง Solar" ผู้ช่วย AI ของเว็บนี้ครับ ถามได้เลยว่าเว็บนี้ใช้งานยังไง หรือถามข้อมูลจริงในระบบ เช่น "ตอนนี้ผลิตไฟเท่าไหร่" ครับ',
 }
 
 // A handful of one-tap starting points so a first-time visitor doesn't stare
@@ -23,9 +23,12 @@ const QUICK_REPLIES = ['ตอนนี้ผลิตไฟเท่าไห�
 interface AssistantPanelProps {
   isOpen: boolean
   onClose: () => void
+  /** Called with 'happy'/'sad' after every answer so AIAssistant.tsx can
+   * make the mascot's face react (see MascotFace.tsx). */
+  onAnswered?: (mood: AssistantMood) => void
 }
 
-export function AssistantPanel({ isOpen, onClose }: AssistantPanelProps) {
+export function AssistantPanel({ isOpen, onClose, onAnswered }: AssistantPanelProps) {
   const { token } = useAuth()
   const [messages, setMessages] = useState<ChatMessage[]>([GREETING])
   const [input, setInput] = useState('')
@@ -45,8 +48,9 @@ export function AssistantPanel({ isOpen, onClose }: AssistantPanelProps) {
     setInput('')
     setIsThinking(true)
     try {
-      const answer = await answerQuestion(trimmed, { token })
-      setMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: 'assistant', text: answer }])
+      const { text, mood } = await answerQuestionWithMood(trimmed, { token })
+      setMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: 'assistant', text }])
+      onAnswered?.(mood)
     } finally {
       setIsThinking(false)
     }
@@ -55,10 +59,10 @@ export function AssistantPanel({ isOpen, onClose }: AssistantPanelProps) {
   if (!isOpen) return null
 
   return (
-    <section className="assistant-panel" role="dialog" aria-labelledby={titleId} aria-label="ผู้ช่วย AI">
+    <section className="assistant-panel" role="dialog" aria-labelledby={titleId} aria-label="ผู้ช่วย AI น้อง Solar">
       <header className="assistant-panel-header">
         <span id={titleId} className="assistant-panel-title">
-          ผู้ช่วย AI 🤖
+          น้อง Solar - ผู้ช่วย AI 🤖
         </span>
         <button type="button" className="assistant-panel-close" onClick={onClose} aria-label="ปิดหน้าต่างผู้ช่วย">
           ×

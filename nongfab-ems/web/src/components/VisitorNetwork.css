@@ -209,6 +209,12 @@
   overflow-y: auto;
 }
 
+.visitor-profile-mascot {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 2px;
+}
+
 .visitor-profile-note {
   margin: 0 0 4px;
   font-size: 12px;

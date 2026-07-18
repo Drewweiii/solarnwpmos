@@ -3,6 +3,7 @@ import { AVATAR_OPTIONS, avatarById, getOrCreateClientId, loadChatProfile, saveC
 import { useSubmitFeedback } from '../lib/queries'
 import { useChatSocket, type ChatSocketState } from '../lib/useChatSocket'
 import type { ChatMessage } from '../lib/types'
+import { MascotFace } from './MascotFace'
 import './VisitorNetwork.css'
 
 type Tab = 'chat' | 'feedback'
@@ -134,10 +135,13 @@ function ProfileSetup({
         onSaved(saveChatProfile(name, avatarId))
       }}
     >
+      <div className="visitor-profile-mascot" aria-hidden="true">
+        <MascotFace mood="idle" />
+      </div>
       <p className="visitor-profile-note">
         {initial
-          ? 'แก้ไขชื่อและ avatar ที่จะแสดงในแชทค่ะ'
-          : 'ตั้งชื่อและเลือก avatar ที่จะแสดงในแชท (เหมือน LINE) ก่อนเริ่มคุยกันค่ะ'}
+          ? 'น้อง Solar: แก้ไขชื่อและ avatar ที่จะแสดงในแชทได้เลยครับ'
+          : 'น้อง Solar: ตั้งชื่อและเลือก avatar ที่จะแสดงในแชท (เหมือน LINE) ก่อนเริ่มคุยกันได้เลยครับ'}
       </p>
       <label className="visitor-profile-name-label" htmlFor="visitor-profile-name">
         ชื่อที่แสดง
