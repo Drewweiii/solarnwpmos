@@ -1649,6 +1649,75 @@ Track 2 (confirmed in `HANDOFF.md`: still unclaimed as of Track 1's last
 entry) but the explicit numbered task list for this session's turn didn't
 include it, so it wasn't started without confirming first.
 
+### Added - "เล่นกับน้อง Solar" play interactions (2026-07-18)
+
+A standalone playful feature the user asked to sit alongside the site's
+engineering content as its own highlight: from right inside the AI
+assistant panel (no separate tab/page), a 🎮 toggle reveals a dozen cute,
+harmless things a visitor can do to the mascot - pet his head, poke his
+cheek, hold hands, tickle him, rain on him, hug him, feed him ice cream,
+cheer for him, jump-scare him, pinch his cheek, give him a flower, high-
+five him. Each one gives น้อง Solar a distinct facial reaction plus a short
+line of dialogue in a speech bubble next to the floating mascot, both
+fading back to his default idle look ~5 seconds later.
+
+- **`lib/useMascotReaction.ts`** (new): the shared `{ mood, speech,
+  trigger() }` state AIAssistant.tsx now owns instead of a bare `useState`.
+  The critical property, per the user's explicit request ("กดหลายๆ ครั้ง
+  ห้าม stack นะ เช่นลูบหัว 10 ครั้ง ห้ามกลายเป็นรอ 50 วินาที"): `trigger()`
+  imperatively clears and restarts its own timer on *every* call via a ref,
+  not through a `useEffect(() => {...}, [mood])` dependency - the latter
+  would silently fail to reset when the same mood/text repeats (React bails
+  out of re-running an effect when setState is called with an unchanged
+  value), which is exactly the case a rapid burst of identical clicks hits.
+  Verified live: 6 rapid pet-head clicks 200ms apart still clear the bubble
+  ~5.3s after the *last* click, not 30s later. This also fixed a latent
+  version of the same bug in the pre-existing answer-driven happy/sad mood,
+  which used to be a plain `useEffect`.
+- **`components/MascotFace.tsx`**: `MascotMood` grew from 3 values (idle/
+  happy/sad) to 10 - added blush, hurt, laugh, wet, love, surprised,
+  excited. Built from small reusable pieces (`EYE_STYLE`/`MOUTH_PATH` lookup
+  tables, an `EyePair` sub-component with 6 eye shapes: normal/closed/
+  squint/wide/heart/star) rather than one-off SVG per mood, plus mood-
+  specific decorations (floating hearts, falling raindrops, an impact
+  burst, joy-tears, a motion burst) with their own CSS animations in
+  `Mascot.css` (all included in the existing `prefers-reduced-motion`
+  opt-out).
+- **`lib/mascotInteractions.ts`** (new): the catalog of 12 interactions
+  (id/label/mood/speech), kept deliberately generous rather than 2-3 token
+  options per the user's explicit "ขอเยอะๆ เลยนะ".
+- **`components/Mascot.tsx`**: gained a `speech` prop and a
+  `.mascot-speech-bubble` rendered next to the floating character (not
+  inside the chat panel) so the reaction is visible on the mascot itself.
+  **Found and fixed a real layout bug live**: the bubble initially rendered
+  only a few characters wide, wrapping "ขอบคุณค้าบบ~" across 4+ lines -
+  root cause was `width` shrink-to-fit sizing against the wrong available
+  width for an absolutely positioned element offset only by `right` (no
+  `left`) inside a narrow (~108px, sized to the mascot button) positioned
+  ancestor; fixed with `width: max-content` to force sizing purely off the
+  bubble's own content.
+- **`components/AssistantPanel.tsx`**: new 🎮 header toggle reveals
+  `.assistant-play-panel`, a grid of interaction buttons styled like the
+  existing sticker picker (`VisitorNetwork.tsx`) for visual consistency.
+  Clicking an interaction calls `onInteract` (threaded from AIAssistant.tsx)
+  - purely a mascot-side effect, never added as a chat message - and the
+  panel deliberately stays open afterward so rapid repeated play never
+  requires reopening it.
+
+**Tested**: `useMascotReaction.test.ts` (new, fake timers) proves the no-
+stack guarantee directly - 10 rapid identical triggers, a trigger arriving
+while another is already pending, mood-only triggers with no bubble.
+`mascotInteractions.test.ts` (new) guards catalog invariants (unique ids,
+non-empty in-character speech, always a non-idle mood). `AIAssistant.
+test.tsx` gained an integration suite covering the toggle, a real face
+change + bubble text per interaction, that nothing is added to the chat
+log, and that the panel stays open across repeated plays. Full suite
+265/265, `tsc` clean. **Live-verified via Playwright** (light + dark):
+screenshotted the play grid and 5 distinct mood reactions (blush/hurt/wet/
+love/surprised), found and fixed the speech-bubble width bug above, then
+proved the no-stack behavior with real elapsed-time measurements (6 rapid
+clicks, bubble confirmed gone ~5.3s after the last one).
+
 ## Run locally
 
 ```bash

@@ -1,8 +1,15 @@
-.mascot-button {
+.mascot-wrap {
   position: fixed;
   right: 20px;
   bottom: 20px;
   z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.mascot-button {
+  position: relative;
   width: 108px;
   height: 108px;
   padding: 0;
@@ -10,6 +17,7 @@
   background: transparent;
   cursor: pointer;
   border-radius: 50%;
+  flex-shrink: 0;
 }
 
 @media (max-width: 480px) {
@@ -22,6 +30,66 @@
 .mascot-button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 4px;
+}
+
+/* --- Play-interaction speech bubble (2026-07-18) --- */
+
+.mascot-speech-bubble {
+  position: absolute;
+  right: calc(100% + 12px);
+  bottom: 30px;
+  /* width:max-content forces the box to size purely to its own content
+     (up to max-width) - without it, an absolutely positioned element offset
+     only by `right` (no `left`) can end up shrink-to-fit against the wrong
+     available width when its containing block (.mascot-wrap) is itself
+     narrow (~108px, sized to the mascot button) - found live: the bubble
+     rendered only a few characters wide, wrapping "ขอบคุณค้าบบ~" onto 4+
+     lines instead of reading as one short phrase. */
+  width: max-content;
+  max-width: 200px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: var(--card-bg);
+  color: var(--text-h);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: right;
+  animation: mascot-speech-pop-in 0.2s ease-out;
+}
+
+.mascot-speech-bubble::after {
+  content: '';
+  position: absolute;
+  right: -6px;
+  bottom: 18px;
+  width: 12px;
+  height: 12px;
+  background: var(--card-bg);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  transform: rotate(-45deg);
+}
+
+@keyframes mascot-speech-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 480px) {
+  .mascot-speech-bubble {
+    max-width: 150px;
+    font-size: 12.5px;
+    bottom: 22px;
+  }
 }
 
 .mascot-svg {
@@ -101,6 +169,110 @@
   }
 }
 
+/* --- Play-interaction mood decorations (2026-07-18) --- */
+
+.mascot-floating-hearts path {
+  animation: mascot-heart-float 1.4s ease-in-out infinite alternate;
+  transform-origin: center;
+}
+
+.mascot-floating-hearts path:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.mascot-floating-hearts path:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes mascot-heart-float {
+  from {
+    opacity: 0.6;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-6px);
+  }
+}
+
+.mascot-rain path {
+  animation: mascot-raindrop-fall 0.9s linear infinite;
+}
+
+.mascot-rain path:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.mascot-rain path:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.mascot-rain path:nth-child(4) {
+  animation-delay: 0.1s;
+}
+
+@keyframes mascot-raindrop-fall {
+  0% {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+.mascot-burst {
+  animation: mascot-burst-pulse 0.5s ease-in-out infinite alternate;
+  transform-origin: 60px 60px;
+}
+
+@keyframes mascot-burst-pulse {
+  from {
+    opacity: 0.5;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+.mascot-impact {
+  animation: mascot-impact-flash 0.35s ease-in-out infinite alternate;
+}
+
+@keyframes mascot-impact-flash {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.mascot-joy-tears path {
+  animation: mascot-tear-drip 0.8s ease-in infinite;
+}
+
+.mascot-joy-tears path:nth-child(2) {
+  animation-delay: 0.25s;
+}
+
+@keyframes mascot-tear-drip {
+  0% {
+    opacity: 0.9;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
 .mascot-badge {
   position: absolute;
   top: 2px;
@@ -118,7 +290,13 @@
   .mascot-svg,
   .mascot-sparkles,
   .mascot-mouth,
-  .mascot-blush {
+  .mascot-blush,
+  .mascot-floating-hearts path,
+  .mascot-rain path,
+  .mascot-burst,
+  .mascot-impact,
+  .mascot-joy-tears path,
+  .mascot-speech-bubble {
     animation: none;
     transition: none;
   }

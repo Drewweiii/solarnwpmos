@@ -121,4 +121,68 @@ describe('AIAssistant', () => {
     await user.click(screen.getByRole('button', { name: 'ส่ง' }))
     await waitFor(() => expect(mouth()).not.toBe(happyMouth))
   })
+
+  describe('เล่นกับน้อง Solar (play interactions)', () => {
+    it('the play panel is closed by default and opens on the 🎮 toggle, offering plenty of options', async () => {
+      const user = userEvent.setup()
+      renderAssistant()
+      await user.click(screen.getByRole('button', { name: /เปิดผู้ช่วย AI/i }))
+
+      expect(screen.queryByRole('group', { name: 'เล่นกับน้อง Solar' })).not.toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'เล่นกับน้อง Solar' }))
+      const playGroup = screen.getByRole('group', { name: 'เล่นกับน้อง Solar' })
+      expect(playGroup.querySelectorAll('button').length).toBeGreaterThanOrEqual(10)
+    })
+
+    it('petting the head visibly changes the mascot face and shows its speech bubble', async () => {
+      const user = userEvent.setup()
+      const { container } = renderAssistant()
+      await user.click(screen.getByRole('button', { name: /เปิดผู้ช่วย AI/i }))
+      const mouth = () => container.querySelector('.mascot-mouth')?.getAttribute('d')
+      const idleMouth = mouth()
+
+      await user.click(screen.getByRole('button', { name: 'เล่นกับน้อง Solar' }))
+      await user.click(screen.getByRole('button', { name: '🤚 ลูบหัว' }))
+
+      expect(mouth()).not.toBe(idleMouth)
+      expect(await screen.findByText('ขอบคุณค้าบบ~ 😳')).toBeInTheDocument()
+    })
+
+    it('poking gives a distinctly different reaction than petting the head', async () => {
+      const user = userEvent.setup()
+      renderAssistant()
+      await user.click(screen.getByRole('button', { name: /เปิดผู้ช่วย AI/i }))
+      await user.click(screen.getByRole('button', { name: 'เล่นกับน้อง Solar' }))
+
+      await user.click(screen.getByRole('button', { name: '👉 จิ้มแก้ม' }))
+      expect(await screen.findByText('อย่าจิ้มเค้าาา!')).toBeInTheDocument()
+    })
+
+    it('does not add anything to the chat log - play interactions are purely visual on the mascot', async () => {
+      const user = userEvent.setup()
+      const { container } = renderAssistant()
+      await user.click(screen.getByRole('button', { name: /เปิดผู้ช่วย AI/i }))
+      await user.click(screen.getByRole('button', { name: 'เล่นกับน้อง Solar' }))
+      const bubbleCountBefore = container.querySelectorAll('.assistant-bubble').length
+
+      await user.click(screen.getByRole('button', { name: '🤗 กอด' }))
+
+      // The speech bubble itself lives on the mascot, outside the chat
+      // dialog - no new .assistant-bubble message should appear.
+      expect(container.querySelectorAll('.assistant-bubble').length).toBe(bubbleCountBefore)
+    })
+
+    it('the panel stays open after an interaction, so rapid repeated play does not require reopening it', async () => {
+      const user = userEvent.setup()
+      renderAssistant()
+      await user.click(screen.getByRole('button', { name: /เปิดผู้ช่วย AI/i }))
+      await user.click(screen.getByRole('button', { name: 'เล่นกับน้อง Solar' }))
+
+      await user.click(screen.getByRole('button', { name: '🤏 บีบแก้ม' }))
+      await user.click(screen.getByRole('button', { name: '🌸 มอบดอกไม้' }))
+
+      expect(await screen.findByText('ขอบคุณดอกไม้สวยๆ นะครับ 🌸')).toBeInTheDocument()
+      expect(screen.getByRole('group', { name: 'เล่นกับน้อง Solar' })).toBeInTheDocument()
+    })
+  })
 })
