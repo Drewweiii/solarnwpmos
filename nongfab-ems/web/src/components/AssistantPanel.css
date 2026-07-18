@@ -60,6 +60,44 @@
   background: var(--border);
 }
 
+.assistant-panel-menu-button.active {
+  background: var(--accent-bg);
+}
+
+.assistant-play-panel {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-bg);
+}
+
+.assistant-play-note {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.assistant-play-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.assistant-play-option {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-border);
+  background: var(--card-bg);
+  color: var(--text-h);
+  cursor: pointer;
+}
+
+.assistant-play-option:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
 .assistant-panel-close {
   border: none;
   background: transparent;

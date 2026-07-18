@@ -8,6 +8,7 @@ import {
 } from '../lib/assistant'
 import { findCategoryById, findGroupById, groupsForRole } from '../lib/assistantTopics'
 import { useAuth } from '../lib/auth'
+import { MASCOT_INTERACTIONS, type MascotInteraction } from '../lib/mascotInteractions'
 import './AssistantPanel.css'
 
 interface ChatMessage {
@@ -76,13 +77,19 @@ interface AssistantPanelProps {
   /** Called with 'happy'/'sad' after every answer so AIAssistant.tsx can
    * make the mascot's face react (see MascotFace.tsx). */
   onAnswered?: (mood: AssistantMood) => void
+  /** Called when a "เล่นกับน้อง Solar" button is tapped - AIAssistant.tsx
+   * turns this into a mood + speech-bubble reaction on the floating mascot
+   * itself (useMascotReaction.ts), not a chat message - playing with the
+   * character is a separate, purely visual side-feature from the Q&A log. */
+  onInteract?: (interaction: MascotInteraction) => void
 }
 
-export function AssistantPanel({ isOpen, onClose, onAnswered }: AssistantPanelProps) {
+export function AssistantPanel({ isOpen, onClose, onAnswered, onInteract }: AssistantPanelProps) {
   const { token, role } = useAuth()
   const [messages, setMessages] = useState<ChatMessage[]>([greeting()])
   const [input, setInput] = useState('')
   const [isThinking, setIsThinking] = useState(false)
+  const [showPlay, setShowPlay] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLElement>(null)
   const titleId = useId()
@@ -173,10 +180,38 @@ export function AssistantPanel({ isOpen, onClose, onAnswered }: AssistantPanelPr
         >
           📚
         </button>
+        <button
+          type="button"
+          className={showPlay ? 'assistant-panel-menu-button active' : 'assistant-panel-menu-button'}
+          onClick={() => setShowPlay((v) => !v)}
+          aria-label={showPlay ? 'ปิดแผงเล่นกับน้อง Solar' : 'เล่นกับน้อง Solar'}
+          aria-pressed={showPlay}
+          title="เล่นกับน้อง Solar"
+        >
+          🎮
+        </button>
         <button type="button" className="assistant-panel-close" onClick={onClose} aria-label="ปิดหน้าต่างผู้ช่วย">
           ×
         </button>
       </header>
+
+      {showPlay && (
+        <div className="assistant-play-panel" role="group" aria-label="เล่นกับน้อง Solar">
+          <p className="assistant-play-note">แกล้งน้อง Solar เล่นได้เลยครับ กดได้ไม่จำกัดเลย!</p>
+          <div className="assistant-play-grid">
+            {MASCOT_INTERACTIONS.map((interaction) => (
+              <button
+                key={interaction.id}
+                type="button"
+                className="assistant-play-option"
+                onClick={() => onInteract?.(interaction)}
+              >
+                {interaction.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="assistant-panel-messages" ref={listRef}>
         {messages.map((m) => (
