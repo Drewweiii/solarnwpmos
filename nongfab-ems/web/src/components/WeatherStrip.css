@@ -1,0 +1,119 @@
+.weather-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.weather-strip-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.weather-strip-title {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.data-source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  letter-spacing: 0.01em;
+}
+
+.data-source-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.data-source-badge-real {
+  color: #1f8a53;
+  background: rgba(31, 138, 83, 0.12);
+}
+
+.data-source-badge-synthetic {
+  color: var(--text);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+}
+
+/* The viewport is the visible window; the track inside it is wider (see
+ * WeatherStrip.tsx's own trackWidthPct comment) and slides left underneath
+ * a fixed "now" marker via `transform: translateX`, updated every second and
+ * eased with this transition so the motion between ticks reads as
+ * continuous rather than a once-a-second jump. */
+.weather-strip-viewport {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  padding: 4px 0;
+}
+
+.weather-strip-track {
+  display: flex;
+  transition: transform 1s linear;
+}
+
+.weather-strip-now-marker {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0.55;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.weather-strip-item {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 4px;
+}
+
+.weather-strip-hour {
+  font-size: 12px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.weather-strip-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.weather-strip-icon-empty {
+  font-size: 14px;
+  color: var(--text);
+  opacity: 0.4;
+}
+
+.weather-strip-temp {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weather-strip-track {
+    transition: none;
+  }
+}

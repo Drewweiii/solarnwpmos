@@ -5,7 +5,6 @@ import {
   mergeGeneratedAndForecast,
   nearestToNow,
   nearestToTimestamp,
-  pickHoursOfDay,
   sumForecastAcrossZones,
   sumHourlyAcrossZones,
   truncateGeneratedToNow,
@@ -206,14 +205,6 @@ describe('nearestToTimestamp', () => {
 
   it('returns undefined for an empty series', () => {
     expect(nearestToTimestamp([], '2026-07-14T12:00:00Z')).toBeUndefined()
-  })
-})
-
-describe('pickHoursOfDay', () => {
-  it('returns points matching each requested UTC hour, skipping missing ones', () => {
-    const points = [hourly(6, 1), hourly(9, 2), hourly(15, 4)]
-    const picked = pickHoursOfDay(points, [6, 9, 12, 15])
-    expect(picked.map((p) => new Date(p.timestamp).getUTCHours())).toEqual([6, 9, 15])
   })
 })
 

@@ -131,24 +131,23 @@ etc.), **stop and ask the user for explicit approval before proceeding**
 plainly what the non-Thailand source would be and why it seemed necessary,
 and let the user decide.
 
-## Two-track division of labor between the two accounts (as of 2026-07-17)
+## Two-track division of labor between the two accounts (as of 2026-07-18)
 
-To stop the two accounts' Claude sessions from editing the same code at the
-same time, each account owns one track. **Identify your own track by which
-branch you're on** (check with `git branch --show-current` if unsure):
+To stop the two accounts' Claude sessions from editing the same code in the
+same shift, each account owns one track:
 
-- **Track 1 — เนื้อหาเชิงวิชาการ (domain/engineering content)**:
-  Forecast, Financial, 3D View, Simulation, and any other academic/
-  engineering feature - the site's substantive data-science/physics
-  content. Owns `api/`, `forecast/`, `financial/`, `simulation/`,
-  `ingestion/`, `libs/`, `features/`, and any backend or data-modeling
-  code. **Branch: `claude/solar-optimization-forecasting-jryux7`.**
-- **Track 2 — หน้าตา/Interface**: visual design, UI/UX polish, the AI
-  assistant popup that helps viewers use the site and answer questions, and
-  viewer-to-viewer networking/contact features. Mostly lives in `web/`, but
-  see the boundary note below - not everything under `web/` is Track 2.
-  **Branch: `claude/solar-website-modules-msyvv5`** (the other account's
-  branch, per this task's own branch-naming convention).
+- **Track 1 — เนื้อหาเชิงวิชาการ (Content/Engineering)**: Forecast,
+  Financial, 3D View, Simulation, and any other academic/engineering
+  feature - the site's substantive data-science/physics content. Owns
+  `api/`, `forecast/`, `financial/`, `simulation/`, `ingestion/`, `libs/`,
+  `features/`, and any backend or data-modeling code, plus whatever
+  frontend pages exist purely to present that content's data.
+- **Track 2 — หน้าตา/Interface + AI assistant + ระบบเชื่อมต่อผู้ชม**: visual
+  design, UI/UX polish, a new AI-assistant popup that helps visitors use
+  the site and answers their questions, and a new visitor-to-visitor
+  networking/contact system. Lives mostly in `web/` (styling, layout, new
+  UI features), plus whatever new backend surface the assistant/visitor-
+  network features need.
 
 **Boundary note on `web/`**: the frontend folder is physically shared, so
 the split is by *kind of change*, not strictly by directory. Track 1 owns
@@ -158,17 +157,27 @@ a new model's output, a new data field) even when the file lives under
 components, styling systems, and any social/networking features - not the
 domain data those pages display.
 
+**A session can't reliably tell which track it's on from its branch name
+alone** — both accounts have been observed pushing to the same branch
+(`claude/solar-optimization-forecasting-jryux7`), so branch name is not a
+safe signal. If it's unclear which track applies: check the most recent
+`HANDOFF.md` entry (each one should say which track produced it - see
+below), or ask the user directly rather than guessing.
+
 **If asked to do work that clearly belongs to the other track**, don't
 silently do it and don't refuse outright either - flag it in one line (e.g.
 "นี่ดูเหมือนงานของ Track 2 (อีกบัญชี) - จะให้ผมทำที่นี่เลยไหม หรือรอบัญชีนั้น")
 and let the user decide whether this session should cross over just this
 once or hand it to the other account's next shift.
 
-**Handoff Reports (both the chat message and the `HANDOFF.md` entry) should
-note which track produced them** - a one-line tag near the top (e.g. "Track
+**Handoff Reports (both the chat message and the `HANDOFF.md` entry) must
+say which track produced them** - a one-line tag near the top (e.g. "Track
 1 - เนื้อหาเชิงวิชาการ") is enough, so the other account can tell at a glance
 whether an entry is its own track's history or the other track's, without
-re-reading the whole thing.
+re-reading the whole thing. Since both accounts share one branch right now,
+this tag - not the branch - is the only reliable way to tell entries apart;
+if the user later wants the accounts on separate branches instead, that's
+their call to make, not something to switch to unprompted.
 
 ## Run-code status updates — every time, not just at handoff
 

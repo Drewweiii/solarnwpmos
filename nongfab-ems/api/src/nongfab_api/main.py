@@ -31,6 +31,7 @@ from . import (
     routes_performance,
     routes_simulate,
     routes_solar3d,
+    routes_weather,
     ws_live,
 )
 from .auth import UserStore, create_access_token, verify_password
@@ -163,6 +164,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     app.include_router(routes_energy_report.router)
     app.include_router(routes_financial.router)
     app.include_router(routes_irradiance_map.router)
+    app.include_router(routes_weather.router)
     app.include_router(ws_live.router)
 
     return app
