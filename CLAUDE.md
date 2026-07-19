@@ -53,30 +53,28 @@ whatever changed since the last one.
    unambiguous list of what to do first when the next session opens, so the
    incoming Claude can start immediately without asking redundant questions.
 
-## Standing reminder: Railway does not auto-deploy (as of 2026-07-16)
+## Railway auto-deploy is now WORKING (fixed 2026-07-19)
 
 The Railway-hosted API (`api/`, https://api-production-f161c.up.railway.app)
-has no working auto-deploy — a GitHub source is connected and correctly
-configured, but Railway itself shows "Auto deploy unavailable" and
-troubleshooting with Railway's own documented steps didn't fix it (full
-details in `nongfab-ems/README.md`'s "Deployment notes"). Every push that
-touches `api/` or anything it depends on (`libs/`, `features/`, `forecast/`,
-`simulation/`, `financial/`, `ingestion/`) needs a **manual click** on Railway's dashboard
-(`api` service → Deployments tab → purple "Deploy" button) to actually go
-live. Cloudflare (the frontend) still auto-deploys fine — this only affects
-the API.
+**now auto-deploys correctly** — the user confirmed on 2026-07-19 that they
+got auto-deploy working. A push that touches `api/` or anything it depends on
+(`libs/`, `features/`, `forecast/`, `simulation/`, `financial/`,
+`ingestion/`) now goes live on its own, same as Cloudflare (the frontend)
+already did. **No more manual "Deploy" click is required**, and no session
+needs to remind the user to click it.
 
-**Always include this reminder** in two places:
-1. Every Handoff Report (put it in section 3, Next Steps), if this session
-   touched `api/`-side code and the user hasn't confirmed they already
-   clicked Deploy on Railway for it.
-2. At the end of any session where you changed `api/`-side code, even
-   outside a formal Handoff Report — a one-line reminder before the session
-   ends, same spirit as the run-code status updates below.
+Historical note (why older Handoff Reports harp on this): from 2026-07-16
+until 2026-07-19 Railway showed "Auto deploy unavailable" and every `api/`
+push needed a manual click on the dashboard (`api` service → Deployments →
+purple "Deploy"). That period is over — ignore the manual-deploy warnings in
+pre-2026-07-19 `HANDOFF.md` entries.
 
-Stop adding this reminder once the user confirms Railway's auto-deploy has
-been fixed (e.g. by Railway support) — update this note then, don't keep
-repeating a stale warning.
+**Still a separate manual step:** changing a Railway **environment variable**
+is not a git push, so it isn't covered by auto-deploy in the "code" sense —
+but setting/editing an env var on Railway does itself trigger a redeploy that
+picks up the new value. So when a change needs a new env var (e.g.
+`API_ENABLE_BACKGROUND_RETRAINING`), tell the user to set it in the Railway
+dashboard; they don't also need to push or click Deploy separately.
 
 ## Standing reminder: the Financial module runs on placeholder assumptions (as of 2026-07-16)
 
