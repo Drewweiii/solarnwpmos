@@ -73,7 +73,11 @@ export function Solar3DAssistants() {
       {/* Buddy floating next to น้อง Solar while its panel is open - swaps to
           whichever of Moon/Cloud is currently active. */}
       {openPersona && buddyReaction && (
-        <div className={`solar3d-assistant-buddy solar3d-assistant-buddy-${openPersona.id}`} aria-hidden="true">
+        <div
+          key={openPersona.id}
+          className={`solar3d-assistant-buddy solar3d-assistant-buddy-${openPersona.id}`}
+          aria-hidden="true"
+        >
           {buddyReaction.speech && <div className="solar3d-assistant-buddy-speech">{buddyReaction.speech}</div>}
           <div className="solar3d-assistant-buddy-face">{faceFor(openPersona, buddyReaction.mood)}</div>
           <span className="solar3d-assistant-buddy-name">{openPersona.name}</span>

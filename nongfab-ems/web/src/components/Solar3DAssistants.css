@@ -119,15 +119,26 @@
   align-items: center;
   gap: 2px;
   pointer-events: none; /* purely decorative; interaction is via the panel */
-  animation: solar3d-buddy-pop 0.25s ease;
+  /* Springy "pop up beside น้อง Solar" entrance - overshoots then settles, so
+     summoning (and swapping Moon<->Cloud, which remounts via a React key) feels
+     like the character bounces into place rather than just fading in. */
+  animation: solar3d-buddy-pop 0.52s cubic-bezier(0.18, 0.9, 0.32, 1.35) both;
+  transform-origin: bottom center;
 }
 
 @keyframes solar3d-buddy-pop {
-  from {
-    transform: translateY(8px) scale(0.8);
+  0% {
+    transform: translateY(30px) scale(0.3);
     opacity: 0;
   }
-  to {
+  55% {
+    transform: translateY(-7px) scale(1.16);
+    opacity: 1;
+  }
+  75% {
+    transform: translateY(2px) scale(0.95);
+  }
+  100% {
     transform: translateY(0) scale(1);
     opacity: 1;
   }
@@ -137,6 +148,60 @@
   width: 66px;
   height: 66px;
   filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.35));
+  /* Gentle "alive" idle once popped in - each persona gets its own feel
+     (moon rocks/sways, cloud floats) so the two read as distinct characters
+     standing next to น้อง Solar, whose own SVG has a similar subtle idle. */
+  animation: solar3d-buddy-float 3s ease-in-out infinite;
+  transform-origin: center bottom;
+}
+
+.solar3d-assistant-buddy-moon .solar3d-assistant-buddy-face {
+  animation-name: solar3d-buddy-sway;
+  animation-duration: 4.2s;
+}
+
+.solar3d-assistant-buddy-cloud .solar3d-assistant-buddy-face {
+  animation-name: solar3d-buddy-float;
+  animation-duration: 3s;
+}
+
+/* Cloud: soft vertical float. */
+@keyframes solar3d-buddy-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-5px) rotate(-2deg);
+  }
+}
+
+/* Moon: slow rocking sway, like it's hanging in the sky. */
+@keyframes solar3d-buddy-sway {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-6deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(6deg);
+  }
+}
+
+/* Name tag + speech bubble catch up a beat after the character lands. */
+.solar3d-assistant-buddy-name,
+.solar3d-assistant-buddy-speech {
+  animation: solar3d-buddy-tag-in 0.32s ease-out 0.22s both;
+}
+
+@keyframes solar3d-buddy-tag-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .solar3d-assistant-buddy-face .mascot-svg {
@@ -187,7 +252,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .solar3d-assistant-buddy {
+  .solar3d-assistant-buddy,
+  .solar3d-assistant-buddy-face,
+  .solar3d-assistant-buddy-moon .solar3d-assistant-buddy-face,
+  .solar3d-assistant-buddy-cloud .solar3d-assistant-buddy-face,
+  .solar3d-assistant-buddy-name,
+  .solar3d-assistant-buddy-speech {
     animation: none;
   }
 }
