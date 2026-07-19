@@ -72,7 +72,7 @@ describe('VisitorNetwork', () => {
     vi.stubGlobal('WebSocket', MockWebSocket)
     // jsdom has no speechSynthesis - stub it so sticker-send tests (which
     // exercise speakSticker()) don't crash on a missing global.
-    vi.stubGlobal('speechSynthesis', { speak: vi.fn(), cancel: vi.fn() })
+    vi.stubGlobal('speechSynthesis', { speak: vi.fn(), cancel: vi.fn(), getVoices: vi.fn(() => []), addEventListener: vi.fn() })
     vi.stubGlobal(
       'SpeechSynthesisUtterance',
       class {

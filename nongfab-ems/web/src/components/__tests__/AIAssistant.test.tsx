@@ -36,7 +36,7 @@ describe('AIAssistant', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.restoreAllMocks()
-    vi.stubGlobal('speechSynthesis', { speak: vi.fn(), cancel: vi.fn() })
+    vi.stubGlobal('speechSynthesis', { speak: vi.fn(), cancel: vi.fn(), getVoices: vi.fn(() => []), addEventListener: vi.fn() })
     vi.stubGlobal(
       'SpeechSynthesisUtterance',
       class {
@@ -143,9 +143,15 @@ describe('AIAssistant', () => {
       expect(speakButtons.length).toBeGreaterThan(0) // the greeting itself is an assistant message
 
       await user.click(speakButtons[0])
-      expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1)
-      const utterance = (window.speechSynthesis.speak as ReturnType<typeof vi.fn>).mock.calls[0][0] as SpeechSynthesisUtterance
-      expect(utterance.lang).toBe('th-TH')
+      // The greeting mixes Thai with English words ("Solar", "AI") - tts.ts
+      // (2026-07-18 clarity pass) now queues one utterance per same-script
+      // run rather than forcing the whole mixed-language reply through a
+      // single th-TH voice, so this asserts at least one utterance went out
+      // and that the reply *opens* in Thai, not an exact call count.
+      const speakMock = window.speechSynthesis.speak as ReturnType<typeof vi.fn>
+      expect(speakMock.mock.calls.length).toBeGreaterThan(0)
+      const firstUtterance = speakMock.mock.calls[0][0] as SpeechSynthesisUtterance
+      expect(firstUtterance.lang).toBe('th-TH')
     })
 
     it('does not show a speak button on the user\'s own echoed message', async () => {

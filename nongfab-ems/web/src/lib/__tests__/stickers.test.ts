@@ -16,7 +16,7 @@ describe('sticker encode/decode', () => {
 
 describe('speakSticker', () => {
   beforeEach(() => {
-    vi.stubGlobal('speechSynthesis', { speak: vi.fn(), cancel: vi.fn() })
+    vi.stubGlobal('speechSynthesis', { speak: vi.fn(), cancel: vi.fn(), getVoices: vi.fn(() => []), addEventListener: vi.fn() })
     vi.stubGlobal(
       'SpeechSynthesisUtterance',
       class {
