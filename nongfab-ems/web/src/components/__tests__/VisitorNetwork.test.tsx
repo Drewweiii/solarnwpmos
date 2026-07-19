@@ -247,7 +247,7 @@ describe('VisitorNetwork', () => {
     // toast (added 2026-07-18) legitimately shows a preview of Bob's
     // message elsewhere on screen at the same time; that's not the bug this
     // test guards against (a message rendered inside the wrong thread).
-    const messageList = () => container.querySelector('.visitor-messages')!
+    const messageList = () => container.querySelector<HTMLElement>('.visitor-messages')!
     expect(within(messageList()).queryByText('ข้อความลับของบ๊อบ')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'กลับไปหน้ารายชื่อผู้ชม' }))

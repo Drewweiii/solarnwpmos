@@ -89,7 +89,10 @@ describe('speakText', () => {
     const synth = window.speechSynthesis as unknown as { speak: ReturnType<typeof vi.fn> }
     speakText('หน้า Forecast ใช้งานง่าย')
     expect(synth.speak).toHaveBeenCalledTimes(3)
-    const calls = synth.speak.mock.calls.map(([u]: [FakeUtterance]) => ({ text: u.text, lang: u.lang }))
+    const calls = synth.speak.mock.calls.map((call) => {
+      const u = call[0] as FakeUtterance
+      return { text: u.text, lang: u.lang }
+    })
     expect(calls).toEqual([
       { text: 'หน้า ', lang: 'th-TH' },
       { text: 'Forecast ', lang: 'en-US' },
@@ -138,7 +141,7 @@ describe('speakText', () => {
     const englishVoice = fakeVoice('Google US English', 'en-US')
     const synth = stubSynth([thaiVoice, englishVoice])
     speakText('หน้า Forecast ใช้งานง่าย')
-    const voicesUsed = synth.speak.mock.calls.map(([u]: [FakeUtterance]) => u.voice)
+    const voicesUsed = synth.speak.mock.calls.map((call) => (call[0] as FakeUtterance).voice)
     expect(voicesUsed).toEqual([thaiVoice, englishVoice, thaiVoice])
   })
 })
