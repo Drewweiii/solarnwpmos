@@ -111,7 +111,7 @@
    side; swaps between Moon and Cloud with the active panel (2026-07-19). */
 .solar3d-assistant-buddy {
   position: fixed;
-  right: 104px; /* left of น้อง Solar's ~76px mascot at right:20 */
+  right: 138px; /* sits clearly to the LEFT of น้อง Solar (right:20, ~108px wide) */
   bottom: 18px;
   z-index: 40;
   display: flex;
@@ -145,8 +145,8 @@
 }
 
 .solar3d-assistant-buddy-face {
-  width: 66px;
-  height: 66px;
+  width: 88px;
+  height: 88px;
   filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.35));
   /* Gentle "alive" idle once popped in - each persona gets its own feel
      (moon rocks/sways, cloud floats) so the two read as distinct characters
@@ -184,6 +184,30 @@
   }
   50% {
     transform: translateY(-3px) rotate(6deg);
+  }
+}
+
+/* Teased! While a play interaction is active (mood !== 'idle') the buddy does
+   an excited bouncy jiggle, overriding the calm idle. Extra-specific selector
+   (.buddy.buddy-reacting ...) so it always wins over the persona idle rules
+   above regardless of source order. Requested 2026-07-19. */
+.solar3d-assistant-buddy.solar3d-assistant-buddy-reacting .solar3d-assistant-buddy-face {
+  animation: solar3d-buddy-jiggle 0.55s ease-in-out infinite;
+}
+
+@keyframes solar3d-buddy-jiggle {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+  20% {
+    transform: translateY(-8px) rotate(-9deg) scale(1.14);
+  }
+  45% {
+    transform: translateY(0) rotate(8deg) scale(1.06);
+  }
+  70% {
+    transform: translateY(-4px) rotate(-5deg) scale(1.1);
   }
 }
 
@@ -239,12 +263,12 @@
 
 @media (max-width: 640px) {
   .solar3d-assistant-buddy {
-    right: 88px;
+    right: 116px;
     bottom: 14px;
   }
   .solar3d-assistant-buddy-face {
-    width: 54px;
-    height: 54px;
+    width: 70px;
+    height: 70px;
   }
   .solar3d-assistant-buddy-name {
     display: none;
@@ -256,6 +280,7 @@
   .solar3d-assistant-buddy-face,
   .solar3d-assistant-buddy-moon .solar3d-assistant-buddy-face,
   .solar3d-assistant-buddy-cloud .solar3d-assistant-buddy-face,
+  .solar3d-assistant-buddy.solar3d-assistant-buddy-reacting .solar3d-assistant-buddy-face,
   .solar3d-assistant-buddy-name,
   .solar3d-assistant-buddy-speech {
     animation: none;

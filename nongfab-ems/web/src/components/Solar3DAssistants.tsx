@@ -75,7 +75,9 @@ export function Solar3DAssistants() {
       {openPersona && buddyReaction && (
         <div
           key={openPersona.id}
-          className={`solar3d-assistant-buddy solar3d-assistant-buddy-${openPersona.id}`}
+          className={`solar3d-assistant-buddy solar3d-assistant-buddy-${openPersona.id}${
+            buddyReaction.mood !== 'idle' ? ' solar3d-assistant-buddy-reacting' : ''
+          }`}
           aria-hidden="true"
         >
           {buddyReaction.speech && <div className="solar3d-assistant-buddy-speech">{buddyReaction.speech}</div>}
