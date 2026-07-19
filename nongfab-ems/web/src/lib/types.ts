@@ -530,6 +530,20 @@ export interface ChatMessage {
   avatar: string | null
   client_id: string | null
   recipient_client_id: string | null
+  // Echoed back only to the sender's own socket so the client can reconcile
+  // the optimistic bubble it showed on send with this confirmed server copy
+  // (see useChatSocket.ts). Absent on the recipient's copy and on history.
+  client_temp_id?: string | null
+}
+
+// Sent by the server when handling a frame failed (e.g. the DB write raised).
+// Carries `client_temp_id` when the failure was for a specific outgoing
+// message, so the client can flip exactly that optimistic bubble to "failed"
+// instead of leaving the visitor staring at a silent, stuck "sending".
+export interface ChatErrorEvent {
+  type: 'error'
+  message?: string
+  client_temp_id?: string | null
 }
 
 // One entry per currently-connected visitor (deduped by client_id - a
@@ -548,7 +562,7 @@ export interface ChatOnlineUsers {
   users: OnlineUser[]
 }
 
-export type ChatEvent = ChatMessage | ChatOnlineUsers
+export type ChatEvent = ChatMessage | ChatOnlineUsers | ChatErrorEvent
 
 export interface FeedbackItem {
   id: number

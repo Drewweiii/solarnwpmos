@@ -81,14 +81,100 @@ describe('useChatSocket', () => {
     const { result } = renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
     const ws = MockWebSocket.instances[0]
 
-    result.current.sendMessage(PEER, 'too early')
+    // Before the socket opens there is nothing to send over the wire (but see
+    // the optimistic-send test below - the bubble still shows locally).
+    act(() => {
+      result.current.sendMessage(PEER, 'too early')
+    })
     expect(ws.sent).toHaveLength(0)
 
     act(() => ws.open())
-    result.current.sendMessage(PEER, '  hello there  ')
-    expect(ws.sent).toEqual([
-      JSON.stringify({ text: 'hello there', recipient_client_id: PEER, display_name: 'ทดสอบ', avatar: 'cat' }),
-    ])
+    act(() => {
+      result.current.sendMessage(PEER, '  hello there  ')
+    })
+    expect(ws.sent).toHaveLength(1)
+    const sent = JSON.parse(ws.sent[0])
+    expect(sent).toMatchObject({ text: 'hello there', recipient_client_id: PEER, display_name: 'ทดสอบ', avatar: 'cat' })
+    expect(typeof sent.client_temp_id).toBe('string')
+  })
+
+  it('shows an own message optimistically as pending the instant it is sent, then reconciles it to confirmed on the server echo', async () => {
+    setToken()
+    const { result } = renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+
+    act(() => {
+      result.current.sendMessage(PEER, 'hello there')
+    })
+    // Instant optimistic bubble, marked pending, no server round-trip yet.
+    await waitFor(() => expect(result.current.conversations[PEER]?.messages).toHaveLength(1))
+    const optimistic = result.current.conversations[PEER].messages[0]
+    expect(optimistic.text).toBe('hello there')
+    expect(optimistic.pending).toBe(true)
+    const tempId = JSON.parse(ws.sent[0]).client_temp_id as string
+
+    // Server confirms it (echo carries the same client_temp_id + the real id).
+    act(() =>
+      ws.emit(
+        chatMessage({ id: 42, client_id: profile.clientId, recipient_client_id: PEER, text: 'hello there', client_temp_id: tempId }),
+      ),
+    )
+    // Still exactly one bubble - the optimistic one was replaced, not appended
+    // alongside - and it is no longer pending.
+    await waitFor(() => expect(result.current.conversations[PEER].messages[0].id).toBe(42))
+    expect(result.current.conversations[PEER].messages).toHaveLength(1)
+    expect(result.current.conversations[PEER].messages[0].pending).toBeFalsy()
+  })
+
+  it('flags an own message as failed when the server replies with an error frame carrying its client_temp_id', async () => {
+    setToken()
+    const { result } = renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+
+    act(() => {
+      result.current.sendMessage(PEER, 'will fail')
+    })
+    const tempId = JSON.parse(ws.sent[0]).client_temp_id as string
+
+    act(() => ws.emit({ type: 'error', client_temp_id: tempId, message: 'ส่งไม่สำเร็จ' }))
+    await waitFor(() => expect(result.current.conversations[PEER].messages[0].failed).toBe(true))
+    expect(result.current.conversations[PEER].messages[0].pending).toBe(false)
+  })
+
+  it('marks a send failed immediately if the socket is not open', async () => {
+    setToken()
+    const { result } = renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
+    // never opened
+    act(() => {
+      result.current.sendMessage(PEER, 'offline send')
+    })
+    await waitFor(() => expect(result.current.conversations[PEER]?.messages[0]?.failed).toBe(true))
+  })
+
+  it('retrySend drops the failed bubble and sends the text again as a fresh optimistic message', async () => {
+    setToken()
+    const { result } = renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+
+    act(() => {
+      result.current.sendMessage(PEER, 'retry me')
+    })
+    const firstTempId = result.current.conversations[PEER].messages[0].clientTempId!
+    act(() => ws.emit({ type: 'error', client_temp_id: firstTempId, message: 'nope' }))
+    await waitFor(() => expect(result.current.conversations[PEER].messages[0].failed).toBe(true))
+
+    act(() => {
+      result.current.retrySend(PEER, firstTempId)
+    })
+    // Still one bubble (old failed one removed, new optimistic one added),
+    // pending again, with a different temp id.
+    await waitFor(() => expect(result.current.conversations[PEER].messages[0].pending).toBe(true))
+    expect(result.current.conversations[PEER].messages).toHaveLength(1)
+    expect(result.current.conversations[PEER].messages[0].clientTempId).not.toBe(firstTempId)
+    expect(result.current.conversations[PEER].messages[0].text).toBe('retry me')
   })
 
   it('does not send a blank message or one with no recipient', () => {

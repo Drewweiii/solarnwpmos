@@ -413,6 +413,48 @@
   opacity: 0.75;
 }
 
+/* Wraps the bubble + its delivery-status line so the status sits directly
+   under the bubble, aligned to the same edge. */
+.visitor-bubble-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.visitor-bubble-row.own .visitor-bubble-col {
+  align-items: flex-end;
+}
+
+/* An unconfirmed (still-sending) own bubble is dimmed until the server
+   confirms it - a quiet cue it's not delivered yet, LINE/Messenger-style. */
+.visitor-bubble-row.pending .visitor-bubble-own {
+  opacity: 0.6;
+}
+
+.visitor-bubble-status {
+  margin-top: 2px;
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: var(--text);
+  opacity: 0.8;
+  align-self: flex-end;
+}
+
+/* Tappable "failed - retry" affordance under a message that didn't send. */
+.visitor-bubble-retry {
+  border: none;
+  background: transparent;
+  padding: 1px 2px;
+  cursor: pointer;
+  color: var(--danger, #dc2626);
+  font-weight: 600;
+  opacity: 1;
+}
+
+.visitor-bubble-retry:hover {
+  text-decoration: underline;
+}
+
 .visitor-loading-older {
   margin: 0 0 4px;
   text-align: center;

@@ -338,17 +338,36 @@ async def _handle_chat_frame(
     if not recipient_client_id:
         return  # every message must be addressed to somebody - no public broadcast anymore
 
+    # Optional per-message token the client made up before sending, so it can
+    # match the confirmed server copy back to the optimistic bubble it already
+    # drew (LINE/Messenger-style send). Echoed straight back to the sender; the
+    # recipient never needs it. Also attached to an error frame below so a
+    # failed send flips exactly that one bubble to "failed" instead of leaving
+    # the visitor staring at a silent, stuck message.
+    client_temp_id = _clean_field(data.get("client_temp_id"))
+
     current = manager.get_identity(websocket)
     msg_display_name = _resolve_display_name(user, data["display_name"]) if data.get("display_name") else display_name
     if current is not None and not data.get("display_name"):
         msg_display_name = current.display_name
     msg_avatar = _clean_field(data.get("avatar")) if data.get("avatar") else (current.avatar if current else avatar)
 
-    message = await store.add_message(
-        user.username, user.role, text[:MAX_MESSAGE_LENGTH], msg_display_name, msg_avatar, client_id, recipient_client_id
-    )
+    try:
+        message = await store.add_message(
+            user.username, user.role, text[:MAX_MESSAGE_LENGTH], msg_display_name, msg_avatar, client_id, recipient_client_id
+        )
+    except Exception:  # noqa: BLE001 - a failed persist must reach the sender as a precise, per-message error
+        logger.exception("ws/chat: failed to persist a message; telling the sender it did not send")
+        await websocket.send_json(
+            {"type": "error", "client_temp_id": client_temp_id, "message": "ส่งข้อความไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"}
+        )
+        return
+
     payload = message.to_dict()
-    await manager.send_to_client(client_id, payload)
+    # Sender's own tabs get the client_temp_id so the originating tab can
+    # reconcile its optimistic bubble; the recipient gets the plain payload.
+    sender_payload = {**payload, "client_temp_id": client_temp_id} if client_temp_id else payload
+    await manager.send_to_client(client_id, sender_payload)
     if recipient_client_id != client_id:
         await manager.send_to_client(recipient_client_id, payload)
 

@@ -12,6 +12,33 @@ const KNOWN_PEERS_KEY = 'nongfab_chat_known_peers'
 // load and "load older" page return at most this many rows, so getting back
 // fewer than this is how we know there's nothing older left for that pair.
 const PAGE_SIZE = 50
+// How long an optimistic (just-sent) message waits for the server's confirming
+// echo before it's flagged "failed - tap to retry". Generous, since a slow
+// mobile round-trip is not a failure; the point is that a send that truly went
+// nowhere never stays stuck on a silent "sending" forever.
+const SEND_ACK_TIMEOUT_MS = 12000
+// Optimistic messages need an id that sorts *after* every real DB id (which
+// are small autoincrements) so they show at the bottom, yet is obviously not a
+// real id (so `markRead`/unread math can skip them). A value near the top of
+// the safe integer range does both.
+const OPTIMISTIC_ID_BASE = Number.MAX_SAFE_INTEGER - 1_000_000
+let optimisticSeq = 0
+
+/** A message as held in local state: the server `ChatMessage` shape plus the
+ * optimistic-send bookkeeping the UI needs. `pending` = shown instantly on
+ * send, still waiting for the server's confirming echo; `failed` = the send
+ * did not go through (server error frame or ack timeout) and can be retried;
+ * `clientTempId` = the token that ties this optimistic bubble to its eventual
+ * confirmed server copy. Confirmed/history messages carry none of these. */
+export interface LocalChatMessage extends ChatMessage {
+  pending?: boolean
+  failed?: boolean
+  clientTempId?: string
+}
+
+function isOptimisticId(id: number): boolean {
+  return id >= OPTIMISTIC_ID_BASE
+}
 
 /** A visitor this browser can start (or resume) a private conversation with
  * - either currently online (`online: true`, sourced live from the server's
@@ -32,7 +59,7 @@ export interface Contact {
 }
 
 export interface ConversationState {
-  messages: ChatMessage[]
+  messages: LocalChatMessage[]
   loaded: boolean
   hasMoreOlder: boolean
   loadingOlder: boolean
@@ -46,6 +73,7 @@ export interface ChatSocketState {
   conversations: Record<string, ConversationState>
   openConversation: (peerClientId: string) => void
   sendMessage: (peerClientId: string, text: string) => void
+  retrySend: (peerClientId: string, clientTempId: string) => void
   loadOlder: (peerClientId: string) => void
   updateProfile: (displayName: string, avatarId: string) => void
 }
@@ -85,8 +113,8 @@ const emptyConversation = (): ConversationState => ({ messages: [], loaded: fals
  * `messages: [...history]` overwrite used to wipe the just-sent message
  * straight back out. Merging instead of overwriting keeps whichever source
  * saw a given message first. */
-function mergeMessagesById(a: ChatMessage[], b: ChatMessage[]): ChatMessage[] {
-  const byId = new Map<number, ChatMessage>()
+function mergeMessagesById(a: LocalChatMessage[], b: LocalChatMessage[]): LocalChatMessage[] {
+  const byId = new Map<number, LocalChatMessage>()
   for (const m of a) byId.set(m.id, m)
   for (const m of b) byId.set(m.id, m)
   return Array.from(byId.values()).sort((x, y) => x.id - y.id)
@@ -169,13 +197,40 @@ export function useChatSocket(
     })
   }, [])
 
+  /** Flip the still-pending optimistic bubble with this temp id to "failed"
+   * (searches every conversation, since an error frame need not name the
+   * peer). A no-op if it was already confirmed - the confirming echo removes
+   * the optimistic bubble, so a late ack-timeout finds nothing to fail. */
+  const markSendFailed = useCallback((clientTempId: string) => {
+    setConversations((prev) => {
+      let changed = false
+      const next: Record<string, ConversationState> = {}
+      for (const [peer, conv] of Object.entries(prev)) {
+        const idx = conv.messages.findIndex((m) => m.clientTempId === clientTempId && m.pending)
+        if (idx < 0) {
+          next[peer] = conv
+          continue
+        }
+        const messages = conv.messages.slice()
+        messages[idx] = { ...messages[idx], pending: false, failed: true }
+        next[peer] = { ...conv, messages }
+        changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [])
+
   // Looking straight at an open thread clears its unread badge immediately,
   // and keeps clearing it as further messages arrive while still open (the
   // `message` handler below covers that ongoing case for new arrivals).
   useEffect(() => {
     if (!isActiveView || !activePeerClientId) return
     const conv = conversations[activePeerClientId]
-    if (conv && conv.messages.length > 0) markRead(activePeerClientId, conv.messages[conv.messages.length - 1].id)
+    if (!conv) return
+    // Mark read up to the newest *real* message - never an optimistic id,
+    // which is huge and would poison later unread math (see isOptimisticId).
+    const lastReal = [...conv.messages].reverse().find((m) => !isOptimisticId(m.id))
+    if (lastReal) markRead(activePeerClientId, lastReal.id)
   }, [isActiveView, activePeerClientId, conversations, markRead])
 
   useEffect(() => {
@@ -218,6 +273,14 @@ export function useChatSocket(
           setOnlineUsers(data.users)
           return
         }
+        if (data.type === 'error') {
+          // A send the server couldn't process - flip exactly that optimistic
+          // bubble to "failed - tap to retry" instead of leaving it stuck on
+          // "sending". Without a client_temp_id there's no specific bubble to
+          // blame, so it's just logged (the socket stays up regardless).
+          if (data.client_temp_id) markSendFailed(data.client_temp_id)
+          return
+        }
         // data.type === 'message'
         const myClientId = profileRef.current.clientId
         const isOwn = data.client_id === myClientId
@@ -225,14 +288,22 @@ export function useChatSocket(
         if (!peerClientId) return
         if (!isOwn) rememberPeer(peerClientId, { displayName: data.display_name, avatar: data.avatar, role: data.role })
 
+        const confirmedTempId = data.client_temp_id ?? undefined
         const isActiveThread = isActiveViewRef.current && activePeerRef.current === peerClientId
         setConversations((prev) => {
           const conv = prev[peerClientId] ?? emptyConversation()
+          // Reconcile: drop the optimistic bubble this confirms (matched by the
+          // token the sender minted), and never double-add if the real id is
+          // somehow already present.
+          let messages = conv.messages.filter(
+            (m) => m.clientTempId === undefined || m.clientTempId !== confirmedTempId,
+          )
+          if (!messages.some((m) => m.id === data.id)) messages = [...messages, data]
           return {
             ...prev,
             [peerClientId]: {
               ...conv,
-              messages: [...conv.messages, data].slice(-MAX_MESSAGES_KEPT),
+              messages: messages.slice(-MAX_MESSAGES_KEPT),
               loaded: true,
               unreadCount: isActiveThread || isOwn ? 0 : conv.unreadCount + 1,
             },
@@ -250,7 +321,7 @@ export function useChatSocket(
       socketRef.current?.close()
       socketRef.current = null
     }
-  }, [token, rememberPeer])
+  }, [token, rememberPeer, markSendFailed])
 
   const openConversation = useCallback(
     (peerClientId: string) => {
@@ -281,12 +352,72 @@ export function useChatSocket(
 
   const sendMessage = useCallback((peerClientId: string, text: string) => {
     const trimmed = text.trim()
-    if (!trimmed || !peerClientId || socketRef.current?.readyState !== WebSocket.OPEN) return
+    if (!trimmed || !peerClientId) return
     const p = profileRef.current
-    socketRef.current.send(
-      JSON.stringify({ text: trimmed, recipient_client_id: peerClientId, display_name: p.displayName, avatar: p.avatarId }),
-    )
-  }, [])
+    const clientTempId = `tmp-${Date.now()}-${optimisticSeq++}`
+
+    // Optimistic bubble: show it instantly, LINE/Messenger-style, instead of
+    // waiting for the server's echo (a wait that, when the echo never comes,
+    // used to make a sent message just vanish silently - the whole bug this
+    // fixes). It carries the temp id so the confirming echo can replace it,
+    // and starts as `pending` until then.
+    const optimistic: LocalChatMessage = {
+      type: 'message',
+      id: OPTIMISTIC_ID_BASE + optimisticSeq,
+      username: '',
+      role: '',
+      text: trimmed,
+      created_at: new Date().toISOString(),
+      display_name: p.displayName,
+      avatar: p.avatarId,
+      client_id: p.clientId,
+      recipient_client_id: peerClientId,
+      pending: true,
+      clientTempId,
+    }
+    setConversations((prev) => {
+      const conv = prev[peerClientId] ?? emptyConversation()
+      return {
+        ...prev,
+        [peerClientId]: { ...conv, messages: [...conv.messages, optimistic].slice(-MAX_MESSAGES_KEPT), loaded: true },
+      }
+    })
+
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(
+        JSON.stringify({
+          text: trimmed,
+          recipient_client_id: peerClientId,
+          display_name: p.displayName,
+          avatar: p.avatarId,
+          client_temp_id: clientTempId,
+        }),
+      )
+      // If the confirming echo never arrives, stop the bubble sitting on
+      // "sending" forever - flip it to "failed - tap to retry".
+      setTimeout(() => markSendFailed(clientTempId), SEND_ACK_TIMEOUT_MS)
+    } else {
+      // Not connected at all - fail it immediately rather than pretend to send.
+      markSendFailed(clientTempId)
+    }
+  }, [markSendFailed])
+
+  /** Retry a failed send: drop the failed bubble and send its text afresh
+   * (which makes a brand-new optimistic bubble). */
+  const retrySend = useCallback(
+    (peerClientId: string, clientTempId: string) => {
+      const conv = conversationsRef.current[peerClientId]
+      const failed = conv?.messages.find((m) => m.clientTempId === clientTempId)
+      if (!failed) return
+      setConversations((prev) => {
+        const c = prev[peerClientId]
+        if (!c) return prev
+        return { ...prev, [peerClientId]: { ...c, messages: c.messages.filter((m) => m.clientTempId !== clientTempId) } }
+      })
+      sendMessage(peerClientId, failed.text)
+    },
+    [sendMessage],
+  )
 
   const loadOlder = useCallback(
     (peerClientId: string) => {
@@ -344,5 +475,5 @@ export function useChatSocket(
     [conversations],
   )
 
-  return { contacts, connected, totalUnreadCount, conversations, openConversation, sendMessage, loadOlder, updateProfile }
+  return { contacts, connected, totalUnreadCount, conversations, openConversation, sendMessage, retrySend, loadOlder, updateProfile }
 }

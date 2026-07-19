@@ -80,6 +80,27 @@ def test_ws_chat_a_message_is_only_delivered_to_sender_and_recipient_not_broadca
     assert carol_probe["text"] == "are you there?"
 
 
+def test_ws_chat_echoes_client_temp_id_to_the_sender_only_not_the_recipient(app, token_factory):
+    """The sender's own copy carries back the client_temp_id it minted (so its
+    optimistic bubble can be reconciled); the recipient's copy must not - it's
+    meaningless to them and could collide with their own outgoing temp ids."""
+    token_a = token_factory("viewer", username="alice")
+    token_b = token_factory("viewer", username="bob")
+    with TestClient(app) as client:
+        with client.websocket_connect(f"/ws/chat?token={token_a}&client_id=a") as ws_a:
+            ws_a.receive_json()
+            with client.websocket_connect(f"/ws/chat?token={token_b}&client_id=b") as ws_b:
+                ws_b.receive_json()
+                ws_a.receive_json()
+
+                ws_a.send_json({"text": "hi bob", "recipient_client_id": "b", "client_temp_id": "tmp-123"})
+                seen_by_a = ws_a.receive_json()
+                seen_by_b = ws_b.receive_json()
+    assert seen_by_a["client_temp_id"] == "tmp-123"
+    assert seen_by_b.get("client_temp_id") is None
+    assert seen_by_a["text"] == seen_by_b["text"] == "hi bob"
+
+
 def test_ws_chat_delivers_to_every_tab_of_the_same_browser(app, token_factory):
     token = token_factory("viewer", username="alice")
     peer_token = token_factory("viewer", username="bob")
