@@ -1280,3 +1280,148 @@ zero console error ทุกภาพ. Commit + push ไปที่
    ยังรอ user เหมือนเดิม
 6. ถ้า user อยากได้ mm/hr rate ที่แม่นกว่านี้สำหรับฝน (ค้างจาก entry
    ก่อนหน้า) - ยังไม่ได้ประเมิน scope
+
+## 2026-07-19 12:20 ICT
+
+**Track 1 - เนื้อหาเชิงวิชาการ (Content/Engineering)**
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+**ส่วนที่ 1 - สรุป merge-reconciliation saga จากช่วงต้น session นี้ (ยังไม่เคย
+เขียนลง HANDOFF.md มาก่อน เพราะ session ก่อนหน้าจบก่อนถึงจุดส่งไม้ต่อ)**:
+Track 2 push งาน 9-variable dashboard คู่ขนานกับงานของ session นี้เอง 2 รอบ
+- reconcile ครั้งแรก (`3513038`) เก็บ field shape ของฝั่งนี้ (มี frontend
+ใช้งานสมบูรณ์แล้ว) แต่รับ fix จริงจาก remote มาด้วย (RH/wind ต้องเป็น null
+สำหรับเวลาอนาคตแม้อยู่ใน real-data mode); reconcile ครั้งที่สอง (`ef61e46`)
+เก็บ 7 chart-color CSS variables ของฝั่งนี้ (ใช้งานจริงแล้ว) ทิ้งของ remote
+ที่ยังไม่ได้ใช้. งานหลักของ session นี้เอง (`c1b3354`): ตาราง+กราฟ 9 ตัวแปร
+Songsiri, รวม Irradiance Map เข้า 3D scene, แก้ chart scroll centering +
+sun-angle diagram arc ให้ไปถึงตำแหน่งดวงอาทิตย์จริง. Track 2 push
+login-mascot อีกรอบ merge แบบไม่มี conflict โค้ด (`a5a30bc`, ชนแค่
+README.md). จากนั้นแก้บั๊กจริง 4 อย่างที่เจอผ่านการรัน local API+Postgres
+จริง (`b3c6953`): **Model Competition โชว์กราฟว่างเปล่า** - กลายเป็นบั๊กจริง
+ไม่ใช่แค่ยังไม่ deploy (root cause: `candidate_errors` ว่างจริงเมื่อโซนนั้น
+ยังอยู่ physics-fallback ไม่พอข้อมูลเทรน ML - เปลี่ยนเป็นโชว์ caption
+บอกเหตุผลตรงๆ แทนกราฟว่าง), **ดวงอาทิตย์/ดวงจันทร์เดินข้ามคืนแบบหลอกตา**
+(`interpolateSunPosition` ข้าม gap ข้ามคืนแบบไม่เช็ค ทำให้มีแสงหลอกตอน
+กลางคืน - แก้ด้วย max-adjacent-sample-gap check), **รวม Solar
+access/String view เป็น panel เดียว** พร้อม night-safety clamp,
+**Solar3D ปุ่ม Play ไม่รีเซ็ตวันที่ค้าง** ให้กลับมาเป็นวันนี้ก่อนเริ่มเล่น.
+Merge Track 2's login mascot อีกรอบไม่มี conflict (`1b3896c`). เรื่องแหล่ง
+ข้อมูลเมฆ/ฝน (TMD ไหม) - user ตอบแล้วว่าใช้ Himawari+GFS เดิมพอ ไม่ต้อง
+เปลี่ยน. CI (run `29668411531`, commit `1b3896c`) เขียว
+
+**ส่วนที่ 2 - งาน 3 ข้อใหม่ที่ user สั่งสดกลาง session (ส่ง screenshot
+dashboard มาพร้อมข้อความ)**:
+
+1. **"Actual power (before today)" = "Forecast" เป๊ะทุกจุด (บั๊กจริง ไม่ใช่
+   แค่เรื่อง label)** - root cause: `backfill_generated_power_history()`
+   กับ `backfill_forecast_history()` เรียก `physics_baseline_series()`
+   ฟังก์ชันเดียวกันด้วย input ชุดเดียวกันสำหรับ cold-start window เดียวกัน -
+   ตัวเลขเลยเหมือนกันเป๊ะโดยธรรมชาติ ไม่ใช่บังเอิญ (ป้าย "(estimated)" จาก
+   fix รอบก่อนบอกแค่ว่าเป็นค่าประมาณ แต่ไม่ได้ทำให้ตัวเลขต่างกัน). ถาม user
+   ผ่าน `AskUserQuestion` ก่อนแก้ (ตามที่ user ขอ "ถามฉันระหว่างรัน") - user
+   เลือก "ใช้เมฆ/รังสีย้อนหลังจริง". แก้โดยเพิ่ม `use_historical_cloud=True`
+   ใน `physics_baseline_series()` (`forecast/real_data.py`) - เดินหา
+   cloud_history reading ที่ใกล้ที่สุดของแต่ละชั่วโมงจริง (nearest-match,
+   รัศมี 2 ชม.) แทนค่า "ล่าสุดตอนนี้" ตัวเดียวซ้ำทุกชั่วโมง.
+   `backfill_generated_power_history()` ใช้โหมดนี้ แต่
+   `backfill_forecast_history()` **ตั้งใจไม่ใช้** (forecast ที่ออกไปแล้ว
+   ในอดีตไม่ควรมี hindsight เห็นเมฆจริงที่ยังไม่เกิดตอนนั้น). เพิ่ม
+   `api/ingestion_scheduler.py`'s `_backfill_himawari_bounded()` - ดึง
+   Himawari ย้อนหลังแบบจำกัดขอบเขต (3 วัน, ~2.5 นาที ไม่ใช่ 30 วันแบบเต็ม)
+   ก่อน generated-power backfill เฉพาะตอนที่ยังมีโซนไหนต้อง seed จริงๆ
+   (ข้าม fetch ไปเลยถ้าทุกโซนมีข้อมูลจริงสะสมอยู่แล้ว)
+
+2. **UV กราฟรายวันจริง** - user เลือก "แท่ง/จุดรายวันสะสม" (ข้อมูลจริงล้วนๆ
+   ไม่ประมาณค่าเป็นกราฟรายชั่วโมง) และปฏิเสธการหาแหล่ง UV ละเอียดกว่านี้
+   ตอนนี้ ("ไม่เอา ทำเท่าที่มี" - เช็คมาให้แล้วว่ามี TMD ที่ยังไม่ยืนยัน
+   granularity จริง กับ Copernicus CAMS ที่ยืนยันแล้วว่ามีรายชั่วโมงจริงแต่
+   เป็นแหล่งนอกไทย ต้องขออนุมัติตาม Thailand-first policy ก่อน). เพิ่ม
+   `GET /weather/uv-history` (คืนทุกวันจริงที่ระบบสะสม NASA POWER ได้,
+   เรียงเก่า-ใหม่), `useUvHistory()` hook (staleTime 30 นาที ไม่ใช่ cadence
+   60 วิเหมือนกราฟอื่น เพราะ UV เปลี่ยนวันละครั้งเท่านั้น), แทนที่
+   caption-only placeholder เดิมด้วย Recharts `BarChart` จริง พร้อม honest
+   empty-state ตอนข้อมูลยังสะสมไม่พอ
+
+3. **ซ่อน Model Competition จาก role viewer** - user บอกตรงๆ ไม่ต้องถาม
+   ("ปิดไม่ให้ user เห็น") - เพิ่ม `role !== 'viewer'` guard รอบ
+   `<ModelCompetitionPanel>` ใน `ForecastPage.tsx` (pattern เดียวกับ
+   `RequireOperator` ที่ซ่อน Financial/Simulation ใน `App.tsx` แต่ scope
+   แค่ panel เดียวใน page เดียว ไม่ใช่ทั้ง route - viewer ยังเห็นส่วนอื่นของ
+   ForecastPage ปกติ)
+
+**ส่วนที่ 3 - Merge กับ Track 2 อีกรอบระหว่างพยายาม push งานข้อ 1-3**:
+remote มี commit ใหม่ (`004ceee`) ที่ push มาพร้อมกัน - 3D moon jerk fix
+(azimuth ข้าม 0/360 แบบไม่ถูกต้อง) + retrain-toggle split
+(`enable_background_retraining` แยกออกจาก `enable_background_ingestion`
+เพื่อแก้ Railway OOM ที่ดรอป WebSocket chat แต่ยังให้ ingestion เบาๆ ทำงาน
+ต่อได้). Conflict จริงมีแค่ `test_ingestion_scheduler.py` (import block ชน
+กัน เพราะทั้งคู่แก้ไฟล์เดียวกันคนละฟังก์ชัน) - reconcile ด้วยมือ เก็บทั้งคู่
+(`ingestion_scheduler.py` ตัวจริง auto-merge สำเร็จ ไม่ชน เพราะแก้กัน
+คนละฟังก์ชัน)
+
+**ผลลัพธ์รวมทั้งหมด**: `forecast` suite 150 passed, `api` suite 182 passed
+(หลัง merge), `web` suite 370 passed (หลัง merge), `ruff check`/`oxlint`
+clean, `npm run build` (`tsc -b` + `vite build`) clean. Push ไปที่
+`claude/solar-optimization-forecasting-jryux7` แล้ว (commit ล่าสุด
+`c16f448`) - CI run `29674448061` ยังรันอยู่ตอนเขียน entry นี้ (ตั้ง
+self-check-in ผ่าน `send_later` ไว้แล้วอีก ~5 นาทีจากตอนนี้)
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- ไฟล์หลักที่แก้ในส่วนที่ 2 (3 ข้อใหม่): `forecast/src/nongfab_forecast/
+  real_data.py` (`use_historical_cloud` param ใหม่ + `_historical_cloud_
+  attenuation`/`_latest_cloud_attenuation`/`_cloud_opacity_to_attenuation`
+  helper ใหม่ทั้งหมด), `forecast/src/nongfab_forecast/serving.py`
+  (`backfill_generated_power_history` เรียกโหมดใหม่), `api/src/
+  nongfab_api/ingestion_scheduler.py` (`_backfill_himawari_bounded` ใหม่ +
+  reorder `_backfill_generated_power_history`), `api/src/nongfab_api/
+  routes_weather.py` (`GET /weather/uv-history` ใหม่), `web/src/pages/
+  ForecastPage.tsx` (UV `BarChart`, viewer role guard), `web/src/lib/
+  {types,api,queries}.ts`, `web/src/index.css` (`--chart-uv` ตัวใหม่) -
+  README ทั้ง 3 module (`forecast`, `api`, `web`) มี entry 2026-07-19
+  อธิบายครบ
+- **สำคัญ - เปลี่ยนพฤติกรรมที่ตั้งใจ**: `backfill_forecast_history()` กับ
+  `backfill_generated_power_history()` ตอนนี้ **ตั้งใจ**ให้ผลต่างกันสำหรับ
+  cold-start window (72 ชม.แรกหลัง restart) แล้ว - ถ้า session หน้าเห็น
+  "Actual power (before today)" กับ "Forecast" ไม่ตรงกันในช่วงนั้น
+  **นั่นคือพฤติกรรมที่ถูกต้องแล้ว ไม่ใช่บั๊กใหม่ที่ต้องแก้อีก**
+- **UV**: แหล่งข้อมูลยังเป็น NASA POWER รายวันเหมือนเดิม (ไม่ได้เพิ่ม
+  TMD/CAMS รอบนี้ตามที่ user ขอ) - มี research แหล่งละเอียดกว่าไว้แล้ว 2
+  ทางถ้า user อยากกลับมาคุยเรื่องนี้อีก (ดู next steps)
+- **Model Competition**: ซ่อนจาก role `viewer` แล้ว - แอดมิน/operator ยัง
+  เห็นได้ปกติ
+- **พบแต่ยังไม่แก้ (flag ให้ Track 2 แล้วใน web/README.md)**:
+  `assistantTopics.ts` ยังมี "Model Competition คืออะไร" เป็นคำถามแนะนำให้
+  ทุก role รวม viewer ที่มองไม่เห็น panel นี้แล้ว - ไม่ได้แตะเพราะเป็นไฟล์
+  ของ Track 2 (AI assistant)
+- **api/ ถูกแตะรอบนี้** (`ingestion_scheduler.py`, `routes_weather.py`,
+  รวมถึง Track 2's `config.py` จาก merge) - ต้องกด Deploy เองที่ Railway
+  (ดู next steps ข้อ 1)
+- ยังไม่ได้เปิด dev server จริงมาดู UV chart/viewer-hide ด้วยตา (Playwright)
+  รอบนี้ - ยืนยันด้วย unit/integration test เท่านั้น (ดู next steps ข้อ 3)
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **⚠️ Railway ไม่ auto-deploy**: รอบนี้แตะ `api/` (`ingestion_scheduler.
+   py`, `routes_weather.py`, `config.py`) - ต้องกด Deploy เองที่ Railway
+   dashboard (`api` service → Deployments tab → ปุ่ม "Deploy" สีม่วง) ถ้า
+   อยากให้ `/weather/uv-history`, actual-power fix, และ Track 2's
+   retrain-toggle ไปโผล่บน production (auto deploy ยังใช้ไม่ได้เหมือนเดิม)
+2. ยืนยันว่า CI run `29674448061` (commit `c16f448`) เขียวจริง - ตั้ง
+   self-check-in ไว้แล้วผ่าน `send_later` (~5 นาทีจากตอนที่เขียน entry
+   นี้) แต่ session หน้าควรเช็คซ้ำอีกทีถ้ายังไม่เห็นผลในแชท
+3. (Optional) Live-verify ด้วย browser/Playwright จริงสำหรับ UV chart กับ
+   viewer-hide - รอบนี้ยืนยันด้วย unit/integration test เท่านั้น (forecast
+   150, api 182, web 370 ผ่านหมด)
+4. ถ้า user อยากให้ตามหาแหล่ง UV รายชั่วโมงต่อ - เริ่มจาก TMD ก่อนตาม
+   นโยบาย Thailand-first (ยังไม่ยืนยัน granularity), ถ้าไม่มีจริงค่อยขอ
+   อนุมัติ user สำหรับ Copernicus CAMS (ยืนยันแล้วว่ามีรายชั่วโมงจริง แต่
+   เป็นแหล่งนอกไทย)
+5. แจ้ง Track 2: `assistantTopics.ts`'s "Model Competition คืออะไร" ควร
+   ซ่อนจาก viewer เหมือนกัน (ไฟล์นี้เป็นของ Track 2)
+6. Next steps ค้างจาก entry ก่อนหน้า (ยังไม่ได้แตะในรอบนี้): กล้อง 3D
+   auto-follow ดวงอาทิตย์, Day-ahead hybrid real+synthetic, Financial
+   module placeholder (CAPEX/PEA tariff/WACC/BOI - ยังรอ user), mm/hr rain
+   rate ที่แม่นกว่านี้
