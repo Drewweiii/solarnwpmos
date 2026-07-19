@@ -77,4 +77,51 @@ describe('Login', () => {
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
+
+  describe('น้อง Solar/moon/cloud reacting to the login form (added 2026-07-18)', () => {
+    it('the mascot decoration watches while the username field is focused, and stops on blur', async () => {
+      const user = userEvent.setup()
+      const { container } = render(
+        <AuthProvider>
+          <Login />
+        </AuthProvider>,
+      )
+
+      await user.click(screen.getByLabelText(/username/i))
+      expect(container.querySelector('.login-mascot-decor-watching')).toBeInTheDocument()
+
+      await user.click(screen.getByLabelText(/password/i))
+      expect(container.querySelector('.login-mascot-decor-watching')).not.toBeInTheDocument()
+    })
+
+    it('the mascot decoration looks away while the password field is focused - never "peeking" at it', async () => {
+      const user = userEvent.setup()
+      const { container } = render(
+        <AuthProvider>
+          <Login />
+        </AuthProvider>,
+      )
+
+      await user.click(screen.getByLabelText(/password/i))
+      expect(container.querySelector('.login-mascot-decor-shy')).toBeInTheDocument()
+
+      await user.click(screen.getByLabelText(/username/i))
+      expect(container.querySelector('.login-mascot-decor-shy')).not.toBeInTheDocument()
+    })
+
+    it('goes back to idle (neither state class) once nothing is focused', async () => {
+      const user = userEvent.setup()
+      const { container } = render(
+        <AuthProvider>
+          <Login />
+        </AuthProvider>,
+      )
+
+      await user.click(screen.getByLabelText(/username/i))
+      await user.click(document.body) // blur - focus leaves the form entirely
+
+      expect(container.querySelector('.login-mascot-decor-watching')).not.toBeInTheDocument()
+      expect(container.querySelector('.login-mascot-decor-shy')).not.toBeInTheDocument()
+    })
+  })
 })

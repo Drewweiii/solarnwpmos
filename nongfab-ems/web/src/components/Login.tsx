@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useAuth } from '../lib/auth'
+import { LoginMascotDecor, type LoginFocusedField } from './LoginMascotDecor'
 import { LoginSolarDecor } from './LoginSolarDecor'
 import { LoginWelcome } from './LoginWelcome'
 import { OrgLogos } from './OrgLogos'
@@ -11,6 +12,10 @@ export function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  // Drives LoginMascotDecor's reactions (watch the username field, look
+  // away for the password field) - see that component's own docstring.
+  const [focusedField, setFocusedField] = useState<LoginFocusedField>(null)
+  const clearFocusedField = (field: LoginFocusedField) => () => setFocusedField((f) => (f === field ? null : f))
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -27,6 +32,7 @@ export function Login() {
 
   return (
     <div className="login-screen">
+      <LoginMascotDecor focusedField={focusedField} />
       <LoginSolarDecor />
       <LoginWelcome />
       <OrgLogos variant="login" />
@@ -44,6 +50,8 @@ export function Login() {
           autoComplete="username"
           value={username}
           onChange={(event) => setUsername(event.target.value)}
+          onFocus={() => setFocusedField('username')}
+          onBlur={clearFocusedField('username')}
           required
         />
         <label htmlFor="password">Password</label>
@@ -53,6 +61,8 @@ export function Login() {
           autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
+          onFocus={() => setFocusedField('password')}
+          onBlur={clearFocusedField('password')}
           required
         />
         {error && (
