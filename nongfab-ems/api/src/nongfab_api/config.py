@@ -50,6 +50,25 @@ class Settings(BaseSettings):
     # the test suite stays hermetic/fast, matching how live_push_interval_seconds
     # is already overridden there.
     enable_background_ingestion: bool = True
+    # Split out from enable_background_ingestion (2026-07-19): the in-process
+    # retrain loop (ingestion_scheduler._retrain_forever) trains all 9
+    # (zone, horizon) models with torch/lightgbm/neuralforecast, and that
+    # memory spike - on top of this container's already-heavy ~665MB idle RSS
+    # from those same ML imports - is what was OOM-killing the API process on
+    # Railway, dropping live WebSocket chat connections mid-message. Turning
+    # the whole ingestion block off (enable_background_ingestion=false) stopped
+    # the OOM but also stopped the cheap GFS/Himawari polling that feeds the
+    # store the dashboard's live readouts (the 9-variable table, weather strip)
+    # read from - so they went blank. This flag lets a memory-constrained
+    # deploy keep ingestion ON (light: a network fetch + a SQLite insert) while
+    # turning only the heavy retraining OFF: set API_ENABLE_BACKGROUND_INGESTION=true
+    # and API_ENABLE_BACKGROUND_RETRAINING=false. Forecasts then serve from
+    # whatever model version was last trained (persisted on the volume) instead
+    # of retraining live, which is an acceptable trade for a site whose data
+    # barely moves the model between GFS cycles anyway (see retrain cadence
+    # docstring below). Defaults ON to preserve prior behavior where memory
+    # isn't the binding constraint.
+    enable_background_retraining: bool = True
     real_data_db_path: str = ""  # empty -> forecast.local_store.RealDataStore's own default (:memory:, single app-lifetime instance)
     backfill_lookback_days: int = 30
     himawari_poll_interval_seconds: float = 600.0  # 10 min, matches Himawari's native product cadence
