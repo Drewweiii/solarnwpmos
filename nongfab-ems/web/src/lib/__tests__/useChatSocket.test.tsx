@@ -273,4 +273,26 @@ describe('useChatSocket', () => {
     await waitFor(() => expect(result.current.contacts).toHaveLength(1))
     expect(result.current.contacts[0]).toMatchObject({ clientId: PEER, online: false })
   })
+
+  it('probes the token via an authenticated REST call when the WS handshake is rejected before it ever opens', async () => {
+    // A pre-accept 403 (stale/expired token after a redeploy) - the browser
+    // can't read its status, so the close-before-open must trigger verifyToken,
+    // whose 401 handling logs the user out instead of looping forever.
+    setToken()
+    const verify = vi.spyOn(api, 'verifyToken').mockResolvedValue({} as never)
+    renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.close()) // never opened
+    expect(verify).toHaveBeenCalledTimes(1)
+  })
+
+  it('does NOT probe the token when a socket that had opened later closes (an ordinary reconnect)', async () => {
+    setToken()
+    const verify = vi.spyOn(api, 'verifyToken').mockResolvedValue({} as never)
+    renderHook(() => useChatSocket(profile, null, false), { wrapper: AuthProvider })
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    act(() => ws.close())
+    expect(verify).not.toHaveBeenCalled()
+  })
 })

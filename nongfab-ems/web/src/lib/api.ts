@@ -88,6 +88,17 @@ export async function login(username: string, password: string): Promise<TokenRe
 
 export const getAssets = (token: string): Promise<AssetRegistry> => request('/assets', token)
 
+/** Makes one authenticated REST call purely to find out whether `token` is
+ * still accepted by the API. On a 401 (expired, or minted before the API's
+ * most recent redeploy - see auth.py's deploy_id claim) `request()` fires the
+ * app-wide unauthorized handler -> logout, exactly as any other authenticated
+ * call would. Used by useChatSocket to turn a silently-rejected WebSocket
+ * handshake (a pre-accept 403 the browser can't read the status of) into the
+ * same re-login flow, instead of reconnecting forever on a dead token. Reuses
+ * `/assets` rather than adding a bespoke endpoint - it's a small, always-
+ * available authenticated GET. */
+export const verifyToken = (token: string): Promise<AssetRegistry> => request('/assets', token)
+
 export const getZone = (zoneId: string, token: string): Promise<Zone> => request(`/assets/${zoneId}`, token)
 
 export const getForecast = (zone: string, horizon: ForecastHorizon, token: string): Promise<ForecastResponse> =>

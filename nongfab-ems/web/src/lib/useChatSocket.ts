@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { chatSocketUrl, getChatHistory } from './api'
+import { chatSocketUrl, getChatHistory, verifyToken } from './api'
 import { useAuth } from './auth'
 import type { ChatEvent, ChatMessage, OnlineUser } from './types'
 import type { ChatProfile } from './chatProfile'
@@ -188,11 +188,28 @@ export function useChatSocket(
       const p = profileRef.current
       const ws = new WebSocket(chatSocketUrl(token!, p.clientId, p.displayName, p.avatarId))
       socketRef.current = ws
+      let openedThisAttempt = false
 
-      ws.onopen = () => setConnected(true)
+      ws.onopen = () => {
+        openedThisAttempt = true
+        setConnected(true)
+      }
       ws.onclose = () => {
         setConnected(false)
-        if (!cancelled) reconnectTimer = setTimeout(connect, RECONNECT_DELAY_MS)
+        if (cancelled) return
+        // A close *before the socket ever opened* is the signature of a
+        // rejected handshake - almost always a token the server won't accept
+        // (expired, or minted before the API's most recent redeploy; see
+        // auth.py's deploy_id claim). The browser can't read the 403 status of
+        // a pre-accept WS rejection, so confirm it with one authenticated REST
+        // call: a 401 there routes through api.ts's unauthorized handler ->
+        // logout, which clears the token and (via this effect's cleanup) stops
+        // the reconnect loop, instead of hammering /ws/chat every few seconds
+        // on a dead token forever (the live 403 loop seen 2026-07-19). A real
+        // transient network drop also closes-before-open, but fails the probe
+        // with a network error rather than a 401, so it just reconnects.
+        if (!openedThisAttempt && token) verifyToken(token).catch(() => {})
+        reconnectTimer = setTimeout(connect, RECONNECT_DELAY_MS)
       }
       ws.onerror = () => ws.close()
       ws.onmessage = (event) => {
