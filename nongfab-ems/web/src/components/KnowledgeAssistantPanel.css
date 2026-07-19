@@ -1,0 +1,34 @@
+/* น้อง Moon / น้อง Cloud share น้อง Solar's whole panel look (AssistantPanel.css
+   is imported alongside this), so this file only does two things: move the
+   panel to the LEFT so it never sits on top of น้อง Solar's own bottom-right
+   panel/mascot, and give each persona a matching header accent. */
+
+.knowledge-assistant-panel {
+  right: auto;
+  left: 20px;
+}
+
+.knowledge-assistant-panel .assistant-panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* น้อง Moon - cool night blue/violet accent. */
+.knowledge-assistant-panel-moon .assistant-panel-header {
+  background: linear-gradient(135deg, #4c1d95, #1e3a8a);
+}
+
+/* น้อง Cloud - soft sky blue accent. */
+.knowledge-assistant-panel-cloud .assistant-panel-header {
+  background: linear-gradient(135deg, #0369a1, #38bdf8);
+}
+
+/* On narrow screens both floated panels would fight the same width; keep the
+   left-panel behavior but let it use the same responsive width the base
+   .assistant-panel already computes (min(440px, 100vw - 40px)). */
+@media (max-width: 520px) {
+  .knowledge-assistant-panel {
+    left: 12px;
+  }
+}

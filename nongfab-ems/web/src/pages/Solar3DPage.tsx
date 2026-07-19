@@ -4,6 +4,7 @@ import { SolarAccessGauge } from '../components/SolarAccessGauge'
 import type { Solar3DSceneHandle } from '../components/Solar3DScene'
 import { Solar3DScene } from '../components/Solar3DScene'
 import { Solar3DIconRail } from '../components/Solar3DIconRail'
+import { Solar3DAssistants } from '../components/Solar3DAssistants'
 import { ZoneSelector } from '../components/ZoneSelector'
 import { nearestToTimestamp } from '../lib/chartData'
 import { zenithAngleDeg } from '../lib/solar3d'
@@ -171,6 +172,7 @@ export function Solar3DPage() {
 
   return (
     <div className="solar3d-page">
+      <Solar3DAssistants />
       <div className="solar3d-controls">
         <ZoneSelector value={zone} onChange={setZone} includeAll={false} />
         {geometry.data && <SolarAccessGauge pct={geometry.data.average_solar_access_pct} />}

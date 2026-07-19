@@ -1,0 +1,110 @@
+/* น้อง Moon + น้อง Cloud launcher dock - floats on the LEFT edge of the 3D
+   View page, vertically centred, so it clears both globally-fixed corners
+   (น้อง Solar bottom-right, the visitor-chat button bottom-left). Two stacked
+   face-buttons, each toggling its own knowledge panel. */
+
+.solar3d-assistant-dock {
+  position: fixed;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 39; /* just under น้อง Solar's panel (41) and mascot (40) */
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  pointer-events: none; /* let the map/canvas behind the gaps stay interactive */
+}
+
+.solar3d-assistant-launcher {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: auto;
+}
+
+.solar3d-assistant-button {
+  width: 60px;
+  height: 60px;
+  padding: 4px;
+  border: none;
+  border-radius: 50%;
+  background: var(--card-bg, #fff);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.solar3d-assistant-button:hover {
+  transform: scale(1.08);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.32);
+}
+
+.solar3d-assistant-button:focus-visible {
+  outline: 3px solid #38bdf8;
+  outline-offset: 2px;
+}
+
+.solar3d-assistant-button .mascot-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.solar3d-assistant-name {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text, #1e293b);
+  background: var(--card-bg, #fff);
+  padding: 1px 6px;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  white-space: nowrap;
+}
+
+/* Play-interaction speech bubble, shown to the RIGHT of the character (it
+   sits on the left edge, so a bubble on the left would run off-screen). */
+.solar3d-assistant-speech {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 6px;
+  width: max-content;
+  max-width: 220px;
+  background: var(--card-bg, #fff);
+  color: var(--text, #1e293b);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  z-index: 1;
+}
+
+/* On small screens the dock would crowd the canvas controls - shrink the
+   buttons and drop the always-on name labels (the aria-label still names
+   them for screen readers, and tapping still opens the titled panel). */
+@media (max-width: 640px) {
+  .solar3d-assistant-dock {
+    left: 10px;
+    gap: 10px;
+  }
+  .solar3d-assistant-button {
+    width: 48px;
+    height: 48px;
+  }
+  .solar3d-assistant-name {
+    display: none;
+  }
+  .solar3d-assistant-speech {
+    max-width: 160px;
+    font-size: 0.78rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .solar3d-assistant-button {
+    transition: none;
+  }
+}
