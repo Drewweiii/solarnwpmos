@@ -105,3 +105,89 @@
     transition: none;
   }
 }
+
+/* Buddy floating next to น้อง Solar (bottom-right, z-40) while a Moon/Cloud
+   panel is open - sits just to its LEFT so the two characters stand side by
+   side; swaps between Moon and Cloud with the active panel (2026-07-19). */
+.solar3d-assistant-buddy {
+  position: fixed;
+  right: 104px; /* left of น้อง Solar's ~76px mascot at right:20 */
+  bottom: 18px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none; /* purely decorative; interaction is via the panel */
+  animation: solar3d-buddy-pop 0.25s ease;
+}
+
+@keyframes solar3d-buddy-pop {
+  from {
+    transform: translateY(8px) scale(0.8);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.solar3d-assistant-buddy-face {
+  width: 66px;
+  height: 66px;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.35));
+}
+
+.solar3d-assistant-buddy-face .mascot-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.solar3d-assistant-buddy-name {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text, #1e293b);
+  background: var(--card-bg, #fff);
+  padding: 1px 7px;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  white-space: nowrap;
+}
+
+.solar3d-assistant-buddy-speech {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  width: max-content;
+  max-width: 200px;
+  background: var(--card-bg, #fff);
+  color: var(--text, #1e293b);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  padding: 7px 11px;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+}
+
+@media (max-width: 640px) {
+  .solar3d-assistant-buddy {
+    right: 88px;
+    bottom: 14px;
+  }
+  .solar3d-assistant-buddy-face {
+    width: 54px;
+    height: 54px;
+  }
+  .solar3d-assistant-buddy-name {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .solar3d-assistant-buddy {
+    animation: none;
+  }
+}

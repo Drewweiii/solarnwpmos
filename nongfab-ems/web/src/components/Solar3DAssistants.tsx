@@ -17,9 +17,18 @@ const PLAY_REACTION_REVERT_MS = 5000
  * already owns bottom-right site-wide), each a face-button that toggles its
  * own knowledge panel (KnowledgeAssistantPanel + moonCloudPersonas.ts). At
  * most one panel is open at a time - opening one closes the other - so the
- * two left-anchored panels never overlap. Play interactions drive each
- * character's own face/speech bubble via its own useMascotReaction, exactly
- * like น้อง Solar's floating mascot. */
+ * two left-anchored panels never overlap.
+ *
+ * When a persona is active it also floats as a buddy right next to น้อง Solar
+ * (bottom-right), per the user's 2026-07-19 request - tapping a launcher
+ * "summons" that character beside น้อง Solar, and tapping the other swaps it
+ * in immediately (only one Moon/Cloud buddy at a time). Play interactions
+ * drive that buddy's own face/speech bubble via its own useMascotReaction,
+ * exactly like น้อง Solar's floating mascot. */
+function faceFor(persona: KnowledgePersona, mood: MascotMood): ReactElement {
+  return persona.id === MOON_PERSONA.id ? <MoonFace mood={mood} /> : <CloudFace mood={mood} />
+}
+
 export function Solar3DAssistants() {
   const [openId, setOpenId] = useState<string | null>(null)
   const moon = useMascotReaction()
@@ -31,16 +40,10 @@ export function Solar3DAssistants() {
     setOpenId((cur) => (cur === id ? null : id))
   }
 
-  function renderLauncher(persona: KnowledgePersona, face: (mood: MascotMood) => ReactElement) {
-    const reaction = reactionFor(persona)
+  function renderLauncher(persona: KnowledgePersona) {
     const isOpen = openId === persona.id
     return (
       <div className={`solar3d-assistant-launcher solar3d-assistant-launcher-${persona.id}`}>
-        {reaction.speech && (
-          <div className="solar3d-assistant-speech" role="status" aria-live="polite">
-            {reaction.speech}
-          </div>
-        )}
         <button
           type="button"
           className="solar3d-assistant-button"
@@ -49,7 +52,7 @@ export function Solar3DAssistants() {
           aria-expanded={isOpen}
           title={persona.name}
         >
-          {face(reaction.mood)}
+          {faceFor(persona, 'idle')}
         </button>
         <span className="solar3d-assistant-name">{persona.name}</span>
       </div>
@@ -57,14 +60,26 @@ export function Solar3DAssistants() {
   }
 
   const openPersona = openId === MOON_PERSONA.id ? MOON_PERSONA : openId === CLOUD_PERSONA.id ? CLOUD_PERSONA : null
+  const buddyReaction = openPersona ? reactionFor(openPersona) : null
 
   return (
     <>
       <div className="solar3d-assistant-dock" aria-label="ผู้ช่วยประจำหน้า 3D View">
         <span className="solar3d-assistant-dock-label">ถามผู้ช่วยประจำหน้านี้ 👉</span>
-        {renderLauncher(MOON_PERSONA, (mood) => <MoonFace mood={mood} />)}
-        {renderLauncher(CLOUD_PERSONA, (mood) => <CloudFace mood={mood} />)}
+        {renderLauncher(MOON_PERSONA)}
+        {renderLauncher(CLOUD_PERSONA)}
       </div>
+
+      {/* Buddy floating next to น้อง Solar while its panel is open - swaps to
+          whichever of Moon/Cloud is currently active. */}
+      {openPersona && buddyReaction && (
+        <div className={`solar3d-assistant-buddy solar3d-assistant-buddy-${openPersona.id}`} aria-hidden="true">
+          {buddyReaction.speech && <div className="solar3d-assistant-buddy-speech">{buddyReaction.speech}</div>}
+          <div className="solar3d-assistant-buddy-face">{faceFor(openPersona, buddyReaction.mood)}</div>
+          <span className="solar3d-assistant-buddy-name">{openPersona.name}</span>
+        </div>
+      )}
+
       {openPersona && (
         <KnowledgeAssistantPanel
           persona={openPersona}
