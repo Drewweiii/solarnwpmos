@@ -1,15 +1,21 @@
 // Vertical icon rail overlaid on the 3D canvas, modeled on the reslink.org
 // reference video's left-side toolbar - but mapped onto the controls this
-// page actually has (view-mode toggle, play/pause, camera reset, ground
-// style) rather than reslink's own render-mode-switcher icons 1:1 (this
-// app now has a real grid/satellite ground toggle - see Solar3DScene.tsx's
-// groundStyle prop - but not reslink's full abstract/photorealistic/
-// satellite-map trio). Hand-drawn inline SVGs, same pattern as
-// Compass.tsx - no icon library dependency for 5 icons.
+// page actually has (play/pause, camera reset, ground style) rather than
+// reslink's own render-mode-switcher icons 1:1 (this app now has a real
+// grid/satellite ground toggle - see Solar3DScene.tsx's groundStyle prop -
+// but not reslink's full abstract/photorealistic/satellite-map trio).
+// Hand-drawn inline SVGs, same pattern as Compass.tsx - no icon library
+// dependency for a handful of icons.
+//
+// The "Solar access" / "String view" toggle that used to live here (two
+// separate per-panel coloring modes) was collapsed into one always-on
+// sun-reactive gradient 2026-07-19, per the user's own report that having
+// two modes was confusing rather than useful - see Solar3DScene.tsx's
+// panel `color` prop docstring for what replaced it. The static Sun icon
+// button stays as a fixed (non-interactive) legend hint for what the
+// gradient means, not a mode switch anymore.
 
 interface Solar3DIconRailProps {
-  viewMode: 'access' | 'string'
-  onViewModeChange: (mode: 'access' | 'string') => void
   isPlaying: boolean
   onPlayToggle: () => void
   onResetCamera: () => void
@@ -18,8 +24,6 @@ interface Solar3DIconRailProps {
 }
 
 export function Solar3DIconRail({
-  viewMode,
-  onViewModeChange,
   isPlaying,
   onPlayToggle,
   onResetCamera,
@@ -28,28 +32,9 @@ export function Solar3DIconRail({
 }: Solar3DIconRailProps) {
   return (
     <div className="solar3d-icon-rail" role="tablist" aria-label="3D view controls">
-      <button
-        type="button"
-        role="tab"
-        aria-selected={viewMode === 'access'}
-        aria-label="Solar access"
-        title="Solar access"
-        className={viewMode === 'access' ? 'solar3d-icon-btn active' : 'solar3d-icon-btn'}
-        onClick={() => onViewModeChange('access')}
-      >
+      <div className="solar3d-icon-btn solar3d-icon-btn-static" aria-label="Panel color reacts to the sun" title="Panel color reacts to the sun">
         <SunIcon />
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={viewMode === 'string'}
-        aria-label="String view"
-        title="String view"
-        className={viewMode === 'string' ? 'solar3d-icon-btn active' : 'solar3d-icon-btn'}
-        onClick={() => onViewModeChange('string')}
-      >
-        <StringIcon />
-      </button>
+      </div>
       <button
         type="button"
         aria-label={isPlaying ? 'Pause' : 'Play'}
@@ -97,16 +82,6 @@ function SunIcon() {
           transform={`rotate(${deg} 12 12)`}
         />
       ))}
-    </svg>
-  )
-}
-
-function StringIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-      <rect x="4" y="5" width="16" height="3.2" rx="1" fill="currentColor" opacity="0.9" />
-      <rect x="4" y="10.4" width="16" height="3.2" rx="1" fill="currentColor" opacity="0.6" />
-      <rect x="4" y="15.8" width="16" height="3.2" rx="1" fill="currentColor" opacity="0.35" />
     </svg>
   )
 }

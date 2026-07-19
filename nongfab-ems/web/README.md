@@ -2640,3 +2640,140 @@ category-menu chips, and a kWp knowledge answer all render their new
 leading emoji correctly; the play panel shows all 24 buttons in its grid;
 clicking the new "💃 ชวนเต้น" button visibly changes the mascot's face and
 shows its speech bubble, same as every pre-existing interaction.
+
+### Fixed - Model Competition panel silently showed 0 bars instead of saying why (2026-07-19, Track 1)
+
+Reported live with a screenshot: the "การแข่งขันของโมเดล (Model Competition)"
+panel rendered its axis and legend correctly but every bar was 0. Root-caused
+via a local Postgres + fresh API instance (this exact branch's code, not
+production): `/forecast/{zone}/hour`'s `candidate_errors` is populated
+unconditionally by `training.py` for every real `model_type: "ml"` point -
+the only way it comes back empty is the zone's hour-ahead model still being
+the physics-only fallback (not enough real NWP history accumulated yet for
+that specific zone), which legitimately has no per-candidate RMSE to report.
+`ForecastPage.tsx`'s `ModelCompetitionPanel` used to only gate its "no data"
+message on `rows.length === 0` - but `buildCompetitionRows` still produces
+real rows (just with null candidate values) once any hour-ahead points
+exist, so this case fell through to the chart-render branch and showed an
+axis/legend with nothing to plot instead of an honest status message.
+
+Added `competitionIsPhysicsBaseline` (same `model_type === 'physics_baseline'`
+check `isPhysicsBaseline`/`minuteIsPhysicsBaseline` already use for the main
+chart and Minute-ahead panel, applied to the hour-ahead queries specifically
+since Model Competition always shows the intra-day race regardless of the
+Day-ahead/Intra-day toggle) - when true, the panel now shows "โซนนี้ยังไม่มี
+ข้อมูลจริงสะสมมากพอที่จะฝึกโมเดล ML แข่งกัน...ยังไม่มีผลการแข่งขันโมเดลให้แสดง"
+instead of rendering the misleading empty chart.
+
+**Not a code bug in the everyday sense** - if this is what's showing in
+production, the fix isn't more frontend code, it's confirming the zone has
+accumulated enough real NWP ingestion history to leave the physics-baseline
+fallback (or checking `api`'s own logs for `retrain failed for zone/horizon`
+warnings, which would point at a real training exception instead).
+
+**Tested**: new `ForecastPage.test.tsx` case mocks `model_type:
+'physics_baseline'` on the hour horizon and asserts the honest caption
+renders instead of the chart. Full suite 350/350, `tsc` clean.
+
+### Fixed - 3D View: Sun kept drifting after sunset and Moon never rose to replace it (2026-07-19, Track 1)
+
+Reported live: "ดวงจันทร์ไม่ยอมขึ้นมาตอนพระอาทิตย์ตกดิน และดวงอาทิตย์ไหลใน
+ระนาบพื้นหลังจากตกดินซึ่งมันควรจะหายไปให้ดวงจันทร์ขึ้นมาแทน". Root-caused via
+a local API + Postgres instance and Playwright scrubbing the time slider past
+real sunset: `/sun-path` returns only `elevation_deg > 0` samples (see that
+route's own docstring) at a nominal 15-minute cadence over one UTC calendar
+day - but because Thailand's real sunrise (~00:00 UTC) sits close to UTC
+midnight, the *kept* samples routinely jump straight from today's last
+pre-sunset point to the next day's first post-sunrise point, both landing
+inside the same 00:00-23:45Z window. `interpolateSunPosition` (`solar3d.ts`)
+only checked whether a target time fell within the array's overall first/
+last bounds before searching for a bracketing pair - a target time in that
+removed overnight gap still passed that check, and the search then happily
+linearly-interpolated across the two far-apart samples bracketing sunset and
+next sunrise (many hours apart), producing a fictional small *positive*
+elevation for the entire night. That kept `SunMarker`'s `visible = elevationDeg
+> 0` gate open long after real sunset (the reported "drifting" - its position
+was actually crawling between the two interpolation endpoints, not frozen),
+and kept `MoonMarker`'s `sunIsDown` check from ever turning true.
+
+Fixed by adding `MAX_ADJACENT_SAMPLE_GAP_MS` (20 minutes - safely above the
+real ~15-minute sample cadence, safely below any real overnight gap): if the
+two samples bracketing a target time are farther apart than that, treat it
+the same as "outside the covered range" (`null`) rather than interpolating
+across it. Live-verified via Playwright against a local API+Postgres
+instance: scrubbing to 19:30 ICT (well past today's real ~18:45 ICT sunset)
+now correctly hides the Sun marker, and `MoonMarker`'s own computed
+visibility (checked via temporary debug logging, removed before commit)
+correctly turns `true` once React's geometry-query fallback catches up
+(within roughly one network round-trip - not a persistent bug, just normal
+async settling).
+
+**Tested**: two new `solar3d.test.ts` cases - a target time inside a
+constructed overnight gap returns `null`, and a target time between two
+genuinely-adjacent 15-minute samples near the edge of that same gap still
+interpolates normally. Full suite 350/350, `tsc` clean.
+
+### Changed - 3D View: collapsed "Solar access" / "String view" into one always-on sun-reactive panel gradient (2026-07-19, Track 1)
+
+Reported live as confusing rather than useful: "ตรง string view กับ solar
+access เพื่อกันความงง เราจะยุบให้เหลืออันเดียว...โดยไล่เฉดสี เขียว เหลือง ส้ม
+แดง โดยไล่เฉดแบบ ultrasmooth เหมือนดวงอาทิตย์ และระวังดีๆตอนกลางคืนห้ามเอาแสง
+จันทน์มาผลิต". Removed the icon-rail toggle and `viewMode` state/prop
+entirely (`Solar3DIconRail.tsx`, `Solar3DPage.tsx`, `Solar3DScene.tsx`) -
+the Sun icon button that used to switch to "access" mode is now a fixed,
+non-interactive legend hint (`.solar3d-icon-btn-static`), and `stringColor`
+(the old per-block-id static hue) is deleted. Every panel now always colors
+via the existing `solarAccessColor` red→yellow→green hue ramp (continuous
+0-120° hue sweep, which visually already passes through orange between red
+and yellow - matches the requested เขียว/เหลือง/ส้ม/แดง gradient without a
+formula change) applied to `panel.solar_access_pct * zoneOutputRatio`, the
+same real-output-blended value the old "access" mode already used.
+
+**Night-safety clamp**, the explicit second half of the request: panel color
+now computes as `solarAccessColor(sunElevationDeg > 0 ? panel.solar_access_pct
+* zoneOutputRatio : 0)` - forcing every panel to the gradient's red/0% end
+the instant the sun's elevation is at or below the horizon, regardless of
+what `zoneOutputRatio`'s own real-power lookup produced. This is a
+deliberate belt-and-suspenders guard, not just trusting that lookup to
+always land on a genuine zero - `zoneOutputRatio` falls back to the
+*nearest* `performance.data.hourly`/`forecast.data` reading with no maximum
+time-distance cutoff (see that variable's own docstring in
+`Solar3DPage.tsx`), so a sparse night with no real telemetry rows could in
+principle pick up a stale earlier-in-the-day positive reading - exactly the
+"panels shouldn't read as producing off moonlight" failure mode the user
+explicitly flagged. The elevation gate uses the same `sunElevationDeg` prop
+already driving `SunMarker`'s own visibility, so panels and the Sun marker
+go dark in lockstep.
+
+Smoothness note: panel color updates on the same cadence as the Sun's own
+readouts (a live React re-render per `sunElevationDeg`/`zoneOutputRatio`
+change, throttled during Play via `SYNC_CALLBACK_INTERVAL_MS` like every
+other scene readout) rather than a new per-frame WebGL material update - the
+existing cadence was already tuned for "smooth" elsewhere on this page, and
+introducing a second, independent per-frame color-interpolation path felt
+like a materially bigger, harder-to-verify change for uncertain visual gain
+under Playwright (which can't judge animation smoothness, only take
+snapshots). Flagging this so a future session knows it was a deliberate
+scope call, not an oversight, if truer 60fps color interpolation is wanted.
+
+**Tested**: `Solar3DPage.test.tsx`'s old view-mode-toggle test replaced with
+one asserting no "String view"/"Solar access" tab exists anymore. Full suite
+350/350, `tsc` clean. Live-verified via Playwright: the icon rail now shows
+4 icons (static Sun legend, play, camera reset, satellite/ground toggle)
+with no toggle group; panels render the red/orange gradient correctly at low
+sun elevation (07:00 ICT, altitude 13°).
+
+### Added - 3D View: Play resets a stale simulated date back to today (2026-07-19, Track 1)
+
+Per the user's own request ("เมื่อ sim ใหม่ก็ให้ดวงอาทิตย์ขึ้นมาใหม่ โดยวันใน
+การ sim ให้อัปเดตเลือกอัตโนมัติตามวันเวลาจริงๆ"): `date` state only ever
+defaulted to `todayIso()` once, at initial mount - a tab left open across a
+midnight, or a manually-picked past/future date, used to keep replaying that
+same stale day's sun/moon arc indefinitely with no way back to "today" short
+of a full page reload. `Solar3DPage.tsx`'s new `handlePlayToggle` snaps
+`date` back to `todayIso()` the moment Play is pressed from paused, if it
+isn't already today - the existing per-date sunrise-default effect then
+re-seeds `timeOfDayMinutes` for that date the same way a manual date-picker
+change already does. Only fires on Play, not every render, so a
+manually-picked past/future date still holds correctly while paused for
+inspection.

@@ -275,6 +275,23 @@ describe('ForecastPage', () => {
     expect(within(panel).queryByText(/no intra-day forecast model/i)).not.toBeInTheDocument()
   })
 
+  it('shows an honest "not enough real data yet" caption, not a silently-empty chart, when the hour-ahead model is still the physics fallback (2026-07-19)', async () => {
+    // Root cause of a live report where the panel rendered its axis/legend
+    // but every bar was 0: the zone's hour-ahead model was still the
+    // physics-only fallback (model_type !== 'ml'), which legitimately has no
+    // algorithm/candidate_errors to report - buildCompetitionRows still
+    // produces rows (points exist, just with null candidate values), so the
+    // old "rows.length === 0" gate never caught this case.
+    vi.spyOn(api, 'getForecast').mockImplementation((zone, horizon) =>
+      Promise.resolve({ ...makeForecast(zone, horizon), model_type: horizon === 'hour' ? 'physics_baseline' : 'ml' }),
+    )
+    renderPage()
+    await clickGisTab()
+
+    const panel = await screen.findByLabelText(/model competition panel/i)
+    expect(await within(panel).findByText(/ยังไม่มีข้อมูลจริงสะสมมากพอ/)).toBeInTheDocument()
+  })
+
   it('shows the 3-tier actual-power caption once any actual-power data is present', async () => {
     // jsdom's ResponsiveContainer never gets a real box (see the Model
     // Competition test above), so this only asserts the data-presence

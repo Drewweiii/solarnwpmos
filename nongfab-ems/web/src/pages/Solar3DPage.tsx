@@ -45,7 +45,6 @@ function utcMinutesOfDay(iso: string): number {
 
 export function Solar3DPage() {
   const [zone, setZone] = useState<string>(REAL_ZONE_IDS[0])
-  const [viewMode, setViewMode] = useState<'access' | 'string'>('access')
   const [groundStyle, setGroundStyle] = useState<'grid' | 'satellite'>('grid')
   const [date, setDate] = useState(todayIso())
   // Seeded to local noon UTC-minutes as a harmless placeholder before the
@@ -103,6 +102,25 @@ export function Solar3DPage() {
   const handleAnimatedTimeChange = useCallback((animatedAtIso: string) => {
     setTimeOfDayMinutes(utcMinutesOfDay(animatedAtIso))
   }, [])
+
+  // Starting a fresh Play from a `date` left over from an earlier session
+  // (the tab was open across a midnight, or a past/future date was picked
+  // manually) used to keep replaying that stale day's sun/moon arc forever,
+  // never catching up to today - per the user's own 2026-07-19 request
+  // ("เมื่อ sim ใหม่ก็ให้...วันในการ sim ให้อัปเดตเลือกอัตโนมัติตามวันเวลาจริงๆ"),
+  // hitting Play now snaps back to today's real date first (the existing
+  // sunrise-default effect above then re-seeds `timeOfDayMinutes` for that
+  // date the same way a normal date-picker change already does) - only
+  // Play does this, not every render, so a manually-picked past/future date
+  // still holds while paused for inspection.
+  const handlePlayToggle = useCallback(() => {
+    setIsPlaying((playing) => {
+      if (!playing && date !== todayIso()) {
+        setDate(todayIso())
+      }
+      return !playing
+    })
+  }, [date])
 
   const zoneObj = zones.data?.zones.find((z) => z.id === zone)
   // The zone's own real surveyed centroid (config/assets.yaml via
@@ -290,10 +308,8 @@ export function Solar3DPage() {
         {geometry.data && (
           <>
             <Solar3DIconRail
-              viewMode={viewMode}
-              onViewModeChange={setViewMode}
               isPlaying={isPlaying}
-              onPlayToggle={() => setIsPlaying((p) => !p)}
+              onPlayToggle={handlePlayToggle}
               onResetCamera={() => sceneRef.current?.resetCamera()}
               groundStyle={groundStyle}
               onGroundStyleChange={setGroundStyle}
@@ -317,7 +333,6 @@ export function Solar3DPage() {
               cloudMotionDirectionDeg={cloudConditions.data?.available ? (cloudConditions.data.motion_direction_deg ?? null) : null}
               precipMm={precipitationConditions.data?.available ? (precipitationConditions.data.precip_mm ?? null) : null}
               precipIntensity={precipitationConditions.data?.available ? (precipitationConditions.data.intensity ?? null) : null}
-              viewMode={viewMode}
               zone={zone}
               groundStyle={groundStyle}
               satelliteTileUrl={satelliteTileUrl}

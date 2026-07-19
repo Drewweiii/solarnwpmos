@@ -392,6 +392,20 @@ export function ForecastPage() {
     : singleHourForecast.error
       ? singleHourForecast
       : undefined
+  // Same "physics fallback has no algorithm at all" idea as isPhysicsBaseline
+  // above, checked against the hour-ahead queries specifically (Model
+  // Competition always shows the intra-day race regardless of which
+  // Day-ahead/Intra-day tab is toggled - see ModelCompetitionPanel's own
+  // docstring) - added 2026-07-19 after a live report that the panel
+  // rendered its axis/legend but every bar was 0: root-caused to the zone's
+  // hour-ahead model still being the physics-only fallback (not enough real
+  // NWP history yet for that zone specifically), which legitimately has no
+  // candidate_errors to show at all - not a rendering bug, just an honest
+  // "not trained yet" state the panel used to render as a silently-empty
+  // chart instead of saying so.
+  const competitionIsPhysicsBaseline = isAllZones
+    ? allHourForecast.some((q) => q.data?.model_type === 'physics_baseline')
+    : singleHourForecast.data?.model_type === 'physics_baseline'
 
   // "Now" position within the Minute-ahead panel's own row array, and a
   // default-centered scroll container ref for it - see useCenterChartOnce's
@@ -642,7 +656,12 @@ export function ForecastPage() {
 
       {horizonToggle === 'hour' && <ErrorChartPanel rows={chartRows} />}
 
-      <ModelCompetitionPanel rows={competitionRows} isLoading={competitionLoading} hasError={Boolean(competitionError)} />
+      <ModelCompetitionPanel
+        rows={competitionRows}
+        isLoading={competitionLoading}
+        hasError={Boolean(competitionError)}
+        isPhysicsBaseline={competitionIsPhysicsBaseline}
+      />
 
       <WeatherStrip
         points={weatherStrip.data?.points ?? []}
@@ -1018,6 +1037,7 @@ interface ModelCompetitionPanelProps {
   rows: CompetitionRow[]
   isLoading: boolean
   hasError: boolean
+  isPhysicsBaseline: boolean
 }
 
 // A dedicated panel for "which model is winning" - separate from the main
@@ -1030,7 +1050,7 @@ interface ModelCompetitionPanelProps {
 // Always shows the live hour-ahead race regardless of which Day-ahead/
 // Intra-day tab is active on the main chart above - same pattern as
 // MinuteAheadPanel.
-function ModelCompetitionPanel({ rows, isLoading, hasError }: ModelCompetitionPanelProps) {
+function ModelCompetitionPanel({ rows, isLoading, hasError, isPhysicsBaseline }: ModelCompetitionPanelProps) {
   return (
     <section className="forecast-competition-panel" aria-label="Model competition panel">
       <h3 className="forecast-competition-title">การแข่งขันของโมเดล (Model Competition) — Intra-day, +1h ถึง +6h</h3>
@@ -1042,8 +1062,18 @@ function ModelCompetitionPanel({ rows, isLoading, hasError }: ModelCompetitionPa
       {!isLoading && hasError && (
         <p className="forecast-status forecast-status-warn">No intra-day forecast model has been trained for this zone yet.</p>
       )}
-      {!isLoading && !hasError && rows.length === 0 && <p className="forecast-status">No data yet.</p>}
-      {rows.length > 0 && (
+      {/* isPhysicsBaseline (added 2026-07-19): the zone's hour-ahead model is
+          still running the physics-only fallback (not enough real NWP history
+          yet), which has no algorithm/candidate RMSE to report at all - shown
+          honestly instead of a chart with a real axis/legend but every bar
+          silently at 0, which read as broken rather than "not trained yet". */}
+      {!isLoading && !hasError && isPhysicsBaseline && (
+        <p className="forecast-status forecast-status-warn">
+          โซนนี้ยังไม่มีข้อมูลจริงสะสมมากพอที่จะฝึกโมเดล ML แข่งกัน (ยังใช้การพยากรณ์จากฟิสิกส์ล้วนอยู่) — ยังไม่มีผลการแข่งขันโมเดลให้แสดง
+        </p>
+      )}
+      {!isLoading && !hasError && !isPhysicsBaseline && rows.length === 0 && <p className="forecast-status">No data yet.</p>}
+      {!isPhysicsBaseline && rows.length > 0 && (
         <div className="forecast-chart-scroll">
           <div style={{ width: scrollableChartWidthPx(rows.length, 100), height: 260 }}>
             <ResponsiveContainer width="100%" height="100%">
@@ -1104,7 +1134,7 @@ function ModelCompetitionPanel({ rows, isLoading, hasError }: ModelCompetitionPa
           </div>
         </div>
       )}
-      {rows.length > 0 && (
+      {!isPhysicsBaseline && rows.length > 0 && (
         <p className="forecast-status forecast-status-caption">
           เอาเมาส์ไปชี้แท่งกราฟเพื่อดู "ส่วนต่างระหว่างโมเดล" (spread) ของชั่วโมงนั้น — ยิ่งค่านี้น้อย ยิ่งแปลว่าทั้ง 3 โมเดลให้ผลใกล้เคียงกัน
           (การเลือกผู้ชนะแทบไม่ต่างผล) ยิ่งค่านี้มาก ยิ่งแปลว่าโมเดลที่ชนะแม่นยำกว่าตัวอื่นอย่างมีนัยสำคัญ — นี่คือค่าที่คำนวณจากผลการ

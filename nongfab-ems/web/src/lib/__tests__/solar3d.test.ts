@@ -112,6 +112,39 @@ describe('interpolateSunPosition', () => {
   it('returns the single point directly when only one sample exists', () => {
     expect(interpolateSunPosition([points[1]], '2026-07-18T00:15:00Z')).toEqual({ azimuthDeg: 90, elevationDeg: 10 })
   })
+
+  // Found live 2026-07-19: /sun-path returns only elevation>0 samples, which
+  // routinely jump straight from today's last pre-sunset sample to the next
+  // day's first post-sunrise sample - both land inside one UTC calendar day
+  // whenever local sunrise falls close to UTC midnight (true for Thailand).
+  // A target time in that removed overnight gap used to still pass the
+  // first/last bounds check (it's within the *overall* first/last range)
+  // and get linearly interpolated across the two far-apart bracketing
+  // samples, producing a fictional small-positive elevation for the whole
+  // night - which kept the Sun marker visible long after sunset and, in
+  // turn, kept MoonMarker's "sun is down" check from ever turning true.
+  it('returns null for a target time that falls in an overnight gap between elevation-filtered samples, even though it is within the array\'s overall first/last bounds', () => {
+    const overnightGapPoints = [
+      { time: '2026-07-19T00:00:00Z', azimuth_deg: 71, elevation_deg: 13 },
+      { time: '2026-07-19T11:15:00Z', azimuth_deg: 290, elevation_deg: 6 },
+      // Real sunset sample - the next kept sample jumps to tomorrow's sunrise.
+      { time: '2026-07-19T11:30:00Z', azimuth_deg: 291, elevation_deg: 2.6 },
+      { time: '2026-07-19T23:15:00Z', azimuth_deg: 69, elevation_deg: 2.9 }, // next day's sunrise creeping into this UTC day
+      { time: '2026-07-19T23:45:00Z', azimuth_deg: 71, elevation_deg: 10 },
+    ]
+    // Squarely in the middle of the night, ~1 hour after sunset.
+    expect(interpolateSunPosition(overnightGapPoints, '2026-07-19T12:30:00Z')).toBeNull()
+  })
+
+  it('still interpolates normally between two genuinely-adjacent 15-minute samples near the edge of an overnight gap', () => {
+    const overnightGapPoints = [
+      { time: '2026-07-19T11:15:00Z', azimuth_deg: 290, elevation_deg: 6 },
+      { time: '2026-07-19T11:30:00Z', azimuth_deg: 291, elevation_deg: 2.6 },
+      { time: '2026-07-19T23:15:00Z', azimuth_deg: 69, elevation_deg: 2.9 },
+    ]
+    const result = interpolateSunPosition(overnightGapPoints, '2026-07-19T11:22:30Z')
+    expect(result?.elevationDeg).toBeCloseTo(4.3, 1)
+  })
 })
 
 describe('advanceSimClockMs', () => {

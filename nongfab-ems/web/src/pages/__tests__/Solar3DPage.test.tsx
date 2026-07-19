@@ -233,13 +233,11 @@ describe('Solar3DPage', () => {
     expect(await screen.findByText(/simulated zone/i)).toBeInTheDocument()
   })
 
-  it('switches between solar-access and string view modes', async () => {
-    const user = userEvent.setup()
+  it('no longer offers a String view toggle - panel coloring is a single always-on sun-reactive gradient (2026-07-19)', async () => {
     renderPage()
-    const stringTab = await screen.findByRole('tab', { name: /string view/i })
-    expect(screen.getByRole('tab', { name: /solar access/i })).toHaveAttribute('aria-selected', 'true')
-    await user.click(stringTab)
-    expect(stringTab).toHaveAttribute('aria-selected', 'true')
+    await screen.findByTestId('mock-scene')
+    expect(screen.queryByRole('tab', { name: /string view/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /solar access/i })).not.toBeInTheDocument()
   })
 
   it('toggles play/pause', async () => {

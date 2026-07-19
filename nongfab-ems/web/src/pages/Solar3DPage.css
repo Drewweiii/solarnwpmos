@@ -298,6 +298,13 @@
   color: #fff;
 }
 
+/* The fixed "panel color reacts to the sun" legend icon - not a button,
+   just a static hint since the mode toggle it used to belong to was
+   removed 2026-07-19 (see Solar3DIconRail.tsx's own docstring). */
+.solar3d-icon-btn-static {
+  cursor: default;
+}
+
 /* --- Irradiance ground overlay toggle - the former standalone MapLibre
    Irradiance Map (already pulled onto this page in an earlier 2026-07-18
    round) was merged a second time, this round, directly INTO the WebGL

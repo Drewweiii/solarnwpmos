@@ -114,12 +114,6 @@ function mountTypeForZone(zone: string): MountType {
   return 'rooftop'
 }
 
-function stringColor(blockId: string): string {
-  let hash = 0
-  for (let i = 0; i < blockId.length; i++) hash = (hash * 31 + blockId.charCodeAt(i)) >>> 0
-  return `hsl(${hash % 360}, 65%, 50%)`
-}
-
 interface PanelMeshProps {
   panel: Panel
   tiltDeg: number
@@ -814,7 +808,6 @@ interface Solar3DSceneProps {
   // render no rain at all rather than a fabricated drizzle.
   precipMm: number | null
   precipIntensity: PrecipitationIntensity | null
-  viewMode: 'access' | 'string'
   // Jetty's trestle/pier structure renders as an elevated deck instead of a
   // solid building block - see PIER_DECK_HEIGHT_M's own docstring. Keyed by
   // zone id (not a generic "isElevatedStructure" flag) since this is the
@@ -833,13 +826,13 @@ interface Solar3DSceneProps {
   // 0-1: the zone's current output vs. its rated AC capacity (from
   // /performance's live-scaled `ac_kw` - see routes_performance.py's
   // 2026-07-16 docstring for why it's bounded/time-varying, not frozen).
-  // 'access' mode multiplies each panel's own solar_access_pct by this
-  // before coloring, so the gradient reflects real generation level across
-  // the whole day (dawn/dusk/cloudy = orange/yellow, not just a binary
-  // day/night shading switch) rather than pure row-shading geometry, which
-  // in practice is almost always 0% or 100% except right at sunrise/sunset
-  // - approved 2026-07-16 over keeping pure shading. Defaults to 1 (no
-  // dimming) if the caller has no performance data yet.
+  // Multiplies each panel's own solar_access_pct before coloring, so the
+  // gradient reflects real generation level across the whole day (dawn/
+  // dusk/cloudy = orange/yellow, not just a binary day/night shading
+  // switch) rather than pure row-shading geometry, which in practice is
+  // almost always 0% or 100% except right at sunrise/sunset - approved
+  // 2026-07-16 over keeping pure shading. Defaults to 1 (no dimming) if the
+  // caller has no performance data yet.
   zoneOutputRatio?: number
   // Plant-wide irradiance grid (GET /irradiance-map's `grid`) + this zone's
   // own real surveyed centroid (the origin every grid point gets projected
@@ -873,7 +866,6 @@ export function Solar3DScene({
   cloudMotionDirectionDeg,
   precipMm,
   precipIntensity,
-  viewMode,
   zone,
   groundStyle,
   satelliteTileUrl,
@@ -1048,11 +1040,19 @@ export function Solar3DScene({
           panel={panel}
           tiltDeg={tiltDeg}
           azimuthDeg={azimuthDeg}
-          color={
-            viewMode === 'access'
-              ? solarAccessColor(panel.solar_access_pct * zoneOutputRatio)
-              : stringColor(panel.block_id)
-          }
+          // Collapsed 2026-07-19 from two separate view modes (a per-panel
+          // solar-access gradient vs. a static per-string color, switched
+          // via an icon-rail toggle the user found confusing) into this one
+          // "how is each panel reacting to the sun right now" gradient - per
+          // the user's own request. `sunElevationDeg <= 0` forces every
+          // panel to the gradient's 0% (red/off) end the instant the sun is
+          // down, regardless of what zoneOutputRatio's own real-power
+          // lookup computed - a deliberate belt-and-suspenders guard (not
+          // just trusting that lookup to always land on a genuine zero) so
+          // panels can never read as "producing" off residual moonlight or
+          // a stale nearest-timestamp match landing on an earlier daytime
+          // reading, the exact failure the user explicitly flagged.
+          color={solarAccessColor(sunElevationDeg > 0 ? panel.solar_access_pct * zoneOutputRatio : 0)}
           baseY={panelBaseY}
         />
       ))}

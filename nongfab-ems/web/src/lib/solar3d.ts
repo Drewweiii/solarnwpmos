@@ -37,6 +37,27 @@ interface TimedAngle {
  * the first/last point, so a caller doesn't mistake "no data past sunset"
  * for "the sun is still up at the sunset position". Returns `null` for an
  * empty `points` array too. */
+// /sun-path returns only elevation>0 samples (see routes_solar3d.py's own
+// docstring) at a nominal 15-minute cadence - but since that filter is
+// applied to a fixed UTC calendar day, the *kept* points routinely jump
+// straight from today's last pre-sunset sample to the next day's first
+// post-sunrise sample (both can land within the same 00:00-23:45Z window
+// whenever local sunrise falls close to UTC midnight, as it does for
+// Thailand/ICT). Found live 2026-07-19: a target time that falls in that
+// removed overnight gap still satisfies the first/last bounds check below
+// (it's still within [points[0].time, points[-1].time] *overall*), so the
+// loop below found the two samples bracketing sunset and the next sunrise
+// - many hours apart - and happily linearly interpolated a small *positive*
+// elevation across the entire night between them. That's what caused the
+// Sun marker to stay visible (and drift) long after sunset instead of
+// disappearing, and in turn kept MoonMarker's "sun is down" check from ever
+// turning true. A genuine adjacent 15-minute sample pair is never more than
+// a few minutes apart in practice - anything past this threshold means the
+// two points straddle a real gap in the data, not consecutive samples, so
+// treat it the same as "outside the covered range" (null) rather than
+// interpolating across it.
+const MAX_ADJACENT_SAMPLE_GAP_MS = 20 * 60 * 1000
+
 export function interpolateSunPosition(points: TimedAngle[], atIso: string): { azimuthDeg: number; elevationDeg: number } | null {
   if (points.length === 0) return null
   const targetMs = new Date(atIso).getTime()
@@ -51,6 +72,7 @@ export function interpolateSunPosition(points: TimedAngle[], atIso: string): { a
     const aMs = new Date(a.time).getTime()
     const bMs = new Date(b.time).getTime()
     if (targetMs >= aMs && targetMs <= bMs) {
+      if (bMs - aMs > MAX_ADJACENT_SAMPLE_GAP_MS) return null
       const t = bMs === aMs ? 0 : (targetMs - aMs) / (bMs - aMs)
       return {
         azimuthDeg: a.azimuth_deg + (b.azimuth_deg - a.azimuth_deg) * t,
