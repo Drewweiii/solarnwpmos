@@ -453,6 +453,28 @@ export function nearestToNow(hourly: HourlyPoint[]): HourlyPoint | undefined {
   return nearestToTimestamp(hourly, new Date().toISOString())
 }
 
+/** Same "closest timestamp" search as `nearestToTimestamp`, but returns the
+ * index instead of the point itself - used (2026-07-18) to auto-center a
+ * scrollable chart's default scroll position on "today"/"now" rather than
+ * leaving it at the far-left (oldest) edge, per the user's own request that
+ * the current-time position "ตั้งไว้ตรงกลางกรอบ" (sit centered in the frame)
+ * when a chart has more history/forecast than fits its visible width.
+ * Returns -1 for an empty array (nothing to center on). */
+export function indexNearestToTimestamp<T extends { timestamp: string }>(points: T[], targetIso: string): number {
+  if (points.length === 0) return -1
+  const target = new Date(targetIso).getTime()
+  let bestIndex = 0
+  let bestDiff = Math.abs(new Date(points[0].timestamp).getTime() - target)
+  for (let i = 1; i < points.length; i++) {
+    const diff = Math.abs(new Date(points[i].timestamp).getTime() - target)
+    if (diff < bestDiff) {
+      bestDiff = diff
+      bestIndex = i
+    }
+  }
+  return bestIndex
+}
+
 export type WeatherIcon = 'sun' | 'partly-cloudy' | 'cloudy' | 'night'
 
 export function weatherIconFor(ssrdWm2: number): WeatherIcon {

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ForecastPage } from '../ForecastPage'
 import { AuthProvider } from '../../lib/auth'
 import * as api from '../../lib/api'
-import type { AssetRegistry, ForecastResponse, PerformanceResponse, WeatherStripResponse, Zone } from '../../lib/types'
+import type { AssetRegistry, CurrentConditionsResponse, ForecastResponse, PerformanceResponse, WeatherStripResponse, Zone } from '../../lib/types'
 
 function makeZone(id: string, ac_capacity_kw: number, simulated = false): Zone {
   return {
@@ -93,9 +93,34 @@ function makeWeatherStrip(hourStartIso: string, hoursEachSide: number): WeatherS
       timestamp: new Date(start.getTime() + offset * 3600_000).toISOString(),
       temp_c: 30.0,
       ssrd_w_m2: 500,
+      relative_humidity_pct: 70.0,
+      wind_speed_ms: 2.5,
+      clearsky_ghi_w_m2: 650,
+      zenith_deg: 35,
+      cos_zenith: 0.82,
+      clear_sky_index: 0.77,
     })
   }
   return { data_source: 'real', points }
+}
+
+function makeCurrentConditions(): CurrentConditionsResponse {
+  return {
+    available: true,
+    observed_at: '2026-07-14T12:00:00Z',
+    irradiance_w_m2: 500,
+    temp_c: 30.0,
+    relative_humidity_pct: 70.0,
+    wind_speed_ms: 2.5,
+    clearsky_ghi_w_m2: 650,
+    zenith_deg: 35,
+    cos_zenith: 0.82,
+    clear_sky_index: 0.77,
+    forecast_irradiance_w_m2: 520,
+    forecast_valid_at: '2026-07-14T13:00:00Z',
+    uv_index: 6.5,
+    uv_observation_date: '2026-07-14',
+  }
 }
 
 const registry: AssetRegistry = { zones: [makeZone('GIS', 50), makeZone('ISB', 120), makeZone('Jetty', 200, true)] }
@@ -121,6 +146,7 @@ describe('ForecastPage', () => {
     )
     vi.spyOn(api, 'getForecast').mockImplementation((zone, horizon) => Promise.resolve(makeForecast(zone, horizon)))
     vi.spyOn(api, 'getWeatherStrip').mockResolvedValue(makeWeatherStrip('2026-07-14T12:00:00.000Z', 12))
+    vi.spyOn(api, 'getCurrentConditions').mockResolvedValue(makeCurrentConditions())
   })
 
   afterEach(() => {
@@ -154,7 +180,10 @@ describe('ForecastPage', () => {
     // Default hoursEachSide=4 on WeatherStrip -> 2*4+2 = 10 blocks (-4..+5),
     // all matched to the mocked 30.0°C real data.
     await waitFor(() => expect(screen.getAllByText(/30\.0°C/).length).toBe(10))
-    expect(screen.getByText('Real data')).toBeInTheDocument()
+    // "Real data" now appears twice - the weather strip's own badge, and the
+    // 9-variable grouped-graphs section's matching badge (2026-07-18, both
+    // driven by the same GET /weather/strip data_source).
+    expect(screen.getAllByText('Real data').length).toBe(2)
   })
 
   it('re-fetches forecast when switching Day-ahead / Intra-day', async () => {
@@ -263,6 +292,58 @@ describe('ForecastPage', () => {
     await clickGisTab()
 
     expect(await screen.findByText(/เพื่อให้เทียบกับเส้น Forecast สีน้ำเงินได้ง่ายขึ้น/)).toBeInTheDocument()
+  })
+
+  it('shows the 9-variable table with live values from GET /weather/conditions', async () => {
+    renderPage()
+    await screen.findByText('ตัวแปรพยากรณ์พลังงานแสงอาทิตย์ทั้ง 9 ตัว (Songsiri reference)')
+
+    expect(await screen.findByText('500')).toBeInTheDocument() // I
+    expect(screen.getByText('70')).toBeInTheDocument() // RH
+    expect(screen.getByText('30.0')).toBeInTheDocument() // T
+    expect(screen.getByText('6.5')).toBeInTheDocument() // UV
+    expect(screen.getByText('2.5')).toBeInTheDocument() // WS
+    expect(screen.getByText('650')).toBeInTheDocument() // I_clr
+    expect(screen.getByText('0.82')).toBeInTheDocument() // cosθ
+    expect(screen.getByText('0.77')).toBeInTheDocument() // k̂
+    expect(screen.getByText('520')).toBeInTheDocument() // I_wrf
+  })
+
+  it('shows an unavailable placeholder for UV in the 9-variable table when no UV reading exists', async () => {
+    vi.spyOn(api, 'getCurrentConditions').mockResolvedValue({ ...makeCurrentConditions(), uv_index: null, uv_observation_date: null })
+    renderPage()
+    await screen.findByText('ตัวแปรพยากรณ์พลังงานแสงอาทิตย์ทั้ง 9 ตัว (Songsiri reference)')
+    expect(await screen.findByText('ไม่มีข้อมูล UV')).toBeInTheDocument()
+  })
+
+  it('renders the grouped variable graphs section with the irradiance/temperature/RH/wind/UV subsections', async () => {
+    renderPage()
+    await screen.findByText('I / I_clr / I_wrf - ความเข้มรังสีอาทิตย์')
+    expect(screen.getByText('T - อุณหภูมิ')).toBeInTheDocument()
+    expect(screen.getByText('k̂ / cosθ - ดัชนีท้องฟ้าใส และ cosine ของมุมเซนิท')).toBeInTheDocument()
+    expect(screen.getByText('RH - ความชื้นสัมพัทธ์')).toBeInTheDocument()
+    expect(screen.getByText('WS - ความเร็วลม')).toBeInTheDocument()
+    // UV gets a caption, not a chart - it has no real time series anywhere
+    // in this system (daily-cadence NASA POWER only), so nothing is faked.
+    expect(screen.getByText('UV - ดัชนีรังสียูวี')).toBeInTheDocument()
+    expect(screen.getByText(/UV เป็นข้อมูลรายวันเท่านั้น/)).toBeInTheDocument()
+  })
+
+  it('does not render RH/WS charts when the weather strip has no real humidity/wind data (synthetic fallback)', async () => {
+    const syntheticPoints = makeWeatherStrip('2026-07-14T12:00:00.000Z', 12).points.map((p) => ({
+      ...p,
+      relative_humidity_pct: null,
+      wind_speed_ms: null,
+    }))
+    vi.spyOn(api, 'getWeatherStrip').mockResolvedValue({ data_source: 'synthetic', points: syntheticPoints })
+
+    renderPage()
+
+    expect(await screen.findByText(/ไม่มีข้อมูลความชื้นสัมพัทธ์ในช่วงเวลานี้/)).toBeInTheDocument()
+    expect(screen.getByText(/ไม่มีข้อมูลความเร็วลมในช่วงเวลานี้/)).toBeInTheDocument()
+    // The irradiance chart still renders, but with the synthetic-fallback
+    // caption instead of a fabricated I_wrf forecast line.
+    expect(screen.getByText(/เส้น I ที่แสดงเป็นแบบจำลองฟิสิกส์สำรองเท่านั้น/)).toBeInTheDocument()
   })
 })
 

@@ -298,54 +298,26 @@
   color: #fff;
 }
 
-/* --- Irradiance Map section, merged in from the former standalone
-   Irradiance Map page (2026-07-18) - classes mirror that page's own
-   irradiance-map-* names 1:1 (just renamed solar3d-irradiance-map-* for
-   this file's own naming convention), same visual weight as that page had
-   on its own, per the user's explicit "ทำให้เด่น" (make it prominent)
-   request. --- */
+/* --- Irradiance ground overlay toggle - the former standalone MapLibre
+   Irradiance Map (already pulled onto this page in an earlier 2026-07-18
+   round) was merged a second time, this round, directly INTO the WebGL
+   scene above as colored ground points (Solar3DScene.tsx's
+   IrradianceGroundOverlay), per the user's own explicit follow-up asking
+   whether the two could become one picture. All that's left here is one
+   checkbox + a legend, not a whole separate section. --- */
 
-.solar3d-irradiance-map-section {
+.solar3d-irradiance-overlay-toggle {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.solar3d-irradiance-map-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-h);
-}
-
-.solar3d-irradiance-map-layer-toggles {
-  display: flex;
+  align-items: center;
   gap: 16px;
   font-size: 14px;
 }
 
-.solar3d-irradiance-map-layer-toggles label {
+.solar3d-irradiance-overlay-toggle label {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   cursor: pointer;
-}
-
-.solar3d-irradiance-map-wrapper {
-  height: 520px;
-  border-radius: 10px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  background: #0b1220;
-}
-
-/* IrradianceMapView.tsx (shared component, reused as-is from the former
-   standalone page) hardcodes this exact class name on its MapLibre canvas
-   div - kept here rather than renamed, since that component's own class
-   name isn't specific to which page embeds it. */
-.irradiance-map-canvas {
-  width: 100%;
-  height: 100%;
 }
 
 .solar3d-irradiance-map-legend {

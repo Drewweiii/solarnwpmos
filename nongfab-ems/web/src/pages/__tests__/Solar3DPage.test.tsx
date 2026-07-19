@@ -22,9 +22,12 @@ import { Solar3DPage } from '../Solar3DPage'
 // jsdom can't provide a context for - mock it so this test exercises the
 // surrounding controls/data-wiring only. The canvas itself is verified live
 // (see web/README.md "Verified live"). Exposes a couple more of the props
-// this page now passes down (zoneOutputRatio, cloudOpacityPct) as plain
-// text so tests can assert on what's actually being computed/passed
-// without needing a real WebGL context for them either.
+// this page now passes down (zoneOutputRatio, cloudOpacityPct, and - since
+// the 2026-07-18 merge of the separate MapLibre Irradiance Map into this
+// same WebGL scene, see Solar3DScene.tsx's IrradianceGroundOverlay -
+// irradianceGrid/showIrradianceOverlay) as plain text so tests can assert
+// on what's actually being computed/passed without needing a real WebGL
+// context for them either.
 vi.mock('../../components/Solar3DScene', () => ({
   Solar3DScene: ({
     panels,
@@ -32,27 +35,21 @@ vi.mock('../../components/Solar3DScene', () => ({
     cloudOpacityPct,
     precipMm,
     precipIntensity,
+    irradianceGrid,
+    showIrradianceOverlay,
   }: {
     panels: unknown[]
     zoneOutputRatio?: number
     cloudOpacityPct: number | null
     precipMm: number | null
     precipIntensity: string | null
+    irradianceGrid?: unknown[]
+    showIrradianceOverlay?: boolean
   }) => (
     <div data-testid="mock-scene">
       {panels.length} panels, ratio={zoneOutputRatio}, cloud={String(cloudOpacityPct)}, precip={String(precipMm)}, intensity=
-      {String(precipIntensity)}
-    </div>
-  ),
-}))
-
-// IrradianceMapView renders a real WebGL MapLibre canvas, which jsdom can't
-// provide a context for - mock it the same way IrradianceMapPage's own
-// (now-removed, merged into this page 2026-07-18) tests already did.
-vi.mock('../../components/IrradianceMapView', () => ({
-  IrradianceMapView: ({ grid, zones }: { grid: unknown[]; zones: unknown[] }) => (
-    <div data-testid="mock-irradiance-map">
-      {grid.length} points, {zones.length} zones
+      {String(precipIntensity)}, irradiancePoints={irradianceGrid?.length ?? 0}, showIrradianceOverlay=
+      {String(showIrradianceOverlay)}
     </div>
   ),
 }))
@@ -303,30 +300,26 @@ describe('Solar3DPage', () => {
     expect(await screen.findByText(/612 W\/m/)).toBeInTheDocument()
   })
 
-  it('shows the merged irradiance map (2026-07-18: pulled in from the former standalone page) fed by the same query the GHI readout card above already uses', async () => {
+  it('feeds the irradiance grid into the 3D scene itself (2026-07-18: merged into one picture, no separate map)', async () => {
     renderPage()
-    // Both the small GHI readout card and the full map render from the
-    // exact same `useIrradianceMap` call/response - not a second,
-    // page-specific fetch reintroduced by the merge.
+    // Both the small GHI readout card and the in-scene ground overlay
+    // render from the exact same `useIrradianceMap` call/response - not a
+    // second, page-specific fetch.
     expect(await screen.findByText(/612 W\/m/)).toBeInTheDocument()
-    const map = await screen.findByTestId('mock-irradiance-map')
-    expect(map).toHaveTextContent('2 points, 1 zones')
+    expect(await screen.findByText(/irradiancePoints=2/)).toBeInTheDocument()
+    expect(screen.getByText(/showIrradianceOverlay=true/)).toBeInTheDocument()
   })
 
-  it('toggles the irradiance map layer checkboxes', async () => {
+  it('toggles the irradiance ground overlay on/off', async () => {
     const user = userEvent.setup()
     renderPage()
-    await screen.findByTestId('mock-irradiance-map')
+    await screen.findByText(/irradiancePoints=2/)
 
-    const overlayToggle = screen.getByLabelText(/irradiance overlay/i)
+    const overlayToggle = screen.getByLabelText(/irradiance ground overlay/i)
     expect(overlayToggle).toBeChecked()
     await user.click(overlayToggle)
     expect(overlayToggle).not.toBeChecked()
-
-    const boundaryToggle = screen.getByLabelText(/zone boundary/i)
-    expect(boundaryToggle).not.toBeChecked()
-    await user.click(boundaryToggle)
-    expect(boundaryToggle).toBeChecked()
+    expect(await screen.findByText(/showIrradianceOverlay=false/)).toBeInTheDocument()
   })
 
   it('shows zenith angle and the selected zone\'s own lat/lon', async () => {

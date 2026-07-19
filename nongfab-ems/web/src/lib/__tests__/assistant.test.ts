@@ -99,7 +99,19 @@ describe('answerQuestion', () => {
   it('answers weather questions using getWeatherStrip', async () => {
     const strip: WeatherStripResponse = {
       data_source: 'synthetic',
-      points: [{ timestamp: new Date().toISOString(), temp_c: 31.2, ssrd_w_m2: 600 }],
+      points: [
+        {
+          timestamp: new Date().toISOString(),
+          temp_c: 31.2,
+          ssrd_w_m2: 600,
+          relative_humidity_pct: null,
+          wind_speed_ms: null,
+          clearsky_ghi_w_m2: 700,
+          zenith_deg: 30,
+          cos_zenith: 0.87,
+          clear_sky_index: null,
+        },
+      ],
     }
     vi.spyOn(api, 'getWeatherStrip').mockResolvedValue(strip)
     const answer = await answerQuestion('อุณหภูมิตอนนี้เท่าไหร่', ctx)

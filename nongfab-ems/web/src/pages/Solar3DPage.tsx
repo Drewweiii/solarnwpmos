@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Compass } from '../components/Compass'
-import { IrradianceMapView } from '../components/IrradianceMapView'
 import { SolarAccessGauge } from '../components/SolarAccessGauge'
 import type { Solar3DSceneHandle } from '../components/Solar3DScene'
 import { Solar3DScene } from '../components/Solar3DScene'
@@ -60,16 +59,16 @@ export function Solar3DPage() {
   const [timeOfDayMinutes, setTimeOfDayMinutes] = useState(5 * 60)
   const [isPlaying, setIsPlaying] = useState(false)
   const sceneRef = useRef<Solar3DSceneHandle>(null)
-  // Irradiance Map's own 3 layer toggles (same defaults that page used) -
-  // now live here since the two pages were merged into one (2026-07-18 per
-  // the user's own explicit request: "ดึง irradiance map มารวมกับ 3d view
-  // แล้วมาทำให้เด่น" - pull the irradiance map into 3D View and make it
-  // prominent, not just link the two). See the map section below for why
-  // this needs no new network request - it reuses the same `irradiance`
-  // query this page's own GHI readout card already fetches.
+  // Whether the irradiance grid renders as colored points directly on the 3D
+  // ground plane - literal single-image merge (2026-07-18) of what used to
+  // be a separate MapLibre "Irradiance Map" section below the canvas (an
+  // earlier 2026-07-18 round already pulled it onto this same page; this
+  // round, per the user's explicit follow-up asking whether the two could
+  // become one picture, moves the overlay itself INTO the WebGL scene - see
+  // Solar3DScene.tsx's IrradianceGroundOverlay). Reuses the same
+  // `irradiance` query this page's own GHI readout card already fetches, no
+  // new network request.
   const [showIrradianceOverlay, setShowIrradianceOverlay] = useState(true)
-  const [showZonePins, setShowZonePins] = useState(true)
-  const [showZoneBoundary, setShowZoneBoundary] = useState(false)
 
   const atIso = useMemo(() => buildAtIso(date, timeOfDayMinutes), [date, timeOfDayMinutes])
 
@@ -323,53 +322,39 @@ export function Solar3DPage() {
               groundStyle={groundStyle}
               satelliteTileUrl={satelliteTileUrl}
               zoneOutputRatio={zoneOutputRatio}
+              irradianceGrid={irradiance.data?.grid ?? []}
+              irradianceOriginLat={zoneObj?.centroid.lat ?? 0}
+              irradianceOriginLon={zoneObj?.centroid.lon ?? 0}
+              showIrradianceOverlay={showIrradianceOverlay}
             />
           </>
         )}
       </div>
 
-      {/* Merged in from the former standalone Irradiance Map page
-          (2026-07-18, per the user's own request - see this file's earlier
-          comment on showIrradianceOverlay). Drives the same MapLibre view
-          that page used, from the exact same `irradiance` query this page's
-          GHI readout card above already fetches at the current scrubbed
-          `atIso` - no separate time-scrubber, no second network call, both
-          views of "right now" (3D scene, 2D heatmap) genuinely agree
-          because they share one query. */}
-      <section className="solar3d-irradiance-map-section" aria-label="Irradiance map">
-        <h3 className="solar3d-irradiance-map-title">Irradiance Map</h3>
-        <div className="solar3d-irradiance-map-layer-toggles" role="group" aria-label="Map layers">
-          <label>
-            <input type="checkbox" checked={showIrradianceOverlay} onChange={(e) => setShowIrradianceOverlay(e.target.checked)} />
-            Irradiance overlay
-          </label>
-          <label>
-            <input type="checkbox" checked={showZonePins} onChange={(e) => setShowZonePins(e.target.checked)} />
-            Zone pins
-          </label>
-          <label>
-            <input type="checkbox" checked={showZoneBoundary} onChange={(e) => setShowZoneBoundary(e.target.checked)} />
-            Zone boundary
-          </label>
-        </div>
-        <div className="solar3d-irradiance-map-wrapper">
-          {irradiance.isLoading && <p className="forecast-status">Loading irradiance map…</p>}
-          {irradiance.data && (
-            <IrradianceMapView
-              grid={irradiance.data.grid}
-              zones={irradiance.data.zones}
-              showIrradiance={showIrradianceOverlay}
-              showZones={showZonePins}
-              showBoundary={showZoneBoundary}
-            />
-          )}
-        </div>
-        <div className="solar3d-irradiance-map-legend" aria-label="Irradiance color scale">
-          <span>0 W/m²</span>
-          <div className="solar3d-irradiance-map-legend-bar" />
-          <span>1000 W/m²</span>
-        </div>
-      </section>
+      {/* Single toggle + legend for the ground-point overlay now rendered
+          INSIDE the canvas above (Solar3DScene's IrradianceGroundOverlay) -
+          replaces the separate MapLibre "Irradiance Map" section + its 3
+          layer toggles a prior 2026-07-18 round had here, per the user's
+          own explicit follow-up asking to merge the two into one picture
+          rather than two side by side. Zone pins/boundary toggles were
+          dropped along with that separate map - this page already shows
+          the one selected zone's own centroid (see solar3d-latlon-readout
+          above) and its panels already draw the array's real footprint, so
+          a second boundary outline added nothing this view didn't already
+          have. */}
+      <div className="solar3d-irradiance-overlay-toggle">
+        <label>
+          <input type="checkbox" checked={showIrradianceOverlay} onChange={(e) => setShowIrradianceOverlay(e.target.checked)} />
+          แสดง irradiance เป็นจุดสีบนพื้นดิน (Irradiance ground overlay)
+        </label>
+        {showIrradianceOverlay && (
+          <div className="solar3d-irradiance-map-legend" aria-label="Irradiance color scale">
+            <span>0 W/m²</span>
+            <div className="solar3d-irradiance-map-legend-bar" />
+            <span>1000 W/m²</span>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

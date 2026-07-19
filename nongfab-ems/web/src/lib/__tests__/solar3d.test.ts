@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { advanceSimClockMs, angleArcPoints, compassLabel, interpolateSunPosition, solarAccessColor, sunPositionVector, zenithAngleDeg } from '../solar3d'
+import {
+  advanceSimClockMs,
+  angleArcPoints,
+  compassLabel,
+  interpolateSunPosition,
+  irradianceGhiColor,
+  latLonToLocalMeters,
+  solarAccessColor,
+  sunPositionVector,
+  zenithAngleDeg,
+} from '../solar3d'
 
 describe('compassLabel', () => {
   it('maps the 8 cardinal/intercardinal directions', () => {
@@ -175,5 +185,50 @@ describe('angleArcPoints', () => {
 
   it('defaults to 32 segments (33 points) when not specified', () => {
     expect(angleArcPoints(0, 10, 0, 10, 10)).toHaveLength(33)
+  })
+})
+
+describe('latLonToLocalMeters', () => {
+  it('is (0, 0) exactly at the origin', () => {
+    const { eastM, northM } = latLonToLocalMeters(12.7, 101.1, 12.7, 101.1)
+    expect(eastM).toBeCloseTo(0, 6)
+    expect(northM).toBeCloseTo(0, 6)
+  })
+
+  it('one degree of latitude north is ~111,320m north, 0m east', () => {
+    const { eastM, northM } = latLonToLocalMeters(13.7, 101.1, 12.7, 101.1)
+    expect(northM).toBeCloseTo(111_320, 0)
+    expect(eastM).toBeCloseTo(0, 6)
+  })
+
+  it('one degree of longitude east is scaled by cos(originLat), 0m north', () => {
+    const originLat = 12.7
+    const { eastM, northM } = latLonToLocalMeters(originLat, 102.1, originLat, 101.1)
+    expect(eastM).toBeCloseTo(111_320 * Math.cos((originLat * Math.PI) / 180), 0)
+    expect(northM).toBeCloseTo(0, 6)
+  })
+
+  it('south/west of the origin comes back negative', () => {
+    const { eastM, northM } = latLonToLocalMeters(12.6, 101.0, 12.7, 101.1)
+    expect(eastM).toBeLessThan(0)
+    expect(northM).toBeLessThan(0)
+  })
+})
+
+describe('irradianceGhiColor', () => {
+  it('matches the 4 documented color stops exactly', () => {
+    expect(irradianceGhiColor(0)).toBe('rgb(30, 58, 138)')
+    expect(irradianceGhiColor(300)).toBe('rgb(37, 99, 235)')
+    expect(irradianceGhiColor(600)).toBe('rgb(245, 158, 11)')
+    expect(irradianceGhiColor(1000)).toBe('rgb(239, 68, 68)')
+  })
+
+  it('interpolates halfway between two stops', () => {
+    expect(irradianceGhiColor(150)).toBe('rgb(34, 79, 187)')
+  })
+
+  it('clamps outside [0, 1000]', () => {
+    expect(irradianceGhiColor(-50)).toBe(irradianceGhiColor(0))
+    expect(irradianceGhiColor(5000)).toBe(irradianceGhiColor(1000))
   })
 })

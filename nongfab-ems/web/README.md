@@ -2174,6 +2174,130 @@ suites still pass (28/28 combined). Once this lands on `main`/the working
 branch and Cloudflare's next build runs, today's actual UI changes should
 finally go live.
 
+### Added - Energy Report: full Thai month names + Thai loss-breakdown labels (2026-07-18, Track 1)
+
+Per the user's own request: `EnergyReportPage.tsx`'s Monthly generation
+chart used single-letter English month labels (`J`, `F`, `M`, ...); replaced
+with `MONTH_LABELS`, the 12 full Thai month names (`มกราคม`, `กุมภาพันธ์`,
+... `ธันวาคม`). The Losses breakdown section's component labels
+(`temperature_pct`, `soiling_pct`, etc.) were English keys shown almost
+verbatim; `LOSS_LABELS` now maps each to a Thai description (`อุณหภูมิ`,
+`ฝุ่น/คราบสกปรกบนแผง`, `เงาบัง`, ...). Neither change touches the underlying
+numeric values - both are still the same PVWatts-literature defaults
+documented in `simulation/README.md`'s "Loss model assumptions" section
+(see that file's own 2026-07-18 entry for the accompanying Thailand/marine
+literature search this same request prompted).
+
+**Tested**: `EnergyReportPage.test.tsx`'s losses-breakdown test updated to
+assert the new Thai labels (`อุณหภูมิ`, `ฝุ่น/คราบสกปรกบนแผง`) instead of the
+old English ones; all 7 tests in the file pass.
+
+### Added/Fixed - Forecast scroll centering + dashed lines, sun-angle diagram reaching the sun, Irradiance Map merged into the 3D scene, 9-variable Songsiri table + grouped graphs (2026-07-19, Track 1)
+
+A large follow-up round, mostly reacting to the user's own report that
+several items from the *previous* 9-item round (2026-07-18, see above)
+weren't actually satisfying what was asked, plus new requests confirmed via
+`AskUserQuestion` earlier in the same session.
+
+**Forecast chart scroll now defaults centered on "now", not the left edge.**
+The earlier native-overflow-scroll implementation technically panned, but
+always opened scrolled all the way left (oldest data), so "now" - the whole
+point of scrolling - started off-screen, and the native scrollbar itself was
+easy to miss (auto-hiding on trackpad/touch). Fixed with a new
+`useCenterChartOnce` hook (`ForecastPage.tsx`) that finds the row nearest
+"now" (`indexNearestToTimestamp`, new in `chartData.ts`) and sets the
+scroll container's `scrollLeft` to center it - once per zone/horizon combo,
+so it doesn't fight a viewer who's since panned elsewhere. Also added a
+`ScrollHint` caption above each scrollable chart and made the scrollbar
+itself always-visible/styled (`scrollbar-width`/`::-webkit-scrollbar`
+rules in `ForecastPage.css`) instead of relying on the OS's own hidden
+scrollbar.
+
+**Overlapping chart lines now use dashed/dotted strokes, not just color.**
+The main chart's "Forecast" line and the Minute-ahead panel's forecast line
+both got `strokeDasharray` (dashed) so they read apart from the solid
+actual-power lines even where they cross closely. The 3 per-model RMSE
+error lines (previously all the same `"4 4"` dash) now use 3 distinct
+patterns (dash / dot / dash-dot) so two close-together model error lines
+stay tellable apart by shape, not just hue.
+
+**`SunAngleDiagram`'s azimuth/altitude/zenith arcs now reach the actual sun
+marker**, not a small fixed-radius protractor near the scene origin -
+`ANGLE_DIAGRAM_RADIUS_FRACTION` (`Solar3DScene.tsx`) changed from 0.3 to
+1.0 (the sun's own orbit radius), so every reference ray and arc literally
+terminates at the sun's rendered position. Per the user's explicit
+follow-up that the earlier round's compact protractor "wasn't reaching the
+sun."
+
+**Irradiance Map merged a second time - now literally INTO the 3D scene**,
+not just onto the same page. The earlier round already pulled the separate
+MapLibre page onto `/3d`, but as its own section below the canvas; this
+round replaces that with a new `IrradianceGroundOverlay` component
+(`Solar3DScene.tsx`) that renders the plant-wide irradiance grid
+(GET `/irradiance-map`'s `grid`) as colored circles directly on the WebGL
+ground plane, using the same 4-stop blue→amber→red ramp the old MapLibre
+layer used (`irradianceGhiColor`, new in `lib/solar3d.ts`). Each grid
+point's real (lat, lon) is projected into the currently-viewed zone's own
+local (east, north) meter frame via a new `latLonToLocalMeters` function -
+anchored at the SAME centroid `nongfab_features.panel_geometry` already
+uses as a zone's local origin, so a grid point and a panel share one
+coordinate system with no extra conversion. `IrradianceMapView.tsx` (the
+MapLibre component) and the `maplibre-gl` dependency were deleted entirely
+- nothing else used them. `Solar3DPage.tsx`'s 3 old layer-toggle checkboxes
+(overlay/zone-pins/boundary) collapsed to one ("Irradiance ground overlay")
+plus a small legend, since zone pins/boundary added nothing a single-zone
+3D view didn't already show (centroid lat/lon readout, panels' own real
+footprint).
+
+**New 3x3 live variable table + grouped graphs for all 9 Jitkomut Songsiri
+reference-deck input variables** (I, RH, T, UV, WS, I_clr, cosθ, k̂, I_wrf) -
+per the user's own confirmed design ("ทำครบ 9 ตัว ระบุ UV เป็นรายวัน" / "เห็นด้วยตามที่เสนอ"
+grouping) from the same session's earlier `AskUserQuestion` round. Backend
+work (`GET /weather/conditions`, extended `GET /weather/strip`) was already
+built in that earlier round; this round is purely the frontend:
+- `SolarVariablesTable` (`ForecastPage.tsx`) - a live 3x3 grid reading the
+  same order as the Songsiri reference image, backed by `useCurrentConditions()`.
+- `SolarVariablesGraphs` - grouped time-series charts: the irradiance trio
+  (I/I_clr/I_wrf) share one chart, k̂+cosθ share one chart (comparable
+  0-1-ish scale), T/RH/WS each get their own. **UV gets no chart at all** -
+  NASA POWER is daily-cadence only, never a time series anywhere in this
+  system, and the user was explicit that a variable with no real time
+  series should never have one faked to fill a slot - it gets an honest
+  caption instead, pointing back at the table above.
+- The irradiance chart's own honesty split: `buildIrradianceRows` puts
+  past/now points in `iActual` and future points in `iForecast` (I_wrf)
+  ONLY when the underlying `/weather/strip` response is `data_source:
+  "real"` - in `"synthetic"` mode every point goes into a third
+  `iSynthetic` field instead, specifically so a physics-baseline fallback
+  curve never gets mislabeled as either a real reading or a real NWP
+  forecast (a direct instance of the user's own "don't fake a forecast
+  that doesn't exist" instruction). RH/WS charts render a "no data"
+  caption instead of an empty chart when the strip has no real coverage
+  (synthetic mode never models humidity/wind).
+- New CSS chart-color variables (`--chart-irradiance`, `--chart-clearsky`,
+  `--chart-temp`, `--chart-rh`, `--chart-wind`, `--chart-cosz`,
+  `--chart-khat`) in `index.css`, picked to stay visually distinct from
+  every hue this page's other charts already use.
+
+**Tested**: 320/320 frontend tests passing (35 files, up from 309), `tsc -b`
+clean, `oxlint` clean (2 pre-existing Track 2 warnings, untouched).
+New/updated tests: `lib/__tests__/solar3d.test.ts` (`latLonToLocalMeters`,
+`irradianceGhiColor`), `pages/__tests__/Solar3DPage.test.tsx` (irradiance
+grid piped into the mocked scene, single overlay toggle), `pages/__tests__/
+ForecastPage.test.tsx` (9-variable table live values + UV-unavailable
+placeholder, grouped-graphs subsections, RH/WS "no data" fallback caption
+in synthetic mode). Backend: full `api` suite re-run clean (174 passed,
+unchanged from the earlier round that built `/weather/conditions`/extended
+`/weather/strip` - no backend code touched this round). **Verified live**:
+booted a real `uvicorn` (fresh file-backed SQLite, short-lived so ingestion
+had little real data - `data_source: synthetic` for most of this check) +
+`vite dev` pair, headless Chromium, logged in as `admin`, screenshotted
+`/forecast` (9-variable table + grouped graphs rendering with correct
+synthetic-fallback captions, no fabricated I_wrf/RH/WS) and `/3d` (irradiance
+overlay toggle + legend rendering, no console errors; the sun-angle
+diagram's cyan azimuth arc and yellow sun-ray visibly now reach all the
+way to the sun marker, confirming the `ANGLE_DIAGRAM_RADIUS_FRACTION` fix).
+
 ## Run locally
 
 ```bash

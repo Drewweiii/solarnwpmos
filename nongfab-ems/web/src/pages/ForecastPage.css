@@ -14,6 +14,38 @@
 .forecast-chart-scroll {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  /* Native scrollbars auto-hide on several platforms (macOS trackpad,
+     touch) until actively scrolled, which is exactly why the user reported
+     "still no scroll bar" on a chart that technically already panned -
+     force it always-visible and give it enough presence to notice
+     (2026-07-18). */
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) var(--card-bg);
+}
+
+.forecast-chart-scroll::-webkit-scrollbar {
+  height: 10px;
+}
+
+.forecast-chart-scroll::-webkit-scrollbar-track {
+  background: var(--card-bg);
+  border-radius: 999px;
+}
+
+.forecast-chart-scroll::-webkit-scrollbar-thumb {
+  background: var(--accent);
+  border-radius: 999px;
+  border: 2px solid var(--card-bg);
+}
+
+/* Sits directly above each scrollable chart - see ForecastPage.tsx's
+   ScrollHint component for why this exists alongside the always-visible
+   scrollbar above (2026-07-18). */
+.forecast-chart-scroll-hint {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--text);
+  opacity: 0.75;
 }
 
 .forecast-page-controls {
@@ -388,6 +420,88 @@
 
 .weather-strip-temp {
   font-size: 16px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+/* --- 9-variable (Songsiri reference) live table + grouped graphs
+   (2026-07-18) --- */
+
+.solar-variables-table-section,
+.solar-variables-graphs-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+}
+
+.solar-variables-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .solar-variables-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.solar-variable-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 2px;
+  padding: 12px 8px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.solar-variable-symbol {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.solar-variable-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.solar-variable-unit {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text);
+}
+
+.solar-variable-label {
+  font-size: 11px;
+  color: var(--text);
+  opacity: 0.75;
+}
+
+.solar-variable-caption {
+  font-size: 10.5px;
+  color: var(--text);
+  opacity: 0.6;
+  font-style: italic;
+}
+
+.solar-variable-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.solar-variable-chart-title {
+  margin: 8px 0 0;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-h);
 }

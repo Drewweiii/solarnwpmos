@@ -8,17 +8,32 @@ import './EnergyReportPage.css'
 
 const REAL_ZONE_IDS = ['GIS', 'ISB', 'Jetty'] as const
 
-const MONTH_LABELS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D']
+// Full Thai month names (2026-07-18 user request) - same `th-TH` locale
+// Solar3DPage.tsx already uses for its own simulated-date caption, just
+// spelled out here as a fixed array instead of a per-render
+// `toLocaleDateString` call, since this axis only ever needs the 12 labels
+// once, not a real date object per tick.
+const MONTH_LABELS = [
+  'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
+]
 
+// Thai labels (2026-07-18 user request) - the underlying values themselves
+// are unchanged, still the NREL PVWatts-style literature defaults documented
+// in simulation/loss_model.py's own module docstring (soiling/shading/
+// mismatch/DC wiring/connections/availability), plus a real per-request
+// temperature-derate figure and the zone's real inverter efficiency - see
+// that docstring for which of these are literature placeholders vs.
+// genuinely computed.
 const LOSS_LABELS: Record<string, string> = {
-  temperature_pct: 'Temperature',
-  soiling_pct: 'Soiling',
-  shading_pct: 'Shading',
-  mismatch_pct: 'Mismatch',
-  dc_wiring_pct: 'DC wiring',
-  connections_pct: 'Connections',
-  availability_pct: 'Availability',
-  inverter_loss_pct: 'Inverter',
+  temperature_pct: 'อุณหภูมิ',
+  soiling_pct: 'ฝุ่น/คราบสกปรกบนแผง',
+  shading_pct: 'เงาบัง',
+  mismatch_pct: 'ความไม่สมดุลของแผง (Mismatch)',
+  dc_wiring_pct: 'สายไฟฝั่ง DC',
+  connections_pct: 'จุดต่อสาย',
+  availability_pct: 'ความพร้อมใช้งานของระบบ',
+  inverter_loss_pct: 'อินเวอร์เตอร์',
 }
 const LOSS_ORDER = Object.keys(LOSS_LABELS)
 

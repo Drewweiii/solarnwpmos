@@ -2,6 +2,7 @@ import type {
   AssetRegistry,
   ChatMessage,
   CloudConditionsResponse,
+  CurrentConditionsResponse,
   EnergyReportResponse,
   FeedbackItem,
   FinancialRequest,
@@ -104,6 +105,8 @@ export const getCloudConditions = (token: string): Promise<CloudConditionsRespon
 
 export const getPrecipitationConditions = (token: string): Promise<PrecipitationConditionsResponse> =>
   request('/weather/precipitation', token)
+
+export const getCurrentConditions = (token: string): Promise<CurrentConditionsResponse> => request('/weather/conditions', token)
 
 export const postSimulate = (zone: string, body: SimulateRequest, token: string): Promise<SimulateResponse> =>
   request(`/simulate/${zone}`, token, { method: 'POST', body: JSON.stringify(body) })

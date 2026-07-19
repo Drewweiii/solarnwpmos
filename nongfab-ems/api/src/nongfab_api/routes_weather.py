@@ -16,10 +16,13 @@ honestly rather than imply it's live weather when it isn't.
 
 from __future__ import annotations
 
+import math
+from datetime import date as date_type
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 from fastapi import APIRouter, Depends, Request
+from nongfab_features.clearsky import compute_clearsky_and_position, nong_fab_site_location
 from nongfab_forecast.local_store import RealDataStore
 from nongfab_simulation.dev_data import synthetic_temp_at
 from pydantic import BaseModel
@@ -44,6 +47,24 @@ class WeatherStripPoint(BaseModel):
     timestamp: datetime
     temp_c: float
     ssrd_w_m2: float
+    # The remaining Songsiri reference-deck variables (2026-07-18, see
+    # get_current_conditions's own docstring for the full audit) - added
+    # here, not just to `/weather/conditions`'s single-instant snapshot,
+    # because ForecastPage's grouped variable graphs need a real time
+    # series, and this endpoint already *is* one (real accumulated NWP
+    # data when available, spanning both past and a bit of future - see
+    # this module's own docstring). `relative_humidity_pct`/`wind_speed_ms`
+    # are None in synthetic-fallback mode (the synthetic baseline models
+    # temperature/irradiance only); `clearsky_ghi_w_m2`/`zenith_deg`/
+    # `cos_zenith`/`clear_sky_index` are always populated - they're pure
+    # astronomy (pvlib) plus a ratio against `ssrd_w_m2`, independent of
+    # whether the NWP data itself is real or synthetic.
+    relative_humidity_pct: float | None = None
+    wind_speed_ms: float | None = None
+    clearsky_ghi_w_m2: float
+    zenith_deg: float
+    cos_zenith: float
+    clear_sky_index: float | None = None
 
 
 class WeatherStripResponse(BaseModel):
@@ -59,6 +80,25 @@ def _nearest_real_row(df: pd.DataFrame, target: datetime, max_delta_hours: float
     return df.loc[idx]
 
 
+def _clearsky_fields(target: datetime) -> tuple[float, float, float]:
+    """(clearsky_ghi_w_m2, zenith_deg, cos_zenith) at `target` - pure pvlib
+    astronomy, independent of whether any real NWP data exists, so every
+    strip point (real or synthetic) gets these three populated. Shared by
+    `_real_window`/`_synthetic_window` rather than duplicated inline.
+    """
+    lat, lon = nong_fab_site_location()
+    solpos = compute_clearsky_and_position(pd.DatetimeIndex([target]), lat, lon)
+    clearsky_ghi = float(solpos["ghi_clearsky"].iloc[0])
+    zenith_deg = float(solpos["zenith_deg"].iloc[0])
+    return clearsky_ghi, zenith_deg, math.cos(math.radians(zenith_deg))
+
+
+def _clear_sky_index(measured_w_m2: float, clearsky_w_m2: float) -> float | None:
+    if clearsky_w_m2 <= 1.0:  # night, or numerically unstable near sunrise/sunset
+        return None
+    return min(2.0, max(0.0, measured_w_m2 / clearsky_w_m2))
+
+
 def _real_window(store: RealDataStore, now: datetime, hours_each_side: int) -> list[WeatherStripPoint] | None:
     df = store.nwp_history_df()
     if df.empty:
@@ -71,11 +111,44 @@ def _real_window(store: RealDataStore, now: datetime, hours_each_side: int) -> l
     for target in targets:
         row = _nearest_real_row(df, target)
         if row is not None:
-            points.append(WeatherStripPoint(timestamp=target, temp_c=float(row["temp2m_c"]), ssrd_w_m2=float(row["ssrd_w_m2"])))
+            ssrd = float(row["ssrd_w_m2"])
+            clearsky_ghi, zenith_deg, cos_zenith = _clearsky_fields(target)
+            rh = row.get("relative_humidity_pct")
+            points.append(
+                WeatherStripPoint(
+                    timestamp=target,
+                    temp_c=float(row["temp2m_c"]),
+                    ssrd_w_m2=ssrd,
+                    relative_humidity_pct=float(rh) if pd.notna(rh) else None,
+                    wind_speed_ms=_wind_speed_ms(row.get("wind10m_u_ms"), row.get("wind10m_v_ms")),
+                    clearsky_ghi_w_m2=clearsky_ghi,
+                    zenith_deg=zenith_deg,
+                    cos_zenith=cos_zenith,
+                    clear_sky_index=_clear_sky_index(ssrd, clearsky_ghi),
+                )
+            )
 
     if len(points) < len(targets) * _MIN_REAL_COVERAGE_FRACTION:
         return None
     return points
+
+
+def _synthetic_point(ts: pd.Timestamp, ssrd: float, temp: float) -> WeatherStripPoint:
+    when = ts.to_pydatetime()
+    clearsky_ghi, zenith_deg, cos_zenith = _clearsky_fields(when)
+    return WeatherStripPoint(
+        timestamp=when,
+        temp_c=float(temp),
+        ssrd_w_m2=float(ssrd),
+        # relative_humidity_pct/wind_speed_ms stay None - the synthetic
+        # baseline (nongfab_simulation.dev_data) only ever models
+        # temperature/irradiance, not humidity/wind - see this file's
+        # WeatherStripPoint docstring.
+        clearsky_ghi_w_m2=clearsky_ghi,
+        zenith_deg=zenith_deg,
+        cos_zenith=cos_zenith,
+        clear_sky_index=_clear_sky_index(float(ssrd), clearsky_ghi),
+    )
 
 
 def _synthetic_window(now: datetime, hours_each_side: int) -> list[WeatherStripPoint]:
@@ -84,9 +157,7 @@ def _synthetic_window(now: datetime, hours_each_side: int) -> list[WeatherStripP
         hour_start - timedelta(hours=hours_each_side), hour_start + timedelta(hours=hours_each_side), freq="h", tz="UTC"
     )
     ssrd, temp = synthetic_temp_at(idx)
-    return [
-        WeatherStripPoint(timestamp=ts.to_pydatetime(), temp_c=float(t), ssrd_w_m2=float(s)) for ts, s, t in zip(idx, ssrd, temp)
-    ]
+    return [_synthetic_point(ts, s, t) for ts, s, t in zip(idx, ssrd, temp)]
 
 
 @router.get("/weather/strip", response_model=WeatherStripResponse)
@@ -230,4 +301,152 @@ async def get_precipitation_conditions(request: Request, _user=Depends(require_r
         observed_at=row["valid_time"].to_pydatetime(),
         precip_mm=precip_mm,
         intensity=_precip_intensity(precip_mm),
+    )
+
+
+# A UV observation is daily-resolution (NASA POWER's ALLSKY_SFC_UV_INDEX -
+# see ingestion/nasa_power/README.md), not hourly - a reading up to this many
+# days old is still "today's" UV in practice (the daily backfill/poll may not
+# have landed for "today" yet at an early UTC hour), older than this is
+# stale enough to mark unavailable rather than show yesterday's number as if
+# it were current.
+_UV_MAX_AGE_DAYS = 2
+
+# GFS forecast-hour tolerance for the "near-future" I_wrf reading - loose
+# enough to always find *some* upcoming row from a live poller (which fetches
+# discrete forecast hours, not a continuous stream), tight enough that this
+# stays "the next model output", not an arbitrary multi-day-out forecast.
+_FORECAST_MAX_LEAD_HOURS = 3.0
+
+
+class CurrentConditionsResponse(BaseModel):
+    available: bool
+    observed_at: datetime | None = None
+    # I - real (GFS SSRD) irradiance nearest "now" - the same signal this
+    # app treats as ground truth throughout (no independent telemetry
+    # sensor exists - see root README's standing honesty caveat).
+    irradiance_w_m2: float | None = None
+    # T - real (GFS 2m temperature) nearest "now".
+    temp_c: float | None = None
+    # RH - real (GFS 2m relative humidity) nearest "now" - ingested since
+    # the NWP pipeline's first version but never previously surfaced via any
+    # API route or used as a model feature (found while auditing this
+    # endpoint's own 9-variable checklist, 2026-07-18).
+    relative_humidity_pct: float | None = None
+    # WS - real wind speed magnitude, sqrt(u^2 + v^2) from GFS's
+    # wind10m_u_ms/wind10m_v_ms components (stored as components, not a
+    # scalar speed, because the minute-ahead model's own motion features
+    # need direction too - see real_data.py's `_motion_uv_columns`). Same
+    # "ingested but never surfaced" gap as RH above.
+    wind_speed_ms: float | None = None
+    # I_clr - clear-sky GHI (pvlib Ineichen model) at the same instant as
+    # the readings above - always computable (pure astronomy + a clear-sky
+    # radiative model), never gated on real data availability the way the
+    # NWP-sourced fields are.
+    clearsky_ghi_w_m2: float | None = None
+    # cosθ / zenith angle - same pvlib solar-position computation every
+    # other module already uses (clearsky.py's own `compute_clearsky_and_
+    # position`) - computed here for the first time as its own explicit
+    # weather-conditions field (elsewhere in the app it's only ever
+    # returned bundled with panel geometry/sun-path data, not alongside the
+    # other 8 variables in one place).
+    zenith_deg: float | None = None
+    cos_zenith: float | None = None
+    # k-hat - clear-sky index (measured / clear-sky GHI), same formula as
+    # `clearsky.clear_sky_index()` (that function operates on a pandas
+    # Series for batch feature-engineering use; this is the same math
+    # applied to one scalar reading instead of importing it for a
+    # single-value call). None whenever clear-sky GHI is too close to zero
+    # (night) for the ratio to be meaningful - same "safe near zero" guard
+    # `clear_sky_index()` itself applies.
+    clear_sky_index: float | None = None
+    # I_wrf - the real NWP model's own *forecast* irradiance for a near-
+    # future hour (not "now") - the closest honest analog this app has to
+    # "predicted GHI from WRF" (this project's NWP source is GFS, not WRF -
+    # see ingestion/nwp/README.md - but it plays the identical role: a
+    # numerical weather model's own forward-looking GHI prediction, as
+    # opposed to `irradiance_w_m2` above, which is the same underlying GFS
+    # signal at the nearest-to-now hour, treated as this app's ground
+    # truth throughout since no independent telemetry exists).
+    forecast_irradiance_w_m2: float | None = None
+    forecast_valid_at: datetime | None = None
+    # UV - daily-resolution only (NASA POWER), unlike every other field on
+    # this response which is effectively real-time (updates on the next
+    # NWP poll, ~hourly). `uv_observation_date` makes that daily cadence
+    # explicit so the frontend can caption it honestly rather than implying
+    # hourly freshness it doesn't have.
+    uv_index: float | None = None
+    uv_observation_date: date_type | None = None
+
+
+def _wind_speed_ms(u: float | None, v: float | None) -> float | None:
+    if u is None or v is None or pd.isna(u) or pd.isna(v):
+        return None
+    return math.hypot(float(u), float(v))
+
+
+@router.get("/weather/conditions", response_model=CurrentConditionsResponse)
+async def get_current_conditions(request: Request, _user=Depends(require_role("viewer"))) -> CurrentConditionsResponse:
+    """Site-wide real-time snapshot of the 9 solar-forecasting input
+    variables from Songsiri's reference deck (see forecast/README.md's own
+    "Reference: Songsiri" section) - I, RH, T, UV, WS, I_clr, cosθ, k-hat,
+    I_wrf - added 2026-07-18 after auditing which of the 9 this app already
+    computes/ingests vs. actually surfaces anywhere: I/T/I_clr/k-hat/I_wrf
+    were already real model features (see real_data.py), but RH/wind speed/
+    zenith angle were computed or ingested and never exposed via any route,
+    and UV was ingested (NASA POWER) but never wired to anything on this
+    dashboard. This route doesn't change what any model trains on - it's a
+    read-only snapshot for Feature A's new 3x3 variable table.
+
+    `available=False` only when there's no NWP data at all (or nothing
+    within `/weather/strip`'s own near-term tolerance) - UV specifically can
+    still be `None` even when `available=True`, since it's a separate daily-
+    cadence source that can genuinely lag behind the hourly NWP feed.
+    """
+    store: RealDataStore = request.app.state.real_data_store
+    df = store.nwp_history_df()
+    if df.empty:
+        return CurrentConditionsResponse(available=False)
+
+    now = datetime.now(timezone.utc)
+    row = _nearest_real_row(df, now)
+    if row is None:
+        return CurrentConditionsResponse(available=False)
+
+    valid_time = row["valid_time"].to_pydatetime()
+    irradiance = float(row["ssrd_w_m2"])
+
+    lat, lon = nong_fab_site_location()
+    solpos = compute_clearsky_and_position(pd.DatetimeIndex([valid_time]), lat, lon)
+    clearsky_ghi = float(solpos["ghi_clearsky"].iloc[0])
+    zenith_deg = float(solpos["zenith_deg"].iloc[0])
+    clear_sky_index = min(2.0, max(0.0, irradiance / clearsky_ghi)) if clearsky_ghi > 1.0 else None
+
+    future_df = df[df["valid_time"] > now]
+    forecast_row = _nearest_real_row(future_df, now + timedelta(hours=1), max_delta_hours=_FORECAST_MAX_LEAD_HOURS) if len(future_df) else None
+
+    uv_df = store.uv_history_df()
+    uv_index: float | None = None
+    uv_observation_date: date_type | None = None
+    if len(uv_df):
+        latest_uv = uv_df.iloc[-1]
+        if (datetime.now(timezone.utc).date() - latest_uv["observation_date"]).days <= _UV_MAX_AGE_DAYS:
+            uv_index = float(latest_uv["uv_index"])
+            uv_observation_date = latest_uv["observation_date"]
+
+    return CurrentConditionsResponse(
+        available=True,
+        observed_at=valid_time,
+        irradiance_w_m2=irradiance,
+        temp_c=float(row["temp2m_c"]),
+        relative_humidity_pct=float(row["relative_humidity_pct"]) if pd.notna(row.get("relative_humidity_pct")) else None,
+        wind_speed_ms=_wind_speed_ms(row.get("wind10m_u_ms"), row.get("wind10m_v_ms")),
+        clearsky_ghi_w_m2=clearsky_ghi,
+        zenith_deg=zenith_deg,
+        cos_zenith=math.cos(math.radians(zenith_deg)),
+        clear_sky_index=clear_sky_index,
+        forecast_irradiance_w_m2=float(forecast_row["ssrd_w_m2"]) if forecast_row is not None else None,
+        forecast_valid_at=forecast_row["valid_time"].to_pydatetime() if forecast_row is not None else None,
+        uv_index=uv_index,
+        uv_observation_date=uv_observation_date,
     )

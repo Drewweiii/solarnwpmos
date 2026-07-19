@@ -2,6 +2,7 @@ import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } f
 import {
   getAssets,
   getCloudConditions,
+  getCurrentConditions,
   getEnergyReport,
   getFeedback,
   getForecast,
@@ -87,6 +88,23 @@ export function usePrecipitationConditions() {
   return useQuery({
     queryKey: ['precipitation-conditions'],
     queryFn: () => getPrecipitationConditions(token!),
+    enabled: Boolean(token),
+    refetchInterval: LIVE_REFETCH_INTERVAL_MS,
+  })
+}
+
+// Site-wide, not per-zone (see routes_weather.py's own get_current_
+// conditions docstring) - drives ForecastPage's 9-variable 3x3 table
+// (2026-07-18 user request). Same live-dashboard polling cadence as the
+// cloud/precipitation queries above - UV specifically won't actually change
+// between polls (it's daily-resolution server-side), but polling it at the
+// same cadence as everything else costs nothing extra (one shared endpoint)
+// and keeps this hook simple rather than special-casing one field's cadence.
+export function useCurrentConditions() {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['current-conditions'],
+    queryFn: () => getCurrentConditions(token!),
     enabled: Boolean(token),
     refetchInterval: LIVE_REFETCH_INTERVAL_MS,
   })
@@ -182,9 +200,11 @@ export function useEnergyReport(zone: string) {
 
 /** `at`: ISO timestamp to evaluate the irradiance grid at - omit for "now",
  * same convention as `useGeometry`. `placeholderData: keepPreviousData` for
- * the same reason as `useGeometry`: without it, `IrradianceMapView` (the
- * MapLibre canvas) would unmount/remount on every time-scrubber tick,
- * silently resetting the layer-visibility toggles back to their default -
+ * the same reason as `useGeometry`: without it, the irradiance ground
+ * overlay (Solar3DScene.tsx's `IrradianceGroundOverlay`, previously a
+ * separate MapLibre canvas before the two were merged into one WebGL scene
+ * 2026-07-18) would flicker/unmount its points on every time-scrubber tick
+ * instead of smoothly updating their color as fresh data streams in -
  * caught live (see web/README.md). */
 export function useIrradianceMap(at?: string) {
   const { token } = useAuth()

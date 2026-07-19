@@ -956,3 +956,46 @@ carries an explicit UTC marker - `test_routes_feedback.py`'s new test
 against the SQLite-backed `app` fixture (the exact backend this bug
 reproduces on) and `test_ws_chat.py`'s matching test for chat messages.
 Full backend suite 159 passed.
+
+### Added - `GET /weather/conditions` + extended `GET /weather/strip` for all 9 Songsiri reference variables (2026-07-19)
+
+The user asked whether ForecastPage's app actually uses all 9 input
+variables from Jitkomut Songsiri's reference deck (I, RH, T, UV, WS, I_clr,
+cosθ, k̂, I_wrf - see "Reference: Songsiri" in `forecast/README.md`), and
+if not, whether the missing ones could be sourced. Audited `real_data.py`/
+`local_store.py`/`clearsky.py`: I/T/I_clr/k̂(as cloud index)/I_wrf(as
+`real_future_regressors`) were already real model features; RH and wind
+(`wind10m_u_ms`/`wind10m_v_ms`) were ingested into `nwp_history` but never
+exposed via any route or used as a feature; UV was ingested via a separate
+NASA POWER daily source (`uv_history`) but never wired to anything;
+zenith angle was computed internally (`clearsky.compute_clearsky_and_
+position`) but never surfaced as its own field.
+
+New `GET /weather/conditions` route (`routes_weather.py`) returns a single
+"now" snapshot of all 9: `irradiance_w_m2`, `temp_c`, `relative_humidity_
+pct`, `wind_speed_ms`, `clearsky_ghi_w_m2`, `zenith_deg`, `cos_zenith`,
+`clear_sky_index`, `forecast_irradiance_w_m2`/`forecast_valid_at` (I_wrf -
+honestly documented as the same underlying GFS source at a near-future
+valid_time, not an independent second model, since no independent
+telemetry sensor exists at this site), `uv_index`/`uv_observation_date`
+(can be `None` even when everything else is available, since NASA POWER is
+daily-cadence, not hourly - `_UV_MAX_AGE_DAYS = 2` staleness tolerance).
+
+A single snapshot can't power a time-series graph, so `GET /weather/strip`
+(already a time series, already consumed by ForecastPage's `WeatherStrip`
+component) was extended instead of building a second windowed endpoint -
+`WeatherStripPoint` gained `relative_humidity_pct`/`wind_speed_ms`
+(from the matched real NWP row when available, `None` in synthetic-fallback
+mode) and `clearsky_ghi_w_m2`/`zenith_deg`/`cos_zenith`/`clear_sky_index`
+(always populated in both real and synthetic mode - pure pvlib astronomy,
+independent of data source). Reuses the existing real/synthetic honesty
+labeling (`data_source` field) rather than introducing a new one.
+
+**Tested**: `test_routes_weather.py` grew from ~14 to 24 tests - new
+coverage for `/weather/conditions` (all-9-present happy path, UV null when
+no/stale UV data, no-forecast-row when only past data exists, requires
+auth) and for the extended `/weather/strip` (synthetic points carry
+astronomy fields but not RH/wind, real points carry all 6 new fields with
+correct values). Full `api` suite 174 passed, `ruff check` clean. This
+round's frontend consumer (the 3x3 live table + grouped variable graphs)
+is documented in `web/README.md`'s matching 2026-07-19 entry.
