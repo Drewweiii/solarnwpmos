@@ -471,3 +471,44 @@ def test_get_current_conditions_no_forecast_row_when_no_future_data(engine, tmp_
     assert body["available"] is True
     assert body["forecast_irradiance_w_m2"] is None
     assert body["forecast_valid_at"] is None
+
+
+def test_get_uv_history_requires_auth(app):
+    with TestClient(app) as client:
+        resp = client.get("/weather/uv-history")
+    assert resp.status_code == 401
+
+
+def test_get_uv_history_empty_when_store_empty(app, token_factory):
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get("/weather/uv-history", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.json()["points"] == []
+
+
+def test_get_uv_history_returns_every_real_day_oldest_first(engine, tmp_path, monkeypatch):
+    from nongfab_api.auth import create_access_token
+
+    monkeypatch.setattr(routes_weather, "datetime", _FixedDatetime)
+    app, settings = _app_with_file_backed_store(engine, tmp_path)
+
+    with TestClient(app) as client:
+        # Inserted out of order - the response must still come back sorted.
+        app.state.real_data_store.insert_uv_observations([
+            _FakeUVObservation(observation_date=_FIXED_NOW.date(), uv_index=9.0, source="test-uv"),
+            _FakeUVObservation(observation_date=(_FIXED_NOW - timedelta(days=2)).date(), uv_index=6.5, source="test-uv"),
+            _FakeUVObservation(observation_date=(_FIXED_NOW - timedelta(days=1)).date(), uv_index=7.5, source="test-uv"),
+        ])
+        token = create_access_token("tester", "viewer", settings, app.state.deploy_id)
+        resp = client.get("/weather/uv-history", headers={"Authorization": f"Bearer {token}"})
+
+    points = resp.json()["points"]
+    assert len(points) == 3
+    assert [p["observation_date"] for p in points] == [
+        (_FIXED_NOW - timedelta(days=2)).date().isoformat(),
+        (_FIXED_NOW - timedelta(days=1)).date().isoformat(),
+        _FIXED_NOW.date().isoformat(),
+    ]
+    assert points[0]["uv_index"] == pytest.approx(6.5)
+    assert points[-1]["uv_index"] == pytest.approx(9.0)

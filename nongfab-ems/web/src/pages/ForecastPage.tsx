@@ -42,6 +42,7 @@ import {
   useCurrentConditions,
   useForecast,
   usePerformance,
+  useUvHistory,
   useWeatherStrip,
   useZones,
 } from '../lib/queries'
@@ -54,6 +55,7 @@ import type {
   ForecastPoint,
   GeneratedPowerPoint,
   HourlyPoint,
+  UvHistoryPoint,
   WeatherStripPoint,
 } from '../lib/types'
 import './ForecastPage.css'
@@ -184,6 +186,12 @@ export function ForecastPage() {
   // documents) - powers the 3x3 live variable table + grouped graphs below
   // (2026-07-18, see SolarVariablesTable/SolarVariablesGraphs).
   const currentConditions = useCurrentConditions()
+  // Real daily UV readings accumulated so far (2026-07-19) - feeds the UV
+  // chart below, kept as its own query (not folded into currentConditions)
+  // since it's a different shape (a short list of days, not one live
+  // snapshot) and deliberately polled far less often - see useUvHistory's
+  // own docstring.
+  const uvHistory = useUvHistory()
 
   // Minute-ahead (CNN-LSTM) is a fixed near-real-time horizon, not part of
   // the Day-ahead/Intra-day toggle above - shown in its own always-visible
@@ -683,6 +691,8 @@ export function ForecastPage() {
         points={weatherStrip.data?.points ?? []}
         dataSource={weatherStrip.data?.data_source}
         isLoading={weatherStrip.isLoading}
+        uvPoints={uvHistory.data?.points ?? []}
+        uvLoading={uvHistory.isLoading}
       />
     </div>
   )
@@ -1289,21 +1299,35 @@ interface SolarVariablesGraphsProps {
   points: WeatherStripPoint[]
   dataSource: ForecastDataSource | undefined
   isLoading: boolean
+  uvPoints: UvHistoryPoint[]
+  uvLoading: boolean
 }
 
 const VARIABLE_CHART_TOOLTIP_FORMATTER = (value: unknown) => (typeof value === 'number' ? value.toFixed(2) : String(value))
 const VARIABLE_CHART_LABEL_FORMATTER = (label: unknown) => (typeof label === 'string' ? formatDateHourIct(label) : String(label))
+
+// `observation_date` is a plain calendar date ("2026-07-19"), not a UTC
+// instant - unlike every other formatter in this file (formatDateHourIct
+// etc.), there is no timezone conversion to do here, just Thai-style
+// day/month display.
+function formatUvDate(observationDate: string): string {
+  return new Date(`${observationDate}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+}
 
 // Grouped time-series graphs for the same 9 Songsiri-reference variables the
 // table above shows as a single live snapshot - per the user's own
 // 2026-07-18 request/confirmed grouping ("เห็นด้วยตามที่เสนอ"): the
 // irradiance trio (I/I_clr/I_wrf) share one chart, k̂+cosθ share one chart
 // (both unitless, comparable 0-1-ish scale), and T/RH/WS each get their own
-// chart. UV gets NO chart at all - it has no time series anywhere in this
-// system (NASA POWER is daily-cadence only, not part of /weather/strip),
-// and the user was explicit that a variable with no real forecast (or, in
-// UV's case, no real time series at all) should never have one faked just
-// to fill a chart slot - see the UV caption below instead.
+// chart. UV gets its own daily bar chart (2026-07-19: one real bar per day
+// this deployment has actually polled NASA POWER, oldest first) rather than
+// sharing an hourly line chart with anything else - it has no hourly time
+// series anywhere in this system (NASA POWER is daily-cadence only, not
+// part of /weather/strip), and per the user's own explicit instruction, a
+// variable with no real sub-daily data should never have an hourly curve
+// faked for it just to fill a chart slot. A short/empty bar list on a fresh
+// deploy is the honest result, not an error - see the caption below the
+// chart.
 //
 // Data source: GET /weather/strip, the SAME already-time-series endpoint
 // the WeatherStrip component above already renders (not a second,
@@ -1311,7 +1335,7 @@ const VARIABLE_CHART_LABEL_FORMATTER = (label: unknown) => (typeof label === 'st
 // (see buildIrradianceRows's own docstring for how that plays out for the
 // irradiance chart specifically) rather than building a parallel windowed
 // endpoint.
-function SolarVariablesGraphs({ points, dataSource, isLoading }: SolarVariablesGraphsProps) {
+function SolarVariablesGraphs({ points, dataSource, isLoading, uvPoints, uvLoading }: SolarVariablesGraphsProps) {
   const isReal = dataSource === 'real'
   const irradianceRows = useMemo(() => buildIrradianceRows(points, isReal, Date.now()), [points, isReal])
   const hasRh = points.some((p) => p.relative_humidity_pct != null)
@@ -1449,11 +1473,33 @@ function SolarVariablesGraphs({ points, dataSource, isLoading }: SolarVariablesG
           </div>
 
           <div className="solar-variable-chart">
-            <h4 className="solar-variable-chart-title">UV - ดัชนีรังสียูวี</h4>
-            <p className="forecast-status forecast-status-caption">
-              UV เป็นข้อมูลรายวันเท่านั้น (อัปเดตวันละครั้งจาก NASA POWER ดู forecast/README.md) ไม่มีข้อมูลรายชั่วโมงหรือค่าพยากรณ์ล่วงหน้าจริงให้แสดงเป็นกราฟตามช่วงเวลาได้
-              - ดูค่าล่าสุดได้ในตารางด้านบน (ไม่ฝืนสุ่ม/ประมาณค่าเพื่อทำเป็นกราฟ)
-            </p>
+            <h4 className="solar-variable-chart-title">UV - ดัชนีรังสียูวี (รายวัน)</h4>
+            {uvLoading ? (
+              <p className="forecast-status">Loading…</p>
+            ) : uvPoints.length > 0 ? (
+              <>
+                <ResponsiveContainer width="100%" height={180}>
+                  <BarChart data={uvPoints} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis dataKey="observation_date" tickFormatter={formatUvDate} />
+                    <YAxis width={40} />
+                    <Tooltip
+                      labelFormatter={(label: unknown) => (typeof label === 'string' ? formatUvDate(label) : String(label))}
+                      formatter={VARIABLE_CHART_TOOLTIP_FORMATTER}
+                    />
+                    <Bar dataKey="uv_index" name="UV index" fill="var(--chart-uv)" />
+                  </BarChart>
+                </ResponsiveContainer>
+                <p className="forecast-status forecast-status-caption">
+                  1 แท่ง = 1 วันจริงที่ระบบดึงข้อมูล UV จาก NASA POWER ได้ (อัปเดตวันละครั้ง ไม่ใช่รายชั่วโมง) - ยิ่งระบบทำงานนานยิ่งมีข้อมูลสะสมมากขึ้น
+                  ไม่ประมาณค่าเป็นกราฟรายชั่วโมงเพราะไม่มีข้อมูลจริงระดับนั้น
+                </p>
+              </>
+            ) : (
+              <p className="forecast-status forecast-status-caption">
+                ยังไม่มีข้อมูล UV สะสม (อัปเดตวันละครั้งจาก NASA POWER ดู forecast/README.md) - รอสะสมข้อมูลจริงเพิ่มอีกสักพัก ไม่ฝืนสุ่ม/ประมาณค่าเพื่อทำเป็นกราฟ
+              </p>
+            )}
           </div>
         </>
       )}

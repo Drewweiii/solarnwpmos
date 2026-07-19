@@ -39,15 +39,23 @@ async def run_startup_backfill(store: RealDataStore, lookback_days: int) -> None
     persistent store (API_REAL_DATA_DB_PATH pointed at a real volume) doesn't
     re-backfill from scratch every restart.
 
-    `_backfill_forecast_history`/`_backfill_generated_power_history` run
-    *first*, ahead of the network-dependent steps below - both are pure
-    local computations (no HTTP calls at all) with no dependency on any of
-    them, so there is no reason for the dashboard's Forecast/Prediction-
-    interval history (or the actual/generated-power history, 2026-07-18) to
-    sit blocked behind however long NWP/Himawari/PVGIS take to succeed or
-    fail (each is a real network call to an external source, no fixed upper
-    bound on that here) when it could already be showing something the
-    moment the process is ready to serve.
+    `_backfill_forecast_history` runs *first*, ahead of every network-
+    dependent step below - a pure local computation (no HTTP calls at all)
+    with no dependency on any of them, so there is no reason for the
+    dashboard's Forecast/Prediction-interval history to sit blocked behind
+    however long NWP/Himawari/PVGIS take to succeed or fail (each is a real
+    network call to an external source, no fixed upper bound on that here)
+    when it could already be showing something the moment the process is
+    ready to serve.
+
+    `_backfill_generated_power_history` runs right after, but (2026-07-19)
+    is no longer a pure local computation itself - it does its own small,
+    bounded Himawari historical fetch first (~72 slots, a few minutes) so
+    the actual-power backfill can use each hour's *own* real cloud reading
+    instead of today's single snapshot - see that function's own docstring
+    and `nongfab_forecast.serving.backfill_generated_power_history`'s for
+    the full reasoning. Still bounded and still non-fatal on failure (falls
+    back to the old clear-sky-per-hour behavior), just no longer instant.
     """
     await _backfill_forecast_history(store)
     await _backfill_generated_power_history(store)
@@ -261,6 +269,57 @@ async def _backfill_forecast_history(store: RealDataStore) -> None:
                 )
 
 
+_GENERATED_POWER_CLOUD_LOOKBACK_DAYS = 3  # covers GENERATED_POWER_BACKFILL_HOURS (72h) with a day to spare
+
+
+async def _backfill_himawari_bounded(store: RealDataStore, days: int) -> None:
+    """A small, fast historical Himawari fetch (default 3 days = 72 hourly
+    slots, ~2.5 min at the 2s rate limit) - run ahead of
+    `backfill_generated_power_history`'s own `physics_baseline_series(
+    use_historical_cloud=True)` call specifically, so it has real per-hour
+    cloud data to look up instead of falling back to clear-sky for the
+    whole window. Deliberately NOT the full `backfill_lookback_days`
+    (default 30 = 720 slots, ~24 min) `_backfill_himawari` below already
+    does for ML training features - that would make actual-power history
+    wait far longer than this one narrow purpose needs.
+
+    Same non-fatal failure handling as every other network step here: on
+    failure this just leaves `cloud_history` thin for the affected hours,
+    which `backfill_generated_power_history`'s historical lookup already
+    degrades gracefully from (falls back to clear-sky per hour - see
+    `real_data._historical_cloud_attenuation`'s docstring), not a crash.
+    """
+    from himawari_ingestion.backfill import backfill_range
+    from himawari_ingestion.compliance import RateLimiter
+    from himawari_ingestion.config import Settings
+
+    settings = Settings(source_mode="http")
+    logger.info("startup backfill: himawari (bounded, %d days) starting for generated-power history", days)
+    n_ok = n_total = 0
+    prev_arrays: dict | None = None
+    prev_observed_at: datetime | None = None
+    try:
+        async with httpx.AsyncClient() as client:
+            async for result in backfill_range(
+                settings, client, RateLimiter(settings.min_seconds_between_requests), lookback_days=days, cadence_minutes=60
+            ):
+                n_total += 1
+                if result is not None:
+                    raw, frame = result
+                    frame, prev_arrays = _frame_with_motion(raw, frame, prev_arrays, prev_observed_at)
+                    prev_observed_at = frame.observed_at
+                    store.insert_cloud_frames([frame])
+                    n_ok += 1
+    except Exception:
+        logger.warning(
+            "startup backfill: bounded himawari failed partway (%d/%d slots ingested) - "
+            "generated-power history will fall back to clear-sky for hours with no match",
+            n_ok, n_total, exc_info=True,
+        )
+        return
+    logger.info("startup backfill: bounded himawari done, %d/%d slots ingested", n_ok, n_total)
+
+
 async def _backfill_generated_power_history(store: RealDataStore) -> None:
     """One-time cold-start seed of the actual/generated-power history (see
     `nongfab_forecast.serving.backfill_generated_power_history`'s own
@@ -269,6 +328,12 @@ async def _backfill_generated_power_history(store: RealDataStore) -> None:
     real persistent volume never overwrites real accumulated live readings
     (from `record_generated_power()`, called on every `/performance` poll)
     with a lesser physics-only seed on every restart.
+
+    Runs `_backfill_himawari_bounded` first (2026-07-19), but only if at
+    least one zone actually still needs seeding - skips it entirely on a
+    redeploy with a persistent volume where every zone already has real
+    accumulated history, same "don't pay for network calls nothing needs"
+    reasoning as every gate in this module.
     """
     from nongfab_forecast.serving import (
         GENERATED_POWER_BACKFILL_HOURS,
@@ -277,9 +342,14 @@ async def _backfill_generated_power_history(store: RealDataStore) -> None:
     )
 
     now = datetime.now(timezone.utc)
+    since = now - timedelta(hours=GENERATED_POWER_BACKFILL_HOURS)
+    existing_by_zone = {zone: store.forecast_history_points(zone, GENERATED_POWER_HORIZON, since=since) for zone in ZONES}
+
+    if not all(existing_by_zone.values()):
+        await _backfill_himawari_bounded(store, _GENERATED_POWER_CLOUD_LOOKBACK_DAYS)
+
     for zone in ZONES:
-        existing = store.forecast_history_points(zone, GENERATED_POWER_HORIZON, since=now - timedelta(hours=GENERATED_POWER_BACKFILL_HOURS))
-        if existing:
+        if existing_by_zone[zone]:
             logger.info("startup backfill: generated-power history already has data for %s, skipping", zone)
             continue
         try:

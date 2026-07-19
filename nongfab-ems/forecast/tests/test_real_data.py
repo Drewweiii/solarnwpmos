@@ -323,3 +323,74 @@ def test_physics_baseline_series_ignores_stale_cloud_data():
     clear_result = real_data.physics_baseline_series("GIS", timestamps, None)
     stale_result = real_data.physics_baseline_series("GIS", timestamps, store, max_cloud_age_minutes=30.0)
     assert stale_result["pred"].iloc[0] == pytest.approx(clear_result["pred"].iloc[0])
+
+
+def test_physics_baseline_series_historical_cloud_uses_matching_past_reading():
+    """The core regression test for the 2026-07-19 fix: before this, a past
+    timestamp's physics estimate only ever looked at the single most-recent
+    cloud reading (or none at all) relative to wall-clock "now" - never that
+    specific past hour's own real cloud cover, even when the store had one.
+    use_historical_cloud=True changes that."""
+    store = RealDataStore()
+    # hour=6 UTC, not 12 - Nong Fab is ICT (UTC+7), so 12:00 UTC is 19:00
+    # local (after sunset, clear-sky GHI=0 -> power=0 regardless of cloud,
+    # which would make this test vacuously true). 06:00 UTC = 13:00 ICT,
+    # solidly midday.
+    past = datetime.now(timezone.utc).replace(hour=6, minute=0, second=0, microsecond=0) - timedelta(days=3)
+    timestamps = pd.date_range(past, periods=1, freq="h", tz="UTC")
+
+    store.insert_cloud_frames([
+        _FakeCloudFrame(observed_at=past + timedelta(minutes=10), nong_fab_cloud_opacity_pct=90.0, nong_fab_cloud_index=0.9, source="test"),
+    ])
+
+    # Default (use_historical_cloud=False): that 3-day-old reading is nowhere
+    # near wall-clock "now", so the max_cloud_age_minutes freshness check
+    # rejects it - falls back to clear-sky, same as no cloud data at all.
+    latest_only_result = real_data.physics_baseline_series("GIS", timestamps, store)
+    clear_result = real_data.physics_baseline_series("GIS", timestamps, None)
+    assert latest_only_result["pred"].iloc[0] == pytest.approx(clear_result["pred"].iloc[0])
+
+    # use_historical_cloud=True looks up that timestamp's *own* nearby
+    # reading instead of wall-clock freshness - finds the 90%-opacity frame
+    # 10 minutes after it and attenuates accordingly.
+    historical_result = real_data.physics_baseline_series("GIS", timestamps, store, use_historical_cloud=True)
+    assert historical_result["pred"].iloc[0] < clear_result["pred"].iloc[0]
+
+
+def test_physics_baseline_series_historical_cloud_falls_back_to_clearsky_without_match():
+    store = RealDataStore()
+    now = datetime.now(timezone.utc).replace(hour=6, minute=0, second=0, microsecond=0)  # 13:00 ICT, midday
+    timestamps = pd.date_range(now, periods=1, freq="h", tz="UTC")
+
+    # A reading that exists but sits 10h away from the queried timestamp -
+    # outside the historical match tolerance (2h), so it must not be used.
+    store.insert_cloud_frames([
+        _FakeCloudFrame(observed_at=now - timedelta(hours=10), nong_fab_cloud_opacity_pct=90.0, nong_fab_cloud_index=0.9, source="test"),
+    ])
+
+    clear_result = real_data.physics_baseline_series("GIS", timestamps, None)
+    historical_result = real_data.physics_baseline_series("GIS", timestamps, store, use_historical_cloud=True)
+    assert historical_result["pred"].iloc[0] == pytest.approx(clear_result["pred"].iloc[0])
+
+
+def test_physics_baseline_series_historical_cloud_differs_per_timestamp():
+    """Two timestamps a day apart but the same hour-of-day (so they share
+    nearly the same clear-sky curve) with two very different real cloud
+    readings must come out differently - proof use_historical_cloud looks up
+    *each* timestamp's own match rather than one reading applied to all of
+    them (which is exactly the old bug: backfill_generated_power_history and
+    backfill_forecast_history both used one shared reading for an entire
+    retrospective window)."""
+    store = RealDataStore()
+    base = datetime.now(timezone.utc).replace(hour=6, minute=0, second=0, microsecond=0) - timedelta(days=2)  # 13:00 ICT, midday
+    cloudy_time = base
+    clear_time = base + timedelta(days=1)
+    timestamps = pd.DatetimeIndex([pd.Timestamp(cloudy_time), pd.Timestamp(clear_time)])
+
+    store.insert_cloud_frames([
+        _FakeCloudFrame(observed_at=cloudy_time, nong_fab_cloud_opacity_pct=95.0, nong_fab_cloud_index=0.95, source="test"),
+        _FakeCloudFrame(observed_at=clear_time, nong_fab_cloud_opacity_pct=5.0, nong_fab_cloud_index=0.05, source="test"),
+    ])
+
+    result = real_data.physics_baseline_series("GIS", timestamps, store, use_historical_cloud=True)
+    assert result["pred"].iloc[0] < result["pred"].iloc[1]

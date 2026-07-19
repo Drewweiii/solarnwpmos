@@ -387,32 +387,53 @@ def generated_power_history(zone: str, store: RealDataStore, since: datetime) ->
 
 
 def backfill_generated_power_history(zone: str, store: RealDataStore, now: datetime | None = None) -> int:
-    """One-time cold-start seed for the actual/generated-power history,
-    same spirit and same honesty caveat as `backfill_forecast_history()`
-    above: computes a physics-baseline-only retrospective series (pvlib
-    clear-sky x the current most-recent cloud reading x the zone's PV
-    model, an honest approximation, not a claimed measurement - see that
-    function's own docstring for the full caveat) covering
-    `GENERATED_POWER_BACKFILL_HOURS` and persists it, so a freshly-booted
-    process doesn't show a blank "not today" actual-power history until
-    enough real polling time (`record_generated_power()` calls from live
-    `/performance` traffic) has passed to build it up organically. A later
-    live poll for the current hour naturally overwrites its own backfilled
-    row (same `INSERT OR REPLACE` upsert every other horizon already uses),
-    so live data supersedes this estimate the moment it exists.
+    """One-time cold-start seed for the actual/generated-power history, same
+    spirit as `backfill_forecast_history()` above (an honest approximation,
+    not a claimed measurement) but *not* the same inputs: this calls
+    `physics_baseline_series(..., use_historical_cloud=True)`, which looks up
+    each backfilled hour's own real cloud_history reading (when the store has
+    accumulated one that far back - e.g. from `_backfill_himawari`'s own
+    historical seed, see api/ingestion_scheduler.py) instead of replaying
+    today's single "most recent" cloud snapshot across all
+    `GENERATED_POWER_BACKFILL_HOURS`.
+
+    Deliberately diverges from `backfill_forecast_history()` here (which
+    keeps the single-reading behavior) - a *forecast* issued at some past
+    hour genuinely couldn't have seen a cloud reading from its own future, so
+    replaying "current conditions" is the honest retrospective number for
+    it, but *actual power* has no such excuse: when real historical weather
+    exists, using it is strictly more honest than not. Before this
+    (2026-07-19), both functions called the exact same
+    `physics_baseline_series()` with the exact same inputs for the same
+    cold-start window, so "Actual power (before today)" and "Forecast" were
+    bit-identical for every hour in that window - not a coincidence, a
+    guaranteed consequence of calling one deterministic function twice with
+    identical arguments. The `GENERATED_POWER_ESTIMATED_MARKER` tag (below)
+    was the prior fix for this - it correctly labelled the number as an
+    estimate, but didn't change the number itself; this does.
+
+    Still falls back to attenuation=1.0 (clear-sky) hour-by-hour wherever
+    cloud_history has no reading within 2h of that specific hour (a brand
+    new deployment whose Himawari historical backfill hasn't reached that
+    far back yet, or failed) - see `_historical_cloud_attenuation`'s own
+    docstring. So a freshly-booted process still never shows a blank "not
+    today" actual-power history; it may just be a clear-sky guess for
+    whichever hours real cloud data doesn't reach, same honesty caveat as
+    ever. A later live poll for the current hour naturally overwrites its
+    own backfilled row (same `INSERT OR REPLACE` upsert every other horizon
+    already uses), so live data supersedes this estimate the moment it
+    exists.
 
     Tagged with `GENERATED_POWER_ESTIMATED_MARKER` (see that constant's own
-    docstring) - this is the same `physics_baseline_series()` call
-    `backfill_forecast_history()` makes for the same cold-start window, so
-    without this marker a viewer has no way to tell "Actual power (before
-    today)" apart from a coincidentally-identical physics-baseline
-    "Forecast" for the same hour.
+    docstring) regardless of whether a given hour used real historical cloud
+    or the clear-sky fallback - both are still a physics estimate, not a
+    genuine measurement.
     """
     zone = validate_zone(zone)
     now = now if now is not None else datetime.now(timezone.utc)
     end = _ceil_to(now, timedelta(hours=1)) - timedelta(hours=1)
     timestamps = pd.date_range(end=end, periods=GENERATED_POWER_BACKFILL_HOURS, freq="h", tz="UTC")
-    baseline = real_data.physics_baseline_series(zone, timestamps, store)
+    baseline = real_data.physics_baseline_series(zone, timestamps, store, use_historical_cloud=True)
     points = [
         ForecastPoint(timestamp=ts.to_pydatetime(), pred=float(row.pred), algorithm=GENERATED_POWER_ESTIMATED_MARKER)
         for ts, row in baseline.iterrows()

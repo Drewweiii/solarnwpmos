@@ -184,6 +184,20 @@ export interface CurrentConditionsResponse {
   uv_observation_date: string | null
 }
 
+// GET /weather/uv-history - every real daily UV reading this deployment has
+// accumulated (NASA POWER), oldest first (2026-07-19). One point per real
+// day - UV has no hourly resolution to plot (see CurrentConditionsResponse's
+// own comment on uv_observation_date), so this is deliberately a short,
+// possibly-empty list rather than an interpolated/faked time series.
+export interface UvHistoryPoint {
+  observation_date: string
+  uv_index: number
+}
+
+export interface UvHistoryResponse {
+  points: UvHistoryPoint[]
+}
+
 export interface HourlyPoint {
   timestamp: string
   ac_kw: number

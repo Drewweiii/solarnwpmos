@@ -2839,3 +2839,46 @@ on blur; the right-side solar decoration and the login form's centering
 (`form center X` measured equal to `viewport center X`) are both
 unaffected; both decorations correctly disappear below the existing
 1020px breakpoint.
+
+### Changed/Added - Model Competition hidden from viewer role, UV gets a real daily bar chart (2026-07-19, Track 1)
+
+Two more items from the same round as the entries just above.
+
+**Model Competition hidden from viewer**: per the user's own call ("ไม่น่าจะ
+สำคัญเเล้ว ปิดไม่ให้ user เห็น" - "probably not important anymore, turn it
+off so users can't see it") - a step further than the "honest empty state"
+fix two entries up, which only stopped the panel from *misleading* a
+viewer; this stops it from *reaching* one at all. `ForecastPage.tsx` now
+reads `role` from `useAuth()` and wraps `<ModelCompetitionPanel>` in
+`{role !== 'viewer' && (...)}` - the same "hide from viewer, keep for
+admin/operator" precedent `App.tsx`'s `RequireOperator` already set for
+Financial/Simulation, just scoped to one panel inside a page instead of a
+whole route (the rest of ForecastPage stays visible to viewer).
+
+**UV daily bar chart**: the grouped-graphs section previously showed UV as
+a caption-only "no chart, daily data only" placeholder (2026-07-18 entry
+above) - the user asked for an actual chart despite the coarse cadence.
+New `GET /weather/uv-history` (`api/routes_weather.py`) returns every real
+`uv_history` row this deployment has accumulated, oldest first (no faked
+interpolation - see that route's own docstring). Frontend: `useUvHistory()`
+(30-min `staleTime`, not the 60s live-dashboard cadence - UV cannot change
+within a day) feeds a new Recharts `BarChart` in `SolarVariablesGraphs`,
+one real bar per day, with an honest "not enough days accumulated yet"
+caption when `points` is empty rather than blocking on it. New
+`--chart-uv` CSS variable (violet, distinct from every existing chart
+color). Deliberately still *not* an hourly/interpolated curve - the
+previous session's explicit reasoning against faking one stands, this just
+answers "yes, chart it" with the granularity that's actually real.
+
+Also flagged, not touched (Track 2 territory): `assistantTopics.ts` still
+offers "Model Competition คืออะไร" as a suggested AI-assistant question to
+every role, including viewer, who can no longer see the panel it explains
+- worth a look next time Track 2 is in `web/src/lib/assistant*`.
+
+**Tested**: `api/tests/test_routes_weather.py` +3 (auth-required, empty
+store, multi-day sorted response). `forecast/tests` untouched by this half
+(no backend model change - `uv_history` already existed). `web/src/pages/
+__tests__/ForecastPage.test.tsx` +3 (viewer-hides-Model-Competition,
+UV-chart-renders-with-data, UV-chart-honest-empty-state) and 2 existing
+cases updated for the new UV chart title/copy. Full suite 364/364. `npm
+run build` (`tsc -b` + `vite build`) clean too.

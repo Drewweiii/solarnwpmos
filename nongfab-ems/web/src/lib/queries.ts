@@ -12,6 +12,7 @@ import {
   getPerformance,
   getPrecipitationConditions,
   getSunPath,
+  getUvHistory,
   getWeatherStrip,
   postFeedback,
   postFinancial,
@@ -107,6 +108,23 @@ export function useCurrentConditions() {
     queryFn: () => getCurrentConditions(token!),
     enabled: Boolean(token),
     refetchInterval: LIVE_REFETCH_INTERVAL_MS,
+  })
+}
+
+// Site-wide, not per-zone - drives ForecastPage's daily UV bar chart
+// (2026-07-19). Deliberately NOT on the 60s live-dashboard polling cadence
+// (see LIVE_REFETCH_INTERVAL_MS above) - UV is daily-resolution server-side
+// (see routes_weather.py's own get_uv_history docstring), so polling it
+// every 60s like the rest of the dashboard would just be repeated requests
+// for data that cannot have changed within a day. A long staleTime instead,
+// same "slow-moving data" pattern as useZones above.
+export function useUvHistory() {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['uv-history'],
+    queryFn: () => getUvHistory(token!),
+    enabled: Boolean(token),
+    staleTime: 30 * 60 * 1000,
   })
 }
 

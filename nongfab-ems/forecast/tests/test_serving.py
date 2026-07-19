@@ -36,6 +36,16 @@ class _FakePoint:
     candidate_errors: dict[str, float] | None = None
 
 
+@dataclass
+class _FakeCloudFrame:
+    observed_at: datetime
+    nong_fab_cloud_opacity_pct: float
+    nong_fab_cloud_index: float
+    source: str
+    motion_speed_kmh: float | None = None
+    motion_direction_deg: float | None = None
+
+
 def test_validate_zone_accepts_known_zones():
     for zone in ("GIS", "ISB", "Jetty"):
         assert validate_zone(zone) == zone
@@ -311,9 +321,47 @@ def test_backfill_generated_power_history_seeds_the_full_lookback_window():
         assert point.timestamp < now
         # Every backfilled row is a physics-baseline estimate, not a real
         # reading - see GENERATED_POWER_ESTIMATED_MARKER's own docstring for
-        # why this matters (it's the same estimate backfill_forecast_history()
-        # computes for "Forecast" over the same cold-start window).
+        # why this matters. With an empty store (no cloud_history seeded, as
+        # here) this still numerically matches what backfill_forecast_history()
+        # computes for "Forecast" over the same window - both fall back to the
+        # same clear-sky default with nothing to differentiate them. See
+        # test_backfill_generated_power_history_diverges_from_forecast_history_with_real_cloud_data
+        # below for the case that actually has real per-hour cloud data to use.
         assert point.algorithm == GENERATED_POWER_ESTIMATED_MARKER
+
+
+def test_backfill_generated_power_history_diverges_from_forecast_history_with_real_cloud_data():
+    """The 2026-07-19 fix: before this, backfill_generated_power_history and
+    backfill_forecast_history called the exact same physics_baseline_series()
+    with the exact same inputs for the same cold-start window, so 'Actual
+    power (before today)' and 'Forecast' were bit-identical for every hour in
+    it - not a coincidence, a guaranteed consequence of calling one
+    deterministic function twice with identical arguments (the user's own
+    2026-07-19 report). Seeding one backfilled hour with a real, heavily-
+    clouded reading now makes the two diverge for that hour, because only
+    the generated-power side looks up each hour's own real cloud data
+    (physics_baseline_series(..., use_historical_cloud=True) -
+    backfill_forecast_history deliberately keeps the old single-reading
+    behavior, see its own docstring for why)."""
+    now = datetime(2026, 7, 18, 12, tzinfo=timezone.utc)
+    store = RealDataStore()
+
+    target_hour = now - timedelta(hours=5)
+    store.insert_cloud_frames([
+        _FakeCloudFrame(observed_at=target_hour, nong_fab_cloud_opacity_pct=95.0, nong_fab_cloud_index=0.95, source="test"),
+    ])
+
+    backfill_generated_power_history("GIS", store, now=now)
+    backfill_forecast_history("GIS", "hour", store, now=now)
+
+    actual_points = {
+        p.timestamp: p.pred for p in generated_power_history("GIS", store, since=now - timedelta(hours=GENERATED_POWER_BACKFILL_HOURS))
+    }
+    forecast_rows = store.forecast_history_points("GIS", "hour", since=now - timedelta(hours=FORECAST_HISTORY_LOOKBACK_HOURS["hour"]))
+    forecast_points = {datetime.fromisoformat(target_time): pred for target_time, pred, *_rest in forecast_rows}
+
+    assert target_hour in actual_points and target_hour in forecast_points
+    assert actual_points[target_hour] < forecast_points[target_hour]
 
 
 def test_a_live_poll_overwrites_its_own_backfilled_hour():

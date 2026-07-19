@@ -407,6 +407,51 @@ class CurrentConditionsResponse(BaseModel):
     uv_observation_date: date_type | None = None
 
 
+class UvHistoryPoint(BaseModel):
+    observation_date: date_type
+    uv_index: float
+
+
+class UvHistoryResponse(BaseModel):
+    points: list[UvHistoryPoint]  # oldest first
+
+
+@router.get("/weather/uv-history", response_model=UvHistoryResponse)
+async def get_uv_history(request: Request, _user=Depends(require_role("viewer"))) -> UvHistoryResponse:
+    """Every real daily UV reading this deployment has accumulated (NASA
+    POWER's ALLSKY_SFC_UV_INDEX - see ingestion/nasa_power/README.md),
+    oldest first - added 2026-07-19 so the frontend can chart UV as one bar
+    per real day it actually has, instead of faking an intraday curve from
+    a single daily value (UV genuinely has no hourly resolution to plot -
+    see ForecastPage.tsx's SolarVariablesGraphs docstring for the full
+    per-variable charting rationale). No date-range filtering: `uv_history` only ever
+    holds a few dozen rows at most (one per day since this container booted,
+    plus whatever `_backfill_uv` seeded), so there's no pagination concern
+    worth adding yet.
+
+    Same ephemeral-per-container caveat as every other real_data_store-
+    backed history in this app (see local_store.py's own docstring) - a
+    fresh deploy starts this back at whatever the startup UV backfill
+    managed to seed (often nothing - NASA POWER has never been reachable
+    from every environment this repo runs in, see that backfill's own
+    non-fatal failure handling), then grows one point per real day the
+    process stays up. An empty `points` list is a legitimate response, not
+    an error - the frontend should render its own "not enough days yet"
+    state for it, same spirit as every other honest-empty chart state this
+    app already has (Model Competition, before-today actual power, etc.).
+    """
+    store: RealDataStore = request.app.state.real_data_store
+    uv_df = store.uv_history_df()
+    if uv_df.empty:
+        return UvHistoryResponse(points=[])
+    return UvHistoryResponse(
+        points=[
+            UvHistoryPoint(observation_date=row["observation_date"], uv_index=float(row["uv_index"]))
+            for _, row in uv_df.iterrows()
+        ]
+    )
+
+
 def _wind_speed_ms(u: float | None, v: float | None) -> float | None:
     if u is None or v is None or pd.isna(u) or pd.isna(v):
         return None

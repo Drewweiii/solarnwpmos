@@ -5,7 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ForecastPage } from '../ForecastPage'
 import { AuthProvider } from '../../lib/auth'
 import * as api from '../../lib/api'
-import type { AssetRegistry, CurrentConditionsResponse, ForecastResponse, PerformanceResponse, WeatherStripResponse, Zone } from '../../lib/types'
+import type {
+  AssetRegistry,
+  CurrentConditionsResponse,
+  ForecastResponse,
+  PerformanceResponse,
+  UvHistoryResponse,
+  WeatherStripResponse,
+  Zone,
+} from '../../lib/types'
 
 function makeZone(id: string, ac_capacity_kw: number, simulated = false): Zone {
   return {
@@ -123,6 +131,16 @@ function makeCurrentConditions(): CurrentConditionsResponse {
   }
 }
 
+function makeUvHistory(): UvHistoryResponse {
+  return {
+    points: [
+      { observation_date: '2026-07-12', uv_index: 7.0 },
+      { observation_date: '2026-07-13', uv_index: 8.5 },
+      { observation_date: '2026-07-14', uv_index: 6.5 },
+    ],
+  }
+}
+
 const registry: AssetRegistry = { zones: [makeZone('GIS', 50), makeZone('ISB', 120), makeZone('Jetty', 200, true)] }
 
 function renderPage(token = 'header.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9.sig') {
@@ -147,6 +165,7 @@ describe('ForecastPage', () => {
     vi.spyOn(api, 'getForecast').mockImplementation((zone, horizon) => Promise.resolve(makeForecast(zone, horizon)))
     vi.spyOn(api, 'getWeatherStrip').mockResolvedValue(makeWeatherStrip('2026-07-14T12:00:00.000Z', 12))
     vi.spyOn(api, 'getCurrentConditions').mockResolvedValue(makeCurrentConditions())
+    vi.spyOn(api, 'getUvHistory').mockResolvedValue(makeUvHistory())
   })
 
   afterEach(() => {
@@ -348,10 +367,21 @@ describe('ForecastPage', () => {
     expect(screen.getByText('k̂ / cosθ - ดัชนีท้องฟ้าใส และ cosine ของมุมเซนิท')).toBeInTheDocument()
     expect(screen.getByText('RH - ความชื้นสัมพัทธ์')).toBeInTheDocument()
     expect(screen.getByText('WS - ความเร็วลม')).toBeInTheDocument()
-    // UV gets a caption, not a chart - it has no real time series anywhere
-    // in this system (daily-cadence NASA POWER only), so nothing is faked.
-    expect(screen.getByText('UV - ดัชนีรังสียูวี')).toBeInTheDocument()
-    expect(screen.getByText(/UV เป็นข้อมูลรายวันเท่านั้น/)).toBeInTheDocument()
+  })
+
+  it('renders a UV daily bar chart from real accumulated readings (2026-07-19)', async () => {
+    renderPage()
+    await screen.findByText('UV - ดัชนีรังสียูวี (รายวัน)')
+    // One bar per real day polled - not a faked hourly curve (no real
+    // sub-daily UV data exists anywhere in this system).
+    expect(await screen.findByText(/1 แท่ง = 1 วันจริง/)).toBeInTheDocument()
+  })
+
+  it('shows an honest empty state for the UV chart when no daily readings have accumulated yet', async () => {
+    vi.spyOn(api, 'getUvHistory').mockResolvedValue({ points: [] })
+    renderPage()
+    await screen.findByText('UV - ดัชนีรังสียูวี (รายวัน)')
+    expect(await screen.findByText(/ยังไม่มีข้อมูล UV สะสม/)).toBeInTheDocument()
   })
 
   it('does not render RH/WS charts when the weather strip has no real humidity/wind data (synthetic fallback)', async () => {

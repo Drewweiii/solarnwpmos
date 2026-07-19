@@ -1021,3 +1021,40 @@ an alternative to this round's ssrd/clearsky-ratio `clear_sky_index`) and
 UV chart" honest placeholder on ForecastPage - see web/README.md) were not
 carried over, to keep this reconciliation scoped - either would be a
 reasonable follow-up, not a redo of this round's work.
+
+**Update (2026-07-19)**: the UV follow-up happened - see this file's own
+`GET /weather/uv-history` entry below. Independently reimplemented (not a
+revival of Track 2's discarded `uv_daily` code, which was never carried
+over into any commit on this branch), same underlying idea. `cloud_index`
+as a `clear_sky_index` alternative is still open.
+
+### Added - `GET /weather/uv-history` (2026-07-19)
+
+The user asked for UV to get a real chart despite its daily-only cadence,
+after `/weather/conditions`' single-snapshot `uv_index` left ForecastPage
+with only a caption-only placeholder for it (see this file's entry above).
+
+New route (`routes_weather.py`) returns every real row `local_store.py`'s
+`uv_history` table has accumulated - `{points: [{observation_date,
+uv_index}, ...]}`, oldest first, straight off `store.uv_history_df()` with
+no date-range filtering (this table only ever holds a few dozen rows at
+most, one per real day this deployment has polled NASA POWER). Same
+`require_role("viewer")` gate as every other `/weather/*` route. An empty
+`points` list on a fresh deploy (or one where NASA POWER has never been
+reachable - see `ingestion/nasa_power/README.md`'s "not reachable from
+this dev sandbox" caveat) is a legitimate response, not an error - the
+frontend renders its own honest "not enough days yet" state for it rather
+than this route trying to backfill/estimate anything.
+
+Sibling change in `forecast/`: `backfill_generated_power_history()` now
+also (separately, unrelated to UV) uses real historical Himawari cloud
+data instead of a single "latest reading" snapshot for its own physics
+estimate - see `forecast/README.md`'s matching 2026-07-19 entry for that
+half, it doesn't touch this route.
+
+**Tested**: `test_routes_weather.py` +3 (`requires_auth`, `empty_when_
+store_empty`, `returns_every_real_day_oldest_first` - inserted out of
+order, asserts the response comes back sorted). Full `api` suite 180
+passed, `ruff check` clean. Frontend consumer (`SolarVariablesGraphs`'s
+new UV bar chart) documented in `web/README.md`'s matching 2026-07-19
+entry.

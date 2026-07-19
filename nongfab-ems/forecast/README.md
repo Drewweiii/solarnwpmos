@@ -814,6 +814,67 @@ GENERATED_POWER_ESTIMATED_MARKER`; `test_a_live_poll_overwrites_its_own_
 backfilled_hour` asserts the live-polled row's `algorithm is None`. Full
 suite 25 passed.
 
+## Fixed - "Actual power (before today)" and "Forecast" now use genuinely different physics inputs, not just different labels (2026-07-19)
+
+The entry above ("Fixed - 'Actual power (before today)' was silently
+identical to 'Forecast'") only fixed the *label* (`GENERATED_POWER_
+ESTIMATED_MARKER`) - the underlying numbers stayed bit-identical, because
+`backfill_generated_power_history()` and `backfill_forecast_history()`
+both called `physics_baseline_series()` with the same `(zone, timestamps,
+store)`. That entry's own reasoning for not fixing the value itself was
+"there is no real historical cloud-cover record to compute a better one
+from" - true at the time, but no longer: this session's Himawari
+historical-backfill capability (`himawari_ingestion.backfill.backfill_
+range`, originally built for cold-start training history) can fetch real
+per-hour cloud data for arbitrary past slots, it just wasn't wired into
+this specific code path yet.
+
+- **`real_data.physics_baseline_series()`** gained a `use_historical_
+  cloud: bool = False` parameter. Default behavior (used by `backfill_
+  forecast_history()`, unchanged) is the original single-reading
+  attenuation - deliberately kept: a forecast issued at some past hour
+  genuinely couldn't have seen a cloud reading from its own future, so
+  replaying "current conditions" is the honest retrospective number for
+  it. `use_historical_cloud=True` (new, used by `backfill_generated_
+  power_history()` only) instead looks up *each* requested timestamp's own
+  nearest real `cloud_history` reading (nearest-match within a 2h
+  tolerance, via the new `_historical_cloud_attenuation()` helper) -
+  falling back to the same clear-sky default when no match exists within
+  tolerance, so an incomplete `cloud_history` degrades gracefully instead
+  of raising.
+- **`api/ingestion_scheduler.py`**: `_backfill_generated_power_history()`
+  now runs a small, bounded Himawari historical fetch first
+  (`_backfill_himawari_bounded`, 3 days/~72 hourly slots, ~2.5 min at the
+  2s rate limit) - deliberately *not* the full `backfill_lookback_days`
+  (default 30 = 720 slots, ~24 min) `_backfill_himawari` already does for
+  ML training features elsewhere in the same startup sequence, which would
+  make actual-power history wait far longer than this one narrow purpose
+  needs. Skipped entirely when every zone already has persisted history
+  (a redeploy with a persistent volume) - same "don't pay for network
+  calls nothing needs" gating every step in this module already uses. Both
+  `_backfill_forecast_history()` (unaffected, still instant/no-network)
+  and this bounded fetch still run inside the same non-awaited background
+  task `run_startup_backfill()` already was, so API readiness is never
+  blocked either way - only how soon the "before today" actual-power panel
+  gets *accurate* (as opposed to wrong-but-instant) data changes.
+- **`GENERATED_POWER_ESTIMATED_MARKER` still applies** regardless of
+  whether a given backfilled hour used real historical cloud or the
+  clear-sky fallback - both remain a physics estimate, never a genuine
+  measurement, same honesty caveat as ever.
+
+**Tested**: `test_real_data.py` - 3 new tests covering `use_historical_
+cloud=True`'s per-timestamp matching, its 2h tolerance fallback, and that
+two same-hour-of-day timestamps with different real cloud readings produce
+different results. `test_serving.py` - new `test_backfill_generated_
+power_history_diverges_from_forecast_history_with_real_cloud_data` seeds
+one real cloudy hour and asserts the actual-power estimate for that hour
+is now strictly less than the forecast estimate for the same hour (before
+this fix, they were asserted-equal by construction). `test_ingestion_
+scheduler.py` - 2 new tests cover the bounded-fetch-called-when-needed and
+skipped-when-not-needed wiring (mocked, no real network - see that file's
+own updated module docstring). Full `forecast` suite 150 passed, full
+`api` suite 180 passed, `ruff check` clean on every changed file.
+
 ## Fixed - `local_store.py`'s `nwp_history_df()`/`cloud_history_df()` crashed on mixed-precision timestamps (2026-07-18)
 
 Found live while building `GET /weather/clouds` (see `api/README.md`'s

@@ -348,15 +348,106 @@ def recent_minute_window(store: RealDataStore, lookback: int) -> pd.DataFrame:
     return frame.tail(lookback).reset_index(drop=True)
 
 
+# How far a `timestamps` entry may sit from its nearest real cloud_history
+# reading and still use it in _historical_attenuation() below - wide enough to
+# absorb Himawari backfill's own hourly cadence (see himawari_ingestion.backfill's
+# docstring) not lining up exactly on this function's hour-aligned timestamps,
+# narrow enough that a timestamp far outside cloud_history's actual coverage
+# (e.g. before this deployment's Himawari ingestion had reached that far back)
+# correctly falls back to the clear-sky default below instead of borrowing a
+# stale reading from hours away.
+_HISTORICAL_CLOUD_MATCH_TOLERANCE = pd.Timedelta(hours=2)
+
+
+def _cloud_opacity_to_attenuation(opacity_pct: float) -> float:
+    """Same directional-not-calibrated approximation both attenuation paths
+    below share - see physics_baseline_series' own docstring for the caveat."""
+    return max(0.05, 1 - 0.8 * (opacity_pct / 100))
+
+
+def _latest_cloud_attenuation(store: RealDataStore | None, max_cloud_age_minutes: float) -> float:
+    """The original single-reading attenuation: whatever `store`'s most recent
+    cloud observation says right now, applied uniformly to every requested
+    timestamp - correct for live/near-future serving (there is only one "now"),
+    and deliberately kept as-is for backfill_forecast_history's retrospective
+    use too (a forecast issued in the past couldn't have seen a cloud reading
+    from its own future - see that function's own docstring)."""
+    if store is None:
+        return 1.0
+    latest = store.latest_cloud_observation()
+    if latest is None:
+        return 1.0
+    observed_at, opacity_pct, _cloud_index = latest
+    age_minutes = (datetime.now(timezone.utc) - observed_at).total_seconds() / 60
+    if age_minutes > max_cloud_age_minutes:
+        return 1.0
+    return _cloud_opacity_to_attenuation(opacity_pct)
+
+
+def _historical_cloud_attenuation(timestamps: pd.DatetimeIndex, store: RealDataStore) -> np.ndarray:
+    """Per-timestamp attenuation from real cloud_history, nearest-match within
+    `_HISTORICAL_CLOUD_MATCH_TOLERANCE` - unlike `_latest_cloud_attenuation`'s
+    single reading applied everywhere, this looks up *that specific hour's own*
+    real cloud opacity (2026-07-19, for backfill_generated_power_history's
+    retrospective "actual power" estimate specifically - see that function's
+    own docstring for why "actual" and "forecast" deliberately diverge here).
+    Falls back to attenuation=1.0 (clear-sky) for any timestamp with no
+    historical match within tolerance, same graceful-degradation default as
+    the no-cloud-data case in `_latest_cloud_attenuation` - an incomplete or
+    still-warming-up cloud_history never raises, it just makes that one hour
+    an optimistic clear-sky guess like the old behavior always was.
+    """
+    cloud_df = store.cloud_history_df()
+    if cloud_df.empty:
+        return np.full(len(timestamps), 1.0)
+
+    # Stays in pandas Timestamp/Timedelta space throughout (not raw numpy
+    # datetime64) - both `observed` and `timestamps` are tz-aware (UTC), and
+    # numpy has no native tz-aware datetime64 dtype, so converting either
+    # side via np.datetime64() silently drops to an incomparable object
+    # dtype instead of raising.
+    observed = pd.DatetimeIndex(cloud_df["observed_at"])
+    opacity = cloud_df["cloud_opacity_pct"].to_numpy()
+
+    attenuation = np.full(len(timestamps), 1.0)
+    for i, ts in enumerate(timestamps):
+        deltas = np.abs(observed - ts)
+        nearest = deltas.argmin()
+        if deltas[nearest] <= _HISTORICAL_CLOUD_MATCH_TOLERANCE:
+            attenuation[i] = _cloud_opacity_to_attenuation(opacity[nearest])
+    return attenuation
+
+
 def physics_baseline_series(
-    zone: str, timestamps: pd.DatetimeIndex, store: RealDataStore | None = None, max_cloud_age_minutes: float = 30.0
+    zone: str,
+    timestamps: pd.DatetimeIndex,
+    store: RealDataStore | None = None,
+    max_cloud_age_minutes: float = 30.0,
+    use_historical_cloud: bool = False,
 ) -> pd.DataFrame:
-    """A no-ML estimate: pvlib clear-sky GHI, attenuated by the most recent real
-    cloud observation if one exists and is fresh enough (else assumed clear-sky,
-    an explicitly optimistic bias - see README), converted through the zone's
-    physics PV model. Used by serving.get_forecast_with_fallback() so the dashboard
-    shows *something* real-weather-driven instead of a 404 while too little history
-    has accumulated to trust an ML model yet (see root README "Known gaps").
+    """A no-ML estimate: pvlib clear-sky GHI, attenuated by real cloud
+    observations, converted through the zone's physics PV model. Used by
+    serving.get_forecast_with_fallback() so the dashboard shows *something*
+    real-weather-driven instead of a 404 while too little history has
+    accumulated to trust an ML model yet (see root README "Known gaps").
+
+    `use_historical_cloud=False` (default): attenuated by the single most
+    recent real cloud observation if one exists and is fresh enough (else
+    assumed clear-sky, an explicitly optimistic bias - see README) - correct
+    for live/near-future serving, and for backfill_forecast_history's
+    retrospective seed (a forecast issued at some past hour has no business
+    seeing a cloud reading from its own future, so "whatever the live
+    fallback would have said" is the honest retrospective number there).
+
+    `use_historical_cloud=True`: attenuated by each timestamp's *own* nearest
+    real cloud_history reading instead (2026-07-19) - used by
+    backfill_generated_power_history specifically, where "actual power" for
+    an already-past hour should reflect that hour's real weather when it's
+    available, not today's snapshot replayed across every past hour. Without
+    this, backfill_generated_power_history and backfill_forecast_history
+    called physics_baseline_series() with identical inputs and produced
+    bit-identical numbers for the same cold-start window - see
+    backfill_generated_power_history's own docstring for the full story.
 
     The cloud attenuation factor (`1 - 0.8 * opacity_pct/100`) is a simple, documented
     approximation, not a fitted relationship - opacity is a coverage percentage, not
@@ -370,14 +461,10 @@ def physics_baseline_series(
     lat, lon = nong_fab_site_location()
     clearsky = compute_clearsky_and_position(timestamps, lat, lon)
 
-    attenuation = 1.0
-    if store is not None:
-        latest = store.latest_cloud_observation()
-        if latest is not None:
-            observed_at, opacity_pct, _cloud_index = latest
-            age_minutes = (datetime.now(timezone.utc) - observed_at).total_seconds() / 60
-            if age_minutes <= max_cloud_age_minutes:
-                attenuation = max(0.05, 1 - 0.8 * (opacity_pct / 100))
+    if use_historical_cloud and store is not None:
+        attenuation = _historical_cloud_attenuation(timestamps, store)
+    else:
+        attenuation = _latest_cloud_attenuation(store, max_cloud_age_minutes)
 
     ghi_effective = clearsky["ghi_clearsky"] * attenuation
     params = pv_params_for_zone(zone)
