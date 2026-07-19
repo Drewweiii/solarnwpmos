@@ -3,6 +3,7 @@ import {
   advanceSimClockMs,
   angleArcPoints,
   compassLabel,
+  interpolateAzimuthDeg,
   interpolateSunPosition,
   irradianceGhiColor,
   latLonToLocalMeters,
@@ -144,6 +145,45 @@ describe('interpolateSunPosition', () => {
     ]
     const result = interpolateSunPosition(overnightGapPoints, '2026-07-19T11:22:30Z')
     expect(result?.elevationDeg).toBeCloseTo(4.3, 1)
+  })
+
+  it('interpolates across the 0/360 wrap the short way (forward through north), not backward', () => {
+    // A body crossing due north between two samples (355deg -> 5deg): the
+    // marker must land at 0deg (north) halfway, NOT sweep back through the
+    // whole southern sky (~180deg) - the Moon's "jerks weirdly" glitch.
+    const wrapPoints = [
+      { time: '2026-07-18T00:00:00Z', azimuth_deg: 355, elevation_deg: 40 },
+      { time: '2026-07-18T00:15:00Z', azimuth_deg: 5, elevation_deg: 42 },
+    ]
+    const mid = interpolateSunPosition(wrapPoints, '2026-07-18T00:07:30Z')
+    expect(mid?.azimuthDeg).toBeCloseTo(0)
+    expect(mid?.elevationDeg).toBeCloseTo(41)
+  })
+})
+
+describe('interpolateAzimuthDeg', () => {
+  it('interpolates the ordinary (non-wrapping) case as a plain lerp', () => {
+    expect(interpolateAzimuthDeg(80, 100, 0.5)).toBeCloseTo(90)
+  })
+
+  it('takes the short way forward across north (350 -> 10 gives +20, landing at 0 halfway)', () => {
+    expect(interpolateAzimuthDeg(350, 10, 0.5)).toBeCloseTo(0)
+    expect(interpolateAzimuthDeg(350, 10, 0.25)).toBeCloseTo(355)
+  })
+
+  it('takes the short way backward across north (10 -> 350 gives -20, landing at 0 halfway)', () => {
+    expect(interpolateAzimuthDeg(10, 350, 0.5)).toBeCloseTo(0)
+    expect(interpolateAzimuthDeg(10, 350, 0.25)).toBeCloseTo(5)
+  })
+
+  it('never sweeps the long way even for a near-180 difference', () => {
+    // 170 -> 190 is a genuine 20deg southern crossing, still the short arc.
+    expect(interpolateAzimuthDeg(170, 190, 0.5)).toBeCloseTo(180)
+  })
+
+  it('returns endpoints normalized into [0, 360)', () => {
+    expect(interpolateAzimuthDeg(355, 5, 0)).toBeCloseTo(355)
+    expect(interpolateAzimuthDeg(355, 5, 1)).toBeCloseTo(5)
   })
 })
 

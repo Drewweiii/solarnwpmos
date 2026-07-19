@@ -26,6 +26,20 @@ interface TimedAngle {
   elevation_deg: number
 }
 
+/** Interpolates a compass azimuth from `fromDeg` to `toDeg` by fraction `t`,
+ * always taking the shorter arc around the 0/360 circle (the true direction
+ * a celestial body moves between two close-in-time samples) rather than the
+ * naive numeric path. Folds any azimuth difference into (-180, 180] first,
+ * so 350deg -> 10deg reads as +20deg (forward through north) not -340deg,
+ * and 10deg -> 350deg reads as -20deg (backward through north) not +340deg.
+ * The returned angle is normalized back into [0, 360). Exported so the same
+ * wrap-safe blend is unit-testable in isolation (see solar3d.test.ts). */
+export function interpolateAzimuthDeg(fromDeg: number, toDeg: number, t: number): number {
+  let delta = ((toDeg - fromDeg) % 360 + 540) % 360 - 180
+  const raw = fromDeg + delta * t
+  return ((raw % 360) + 360) % 360
+}
+
 /** Linearly interpolates azimuth/elevation between the two `points` (sorted
  * ascending by `time`, as `/sun-path` already returns them) bracketing
  * `atIso` - what makes the 3D view's sun glide continuously between the
@@ -36,7 +50,19 @@ interface TimedAngle {
  * (before sunrise or after sunset) returns `null` rather than clamping to
  * the first/last point, so a caller doesn't mistake "no data past sunset"
  * for "the sun is still up at the sunset position". Returns `null` for an
- * empty `points` array too. */
+ * empty `points` array too.
+ *
+ * Azimuth is interpolated the SHORT way around the compass (see
+ * `interpolateAzimuthDeg`), not by a naive numeric lerp - without this, a
+ * body crossing due north between two samples (e.g. 355deg -> 5deg, which
+ * both the summer Sun and the Moon really do near their meridian transit at
+ * this near-equatorial latitude) would sweep the marker *backward* across
+ * the entire sky (355 -> 180 -> 5) in a single 15-minute step instead of
+ * the 10deg forward nudge it should be. That backward sweep was the Moon's
+ * visible "jerks weirdly" glitch the user reported 2026-07-18; fixing it
+ * here fixes it identically for both markers (they share this function), so
+ * the Sun and Moon now rise, transit, and set with the same smooth,
+ * same-direction motion. */
 // /sun-path returns only elevation>0 samples (see routes_solar3d.py's own
 // docstring) at a nominal 15-minute cadence - but since that filter is
 // applied to a fixed UTC calendar day, the *kept* points routinely jump
@@ -75,7 +101,7 @@ export function interpolateSunPosition(points: TimedAngle[], atIso: string): { a
       if (bMs - aMs > MAX_ADJACENT_SAMPLE_GAP_MS) return null
       const t = bMs === aMs ? 0 : (targetMs - aMs) / (bMs - aMs)
       return {
-        azimuthDeg: a.azimuth_deg + (b.azimuth_deg - a.azimuth_deg) * t,
+        azimuthDeg: interpolateAzimuthDeg(a.azimuth_deg, b.azimuth_deg, t),
         elevationDeg: a.elevation_deg + (b.elevation_deg - a.elevation_deg) * t,
       }
     }

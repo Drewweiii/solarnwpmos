@@ -449,20 +449,34 @@ def start_background_ingestion(store: RealDataStore, settings) -> list[asyncio.T
     becomes ready to serve requests immediately (existing forecasts just fall
     back to the synthetic/physics-baseline path - see serving.py - until it
     completes).
+
+    The retrain loop is spawned only when `settings.enable_background_retraining`
+    is set (default True) - it's the heavy, memory-spiking task (trains all 9
+    (zone, horizon) models with torch/lightgbm/neuralforecast) that a
+    memory-constrained deploy may need to turn off to avoid the OOM that was
+    dropping WebSocket chat, while still keeping the cheap polling below on so
+    the live dashboard readouts stay fed. See config.py's own docstring on
+    `enable_background_retraining` for the full reasoning.
     """
-    return [
+    tasks = [
         asyncio.create_task(run_startup_backfill(store, settings.backfill_lookback_days), name="ingestion-startup-backfill"),
         asyncio.create_task(_poll_himawari_forever(store, settings.himawari_poll_interval_seconds), name="ingestion-poll-himawari"),
         asyncio.create_task(
             _poll_nwp_forever(store, settings.nwp_poll_interval_seconds, settings.nwp_poll_forecast_hours), name="ingestion-poll-nwp"
         ),
-        asyncio.create_task(
-            _retrain_forever(
-                store, settings.retrain_interval_cold_seconds, settings.retrain_interval_warm_seconds, settings.retrain_warm_threshold_rows
-            ),
-            name="ingestion-retrain",
-        ),
     ]
+    if getattr(settings, "enable_background_retraining", True):
+        tasks.append(
+            asyncio.create_task(
+                _retrain_forever(
+                    store, settings.retrain_interval_cold_seconds, settings.retrain_interval_warm_seconds, settings.retrain_warm_threshold_rows
+                ),
+                name="ingestion-retrain",
+            )
+        )
+    else:
+        logger.info("background retraining disabled (enable_background_retraining=false) - ingestion polling still active")
+    return tasks
 
 
 async def stop_background_ingestion(tasks: list[asyncio.Task]) -> None:

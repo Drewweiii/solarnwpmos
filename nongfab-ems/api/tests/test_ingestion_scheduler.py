@@ -23,12 +23,60 @@ PVGIS above.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from nongfab_forecast.local_store import RealDataStore
 from nongfab_forecast.serving import FORECAST_HISTORY_LOOKBACK_HOURS, GENERATED_POWER_BACKFILL_HOURS, GENERATED_POWER_HORIZON
 
 from nongfab_api import ingestion_scheduler
-from nongfab_api.ingestion_scheduler import ZONES, _backfill_forecast_history, _backfill_generated_power_history
+from nongfab_api.ingestion_scheduler import (
+    ZONES,
+    _backfill_forecast_history,
+    _backfill_generated_power_history,
+    start_background_ingestion,
+    stop_background_ingestion,
+)
+
+
+def _scheduler_settings(**overrides) -> SimpleNamespace:
+    base = dict(
+        backfill_lookback_days=1,
+        himawari_poll_interval_seconds=600.0,
+        nwp_poll_interval_seconds=3600.0,
+        nwp_poll_forecast_hours=[1],
+        retrain_interval_cold_seconds=3600.0,
+        retrain_interval_warm_seconds=21600.0,
+        retrain_warm_threshold_rows=500,
+        enable_background_retraining=True,
+    )
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+async def test_start_background_ingestion_spawns_retrain_task_when_enabled():
+    store = RealDataStore()
+    tasks = start_background_ingestion(store, _scheduler_settings(enable_background_retraining=True))
+    try:
+        names = {t.get_name() for t in tasks}
+        assert "ingestion-retrain" in names
+        assert "ingestion-poll-nwp" in names  # cheap polling always present
+    finally:
+        await stop_background_ingestion(tasks)
+
+
+async def test_start_background_ingestion_skips_retrain_task_when_disabled():
+    """The memory-heavy retrain loop is gated off, but the cheap GFS/Himawari
+    polling that feeds the live dashboard readouts must still run - the whole
+    point of splitting the two flags (2026-07-19)."""
+    store = RealDataStore()
+    tasks = start_background_ingestion(store, _scheduler_settings(enable_background_retraining=False))
+    try:
+        names = {t.get_name() for t in tasks}
+        assert "ingestion-retrain" not in names
+        assert "ingestion-poll-nwp" in names
+        assert "ingestion-poll-himawari" in names
+    finally:
+        await stop_background_ingestion(tasks)
 
 
 async def _no_op_himawari_bounded(store, days):
