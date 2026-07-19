@@ -19,6 +19,7 @@ import {
 } from 'recharts'
 import { ZoneSelector } from '../components/ZoneSelector'
 import { WeatherStrip } from '../components/WeatherStrip'
+import { useAuth } from '../lib/auth'
 import {
   buildCompetitionRows,
   exactTimeKey,
@@ -166,6 +167,7 @@ function ScrollHint() {
 const MAIN_CHART_PX_PER_POINT = 28
 
 export function ForecastPage() {
+  const { role } = useAuth()
   const [zoneId, setZoneId] = useState(ALL_ZONES_ID)
   const [horizonToggle, setHorizonToggle] = useState<HorizonToggle>('day')
   const horizon: ForecastHorizon = horizonToggle
@@ -656,12 +658,18 @@ export function ForecastPage() {
 
       {horizonToggle === 'hour' && <ErrorChartPanel rows={chartRows} />}
 
-      <ModelCompetitionPanel
-        rows={competitionRows}
-        isLoading={competitionLoading}
-        hasError={Boolean(competitionError)}
-        isPhysicsBaseline={competitionIsPhysicsBaseline}
-      />
+      {role !== 'viewer' && (
+        // Hidden from viewer role per 2026-07-19 request - same
+        // "not important enough for the public dashboard" precedent as
+        // RequireOperator in App.tsx for Financial/Simulation, but scoped to
+        // just this one panel (rest of ForecastPage stays visible to viewer).
+        <ModelCompetitionPanel
+          rows={competitionRows}
+          isLoading={competitionLoading}
+          hasError={Boolean(competitionError)}
+          isPhysicsBaseline={competitionIsPhysicsBaseline}
+        />
+      )}
 
       <WeatherStrip
         points={weatherStrip.data?.points ?? []}

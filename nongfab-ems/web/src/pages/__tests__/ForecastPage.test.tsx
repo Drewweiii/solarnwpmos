@@ -125,9 +125,9 @@ function makeCurrentConditions(): CurrentConditionsResponse {
 
 const registry: AssetRegistry = { zones: [makeZone('GIS', 50), makeZone('ISB', 120), makeZone('Jetty', 200, true)] }
 
-function renderPage() {
+function renderPage(token = 'header.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9.sig') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  localStorage.setItem('nongfab_ems_token', 'header.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9.sig')
+  localStorage.setItem('nongfab_ems_token', token)
   return render(
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
@@ -255,6 +255,14 @@ describe('ForecastPage', () => {
 
     await waitFor(() => expect(api.getForecast).toHaveBeenCalledWith('GIS', 'hour', expect.any(String)))
     expect(await screen.findByLabelText(/model competition panel/i)).toBeInTheDocument()
+  })
+
+  it('hides the Model Competition panel for viewer role (2026-07-19: not important for the public dashboard)', async () => {
+    renderPage('header.eyJzdWIiOiJ2aWV3ZXIiLCJyb2xlIjoidmlld2VyIn0=.sig')
+    await clickGisTab()
+
+    await waitFor(() => expect(api.getForecast).toHaveBeenCalledWith('GIS', 'hour', expect.any(String)))
+    expect(screen.queryByLabelText(/model competition panel/i)).not.toBeInTheDocument()
   })
 
   it('shows the Model Competition chart (not the "no data" placeholder) once the hour-ahead point is within the live window', async () => {
