@@ -4,6 +4,7 @@ import {
   getCloudConditions,
   getCurrentConditions,
   getEnergyReport,
+  getSavingsSummary,
   getFeedback,
   getForecast,
   getGeometry,
@@ -214,6 +215,20 @@ export function useEnergyReport(zone: string) {
     queryFn: () => getEnergyReport(zone, token!),
     enabled: Boolean(token) && zone !== ALL_ZONES_ID,
     staleTime: 5 * 60 * 1000, // annual/loss/SLD figures don't change within a session
+  })
+}
+
+/** Site-wide savings & carbon summary (ISB/GIS/Jetty + combined) for the
+ * Energy Report bottom table - a single call covers every zone, so it is not
+ * zone-scoped like `useEnergyReport`. Slow-moving (seasonal estimates), so the
+ * same 5-min staleTime as the energy report is plenty. */
+export function useSavingsSummary() {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['savings-summary'],
+    queryFn: () => getSavingsSummary(token!),
+    enabled: Boolean(token),
+    staleTime: 5 * 60 * 1000,
   })
 }
 

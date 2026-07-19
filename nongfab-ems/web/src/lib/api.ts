@@ -4,6 +4,7 @@ import type {
   CloudConditionsResponse,
   CurrentConditionsResponse,
   EnergyReportResponse,
+  SavingsSummaryResponse,
   FeedbackItem,
   FinancialRequest,
   FinancialResponse,
@@ -139,6 +140,9 @@ export const getMoonPath = (zone: string, date: string | undefined, token: strin
 
 export const getEnergyReport = (zone: string, token: string): Promise<EnergyReportResponse> =>
   request(`/energy-report/${zone}`, token)
+
+export const getSavingsSummary = (token: string): Promise<SavingsSummaryResponse> =>
+  request(`/savings/summary`, token)
 
 export const getIrradianceMap = (at: string | undefined, token: string): Promise<IrradianceMapResponse> =>
   request(`/irradiance-map${at ? `?at=${encodeURIComponent(at)}` : ''}`, token)

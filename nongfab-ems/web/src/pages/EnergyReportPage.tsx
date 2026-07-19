@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { EnergySavingsTable } from '../components/EnergySavingsTable'
 import { SLDViewer } from '../components/SLDViewer'
 import { ZoneSelector } from '../components/ZoneSelector'
 import { useEnergyReport } from '../lib/queries'
@@ -214,6 +215,14 @@ export function EnergyReportPage() {
           </section>
         </>
       )}
+
+      {/* Site-wide savings & carbon table (ISB/GIS/Jetty + combined) - has its
+          own query and zone tabs, so it renders independently of the per-zone
+          report above. Requested 2026-07-19. */}
+      <section className="energy-report-section" aria-label="ผลประหยัดและคาร์บอน">
+        <h2>💡 ผลประหยัดค่าไฟ &amp; คาร์บอน (รายวัน / เดือน / ปี / 25 ปี)</h2>
+        <EnergySavingsTable />
+      </section>
     </div>
   )
 }

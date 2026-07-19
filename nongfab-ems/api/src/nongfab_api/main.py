@@ -31,6 +31,7 @@ from . import (
     routes_forecast,
     routes_irradiance_map,
     routes_performance,
+    routes_savings,
     routes_simulate,
     routes_solar3d,
     routes_weather,
@@ -216,6 +217,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     app.include_router(routes_performance.router)
     app.include_router(routes_solar3d.router)
     app.include_router(routes_energy_report.router)
+    app.include_router(routes_savings.router)
     app.include_router(routes_financial.router)
     app.include_router(routes_irradiance_map.router)
     app.include_router(routes_weather.router)

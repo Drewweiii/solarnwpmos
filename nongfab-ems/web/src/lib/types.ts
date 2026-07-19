@@ -451,6 +451,43 @@ export interface EnergyReportResponse {
   sld: SLDData
 }
 
+// --- Savings & carbon summary (Energy Report bottom table) ----------------
+// Per (zone, horizon) money/CO2/carbon figures. Mirrors the API's
+// SavingsMetricsOut - see api/src/nongfab_api/green_savings.py for how each is
+// derived and from which real reference document.
+export interface SavingsMetrics {
+  energy_kwh: number
+  bill_saving_thb: number
+  ugt1_units_kwh: number
+  ugt1_saving_thb: number
+  ugt2_units_kwh: number
+  ugt2_saving_thb: number
+  carbon_credit_units: number
+  carbon_credit_value_thb: number
+  trees_equivalent: number
+  scope2_co2_avoided_kg: number
+}
+
+export interface SavingsPeriods {
+  day: SavingsMetrics
+  month: SavingsMetrics
+  year: SavingsMetrics
+  lifetime: SavingsMetrics
+}
+
+export interface ZoneSavings {
+  zone: string
+  label: string
+  simulated: boolean
+  dc_capacity_kwp: number
+  periods: SavingsPeriods
+}
+
+export interface SavingsSummaryResponse {
+  zones: ZoneSavings[]
+  assumptions: Record<string, number | string>
+}
+
 export interface IrradianceGridPoint {
   lat: number
   lon: number
