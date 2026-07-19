@@ -89,16 +89,16 @@ const HAND_WRITTEN_INTENTS: AssistantIntent[] = [
     respond: (_question, ctx) => {
       const isViewer = ctx.role === 'viewer'
       const lines = [
-        '• Forecast — กราฟพยากรณ์การผลิตไฟ เทียบกับของจริง ดูได้ทั้งรายวัน/รายชั่วโมง',
+        '• 📈 Forecast — กราฟพยากรณ์การผลิตไฟ เทียบกับของจริง ดูได้ทั้งรายวัน/รายชั่วโมง',
         ...(isViewer
           ? []
           : [
-              '• Simulation — ทดลองสถานการณ์สมมติ เช่น เมฆเยอะขึ้น หรือแผงเสื่อมสภาพ',
-              '• Financial — วิเคราะห์ความคุ้มค่าการลงทุน (NPV/IRR/คืนทุน)',
+              '• 🧪 Simulation — ทดลองสถานการณ์สมมติ เช่น เมฆเยอะขึ้น หรือแผงเสื่อมสภาพ',
+              '• 💰 Financial — วิเคราะห์ความคุ้มค่าการลงทุน (NPV/IRR/คืนทุน)',
             ]),
-        '• 3D View — ดูโรงงานจำลอง 3 มิติ พร้อมเงาและเส้นทางดวงอาทิตย์',
-        '• Energy Report — รายงานสรุปพลังงานรายปี/รายเดือน',
-        '• Irradiance Map — แผนที่ความเข้มแสงอาทิตย์ในพื้นที่',
+        '• 🏗️ 3D View — ดูโรงงานจำลอง 3 มิติ พร้อมเงาและเส้นทางดวงอาทิตย์',
+        '• 📊 Energy Report — รายงานสรุปพลังงานรายปี/รายเดือน',
+        '• 🗺️ Irradiance Map — แผนที่ความเข้มแสงอาทิตย์ในพื้นที่',
       ]
       const intro = isViewer ? `เว็บนี้มี ${lines.length} หน้าที่ผู้ชมทั่วไปดูได้ครับ:` : `เว็บนี้มี ${lines.length} หน้าหลักครับ:`
       const viewerNote = isViewer ? '\n(Simulation กับ Financial เปิดให้เฉพาะบัญชี operator ขึ้นไปครับ)' : ''
@@ -115,28 +115,28 @@ const HAND_WRITTEN_INTENTS: AssistantIntent[] = [
     id: 'knowledge_irradiance',
     keywords: ['ความเข้มแสง', 'irradiance', 'ghi', 'w/m2', 'w/m²'],
     respond: () =>
-      '"ความเข้มแสงอาทิตย์" (irradiance) คือปริมาณพลังงานแสงอาทิตย์ที่ตกกระทบพื้นที่หนึ่งตารางเมตร วัดเป็นวัตต์ต่อตารางเมตร (W/m²) ' +
+      '☀️ "ความเข้มแสงอาทิตย์" (irradiance) คือปริมาณพลังงานแสงอาทิตย์ที่ตกกระทบพื้นที่หนึ่งตารางเมตร วัดเป็นวัตต์ต่อตารางเมตร (W/m²) ' +
       'ยิ่งค่าสูง (เช่นเที่ยงวันฟ้าใส ~800-1000 W/m²) แผงโซลาร์ก็ยิ่งผลิตไฟได้มากขึ้นครับ',
   },
   {
     id: 'knowledge_kwp',
     keywords: ['kwp คือ', 'kwp หมายถึง', 'what is kwp'],
     respond: () =>
-      'kWp (กิโลวัตต์พีค) คือกำลังการผลิตสูงสุดของแผงโซลาร์ วัดภายใต้สภาวะทดสอบมาตรฐาน (STC: แสง 1000 W/m², อุณหภูมิ 25°C) ' +
+      '⚡ kWp (กิโลวัตต์พีค) คือกำลังการผลิตสูงสุดของแผงโซลาร์ วัดภายใต้สภาวะทดสอบมาตรฐาน (STC: แสง 1000 W/m², อุณหภูมิ 25°C) ' +
       'ส่วน kW AC คือกำลังไฟฟ้ากระแสสลับสูงสุดที่อินเวอร์เตอร์แปลงออกมาได้จริง ซึ่งมักจะน้อยกว่า kWp เล็กน้อยครับ',
   },
   {
     id: 'knowledge_plant_factor',
     keywords: ['plant factor คือ', 'solar plant factor', 'capacity factor'],
     respond: () =>
-      '"Solar plant factor" (หรือ capacity factor) บอกว่าโรงไฟฟ้าผลิตไฟได้กี่เปอร์เซ็นต์ของกำลังการผลิตติดตั้งเทียบกับถ้าผลิตเต็มกำลังตลอด 24 ชม. ' +
+      '📊 "Solar plant factor" (หรือ capacity factor) บอกว่าโรงไฟฟ้าผลิตไฟได้กี่เปอร์เซ็นต์ของกำลังการผลิตติดตั้งเทียบกับถ้าผลิตเต็มกำลังตลอด 24 ชม. ' +
       'โซลาร์ผลิตได้แค่ตอนกลางวัน ค่านี้จึงมักอยู่ราว 0.1-0.25 เป็นเรื่องปกติ ไม่ใช่ตัวเลขที่ต่ำผิดปกติครับ',
   },
   {
     id: 'knowledge_forecast_horizon',
     keywords: ['day-ahead', 'intra-day', 'ต่างกันยังไง', 'minute-ahead'],
     respond: () =>
-      'พยากรณ์ในเว็บนี้มี 3 ระยะ: Day-ahead (พยากรณ์ล่วงหน้าหลายวัน เหมาะกับวางแผนระยะกลาง), ' +
+      '⏱️ พยากรณ์ในเว็บนี้มี 3 ระยะ: Day-ahead (พยากรณ์ล่วงหน้าหลายวัน เหมาะกับวางแผนระยะกลาง), ' +
       'Intra-day (ล่วงหน้า 1-6 ชม. แม่นกว่าเพราะใกล้เวลาจริง), และ Minute-ahead (ล่วงหน้า 10-60 นาที ' +
       'สำหรับการเปลี่ยนแปลงเร็วๆ เช่นเมฆบัง) ครับ',
   },
@@ -150,7 +150,7 @@ const HAND_WRITTEN_INTENTS: AssistantIntent[] = [
     respond: async (question, ctx) => {
       const { label, totals } = await fetchZonePerformance(extractZone(question), ctx.token)
       const totalKw = totals.reduce((sum, p) => sum + currentPowerKw(p), 0)
-      return `${label} กำลังผลิตไฟอยู่ประมาณ ${totalKw.toFixed(1)} kW ในขณะนี้ครับ (คำนวณจากแบบจำลอง ไม่ใช่ค่าที่วัดจากมิเตอร์จริง)`
+      return `⚡ ${label} กำลังผลิตไฟอยู่ประมาณ ${totalKw.toFixed(1)} kW ในขณะนี้ครับ (คำนวณจากแบบจำลอง ไม่ใช่ค่าที่วัดจากมิเตอร์จริง)`
     },
   },
   {
@@ -159,7 +159,7 @@ const HAND_WRITTEN_INTENTS: AssistantIntent[] = [
     respond: async (question, ctx) => {
       const { label, totals } = await fetchZonePerformance(extractZone(question), ctx.token)
       const totalKwh = sumField(totals, 'ac_energy_kwh_today')
-      return `${label} ผลิตไฟสะสมตั้งแต่เที่ยงคืนถึงตอนนี้ประมาณ ${totalKwh.toFixed(1)} kWh ครับ (คำนวณจากแบบจำลอง ยังไม่ใช่มิเตอร์จริง - ดูรายละเอียดที่หน้า Forecast ได้ครับ)`
+      return `🔋 ${label} ผลิตไฟสะสมตั้งแต่เที่ยงคืนถึงตอนนี้ประมาณ ${totalKwh.toFixed(1)} kWh ครับ (คำนวณจากแบบจำลอง ยังไม่ใช่มิเตอร์จริง - ดูรายละเอียดที่หน้า Forecast ได้ครับ)`
     },
   },
   {
@@ -172,7 +172,7 @@ const HAND_WRITTEN_INTENTS: AssistantIntent[] = [
       if (!first) return `ยังไม่มีข้อมูลพยากรณ์สำหรับ ${zone} ในตอนนี้ครับ`
       const sourceNote = result.data_source === 'real' ? 'อิงจากข้อมูลอากาศจริง' : 'ยังใช้ข้อมูลจำลอง (ข้อมูลจริงสะสมไม่พอ)'
       return (
-        `พยากรณ์การผลิตไฟของ ${zone} ในช่วงถัดไป อยู่ที่ประมาณ ${first.pred.toFixed(1)} kW ` +
+        `📈 พยากรณ์การผลิตไฟของ ${zone} ในช่วงถัดไป อยู่ที่ประมาณ ${first.pred.toFixed(1)} kW ` +
         (first.lower != null && first.upper != null ? `(ช่วง ${first.lower.toFixed(1)}-${first.upper.toFixed(1)} kW) ` : '') +
         `${sourceNote}ครับ - ดูกราฟเต็มได้ที่หน้า Forecast`
       )
@@ -185,7 +185,7 @@ const HAND_WRITTEN_INTENTS: AssistantIntent[] = [
       const registry = await getAssets(ctx.token)
       const lines = registry.zones.map((z) => `• ${z.id}: ${z.ac_capacity_kw} kW AC / ${z.dc_capacity_kwp} kWp DC${z.simulated ? ' (แผนอนาคต ยังไม่ติดตั้งจริง)' : ''}`)
       const total = registry.zones.reduce((sum, z) => sum + z.ac_capacity_kw, 0)
-      return `กำลังการผลิตติดตั้งของโรงไฟฟ้า:\n${lines.join('\n')}\nรวมทั้งหมด ${total} kW AC ครับ`
+      return `🏭 กำลังการผลิตติดตั้งของโรงไฟฟ้า:\n${lines.join('\n')}\nรวมทั้งหมด ${total} kW AC ครับ`
     },
   },
   {
@@ -198,7 +198,7 @@ const HAND_WRITTEN_INTENTS: AssistantIntent[] = [
         Math.abs(new Date(p.timestamp).getTime() - now) < Math.abs(new Date(closest.timestamp).getTime() - now) ? p : closest,
       )
       const sourceNote = strip.data_source === 'real' ? 'ข้อมูลจริง' : 'ข้อมูลจำลอง'
-      return `ตอนนี้อุณหภูมิที่โรงไฟฟ้าประมาณ ${nearest.temp_c.toFixed(1)}°C (${sourceNote}) ครับ ดูแถบอุณหภูมิเต็มได้ที่หน้า Forecast`
+      return `🌤️ ตอนนี้อุณหภูมิที่โรงไฟฟ้าประมาณ ${nearest.temp_c.toFixed(1)}°C (${sourceNote}) ครับ ดูแถบอุณหภูมิเต็มได้ที่หน้า Forecast`
     },
   },
   {
@@ -206,8 +206,8 @@ const HAND_WRITTEN_INTENTS: AssistantIntent[] = [
     keywords: ['การเงิน', 'ลงทุน', 'คืนทุน', 'roi', 'npv', 'irr', 'financial', 'คุ้มไหม'],
     respond: (_question, ctx) =>
       ctx.role === 'viewer'
-        ? 'หน้า Financial (วิเคราะห์ความคุ้มค่าการลงทุน) เปิดให้เฉพาะบัญชี operator ขึ้นไปครับ บัญชีผู้ชมทั่วไปยังเข้าดูหน้านี้ไม่ได้ครับ'
-        : 'หน้า Financial คำนวณความคุ้มค่าการลงทุน (NPV/IRR/LCOE/ระยะเวลาคืนทุน) ให้ครับ ' +
+        ? '💰 หน้า Financial (วิเคราะห์ความคุ้มค่าการลงทุน) เปิดให้เฉพาะบัญชี operator ขึ้นไปครับ บัญชีผู้ชมทั่วไปยังเข้าดูหน้านี้ไม่ได้ครับ'
+        : '💰 หน้า Financial คำนวณความคุ้มค่าการลงทุน (NPV/IRR/LCOE/ระยะเวลาคืนทุน) ให้ครับ ' +
           'แต่ตอนนี้ตัวเลขต้นทุน/ค่าไฟ/อัตราดอกเบี้ยยังเป็นค่าประมาณเบื้องต้น ยังไม่ใช่ตัวเลขจริงของโครงการนี้ ' +
           'ลองเข้าไปปรับตัวเลขเองที่หน้า Financial ได้เลยครับ',
   },

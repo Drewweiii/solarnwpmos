@@ -3,7 +3,15 @@ import { findMascotInteraction, MASCOT_INTERACTIONS } from '../mascotInteraction
 
 describe('MASCOT_INTERACTIONS', () => {
   it('has a generous number of interactions, not just 2-3 token options', () => {
-    expect(MASCOT_INTERACTIONS.length).toBeGreaterThanOrEqual(10)
+    expect(MASCOT_INTERACTIONS.length).toBeGreaterThanOrEqual(20) // expanded 2026-07-18, was 12
+  })
+
+  it('every label includes at least one emoji, matching the "เพิ่มอิโมจิ" request', () => {
+    // eslint-disable-next-line no-misleading-character-class -- matching any emoji-ish codepoint, not a single grapheme
+    const hasEmoji = /\p{Extended_Pictographic}/u
+    for (const interaction of MASCOT_INTERACTIONS) {
+      expect(hasEmoji.test(interaction.label), `${interaction.id} label should include an emoji`).toBe(true)
+    }
   })
 
   it('every interaction has a unique id', () => {

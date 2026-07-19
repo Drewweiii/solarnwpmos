@@ -179,7 +179,7 @@ describe('AIAssistant', () => {
       expect(await screen.findByRole('button', { name: '📚 ดูหมวดคำถามอื่น' })).toBeInTheDocument()
 
       await user.click(screen.getByRole('button', { name: '📚 ดูหมวดคำถามอื่น' }))
-      expect(await screen.findByText('อยากถามเรื่องอะไรดีครับ เลือกหมวดได้เลย:')).toBeInTheDocument()
+      expect(await screen.findByText('อยากถามเรื่องอะไรดีครับ 🤔 เลือกหมวดได้เลย:')).toBeInTheDocument()
     })
 
     it('a topic group menu also offers a way back to other categories', async () => {
@@ -225,7 +225,7 @@ describe('AIAssistant', () => {
       await user.click(menuButton)
       await user.click(menuButton)
 
-      expect(screen.getAllByText('อยากถามเรื่องอะไรดีครับ เลือกหมวดได้เลย:')).toHaveLength(1)
+      expect(screen.getAllByText('อยากถามเรื่องอะไรดีครับ 🤔 เลือกหมวดได้เลย:')).toHaveLength(1)
     })
 
     it('bouncing between 📚 back-to-categories and picking the same category repeatedly does not stack menus either (reported again via screen recording, 2026-07-18)', async () => {
@@ -244,7 +244,7 @@ describe('AIAssistant', () => {
       await user.click(menuButton)
       await pickCategory()
 
-      expect(screen.queryAllByText('อยากถามเรื่องอะไรดีครับ เลือกหมวดได้เลย:')).toHaveLength(0)
+      expect(screen.queryAllByText('อยากถามเรื่องอะไรดีครับ 🤔 เลือกหมวดได้เลย:')).toHaveLength(0)
       expect(screen.getAllByText(/หมวด "ความรู้เรื่องระบบ Solar" มีหัวข้ออะไรบ้าง/)).toHaveLength(1)
     })
   })
@@ -282,7 +282,7 @@ describe('AIAssistant', () => {
       await user.click(screen.getByRole('button', { name: 'เล่นกับน้อง Solar' }))
 
       await user.click(screen.getByRole('button', { name: '👉 จิ้มแก้ม' }))
-      expect(await screen.findByText('อย่าจิ้มเค้าาา!')).toBeInTheDocument()
+      expect(await screen.findByText('อย่าจิ้มเค้าาา! 😖')).toBeInTheDocument()
     })
 
     it('does not add anything to the chat log - play interactions are purely visual on the mascot', async () => {
@@ -308,7 +308,7 @@ describe('AIAssistant', () => {
       await user.click(screen.getByRole('button', { name: '🤏 บีบแก้ม' }))
       await user.click(screen.getByRole('button', { name: '🌸 มอบดอกไม้' }))
 
-      expect(await screen.findByText('ขอบคุณดอกไม้สวยๆ นะครับ 🌸')).toBeInTheDocument()
+      expect(await screen.findByText('ขอบคุณดอกไม้สวยๆ นะครับ 🌸💐')).toBeInTheDocument()
       expect(screen.getByRole('group', { name: 'เล่นกับน้อง Solar' })).toBeInTheDocument()
     })
   })

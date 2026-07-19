@@ -2479,3 +2479,40 @@ that the reply opens in Thai, not a fixed call count). Full suite
 a real getter-only accessor on `Window.prototype`): the greeting's ☀️
 "น้อง Solar" / "AI" mix produced 5 correctly-alternating th-TH/en-US
 utterances, all at the slowed 0.92 rate.
+
+### Added - more emoji throughout น้อง Solar's replies, doubled the "เล่นกับน้อง Solar" play catalog (2026-07-18, Track 2)
+
+Reported live alongside the TTS clarity fix: "เพิ่มอิโมจิ และการเล่นกับน้อง
+solar". Two separate, purely additive content changes, no logic touched:
+
+1. **Emoji pass** - `assistant.ts`'s 11 hand-written canned replies (help
+   navigation, kWp/irradiance/plant-factor/forecast-horizon definitions,
+   current-power/today-energy/forecast/capacity/weather/financial live-data
+   answers) and `AssistantPanel.tsx`'s 3 menu messages (category/group/sub-
+   question prompts) each got one fitting leading emoji. `assistantContent.ts`'s
+   all 34 guided-topic answers got the same treatment via a small one-off
+   script (topic-appropriate emoji per entry - ☀️ for what a solar cell is,
+   🔌 for what an inverter is, 💰 for the electricity-bill breakdown, etc.)
+   rather than 34 manual edits. Every emoji was placed as a prefix/suffix
+   around the factual content, never inside a substring any existing test
+   asserts on (numbers+units, exact page names, etc.) - confirmed by the
+   full suite still passing unchanged except for the handful of exact-string
+   menu/interaction-speech assertions that intentionally now include the
+   added emoji.
+2. **Play catalog doubled** - `mascotInteractions.ts`'s "เล่นกับน้อง Solar"
+   catalog grew from 12 to 24 (sing, dance, wink, selfie, give a star, fist-
+   bump, sunbathe, tell a secret, compliment, fake-sneeze, lullaby, sunglasses
+   pose), all reusing the 10 existing `MascotFace` moods rather than inventing
+   new ones - a new mood needs real face SVG art, which is design work, not a
+   data-only change, so this stayed a safe, purely additive catalog expansion.
+
+**Tested**: `mascotInteractions.test.ts`'s "generous number" threshold
+bumped from ≥10 to ≥20 to reflect the real growth, plus a new test asserting
+every interaction's label contains at least one emoji (`\p{Extended_Pictographic}`).
+`AIAssistant.test.tsx`'s handful of exact-string menu/interaction-speech
+assertions updated to include the now-present emoji. Full suite 336/336,
+`tsc` clean. Live-verified in a real browser (Playwright): the greeting,
+category-menu chips, and a kWp knowledge answer all render their new
+leading emoji correctly; the play panel shows all 24 buttons in its grid;
+clicking the new "💃 ชวนเต้น" button visibly changes the mascot's face and
+shows its speech bubble, same as every pre-existing interaction.
