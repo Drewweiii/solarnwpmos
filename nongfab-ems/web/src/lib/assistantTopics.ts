@@ -118,6 +118,16 @@ export const TOPIC_CATEGORIES: AssistantTopicCategory[] = [
           { id: 'mount_what', label: 'ออกแบบ Mounting ต้องคำนึงถึงอะไร', question: 'การออกแบบโครงยึดแผงโซลาร์ (mounting) ต้องคำนึงถึงอะไรบ้าง' },
         ],
       },
+      {
+        id: 'panel_care',
+        title: 'ประสิทธิภาพ / การดูแลแผง',
+        keywords: ['ฝุ่นเกาะแผง', 'ล้างแผง', 'แผงเสื่อม', 'degradation', 'soiling', 'แผงร้อน', 'แผงสกปรก'],
+        subQuestions: [
+          { id: 'care_soiling', label: 'ฝุ่นเกาะแผงมีผลไหม', question: 'ฝุ่นหรือสิ่งสกปรกเกาะแผงโซลาร์มีผลกับการผลิตไฟไหม' },
+          { id: 'care_degradation', label: 'แผงเสื่อมสภาพยังไง', question: 'แผงโซลาร์เสื่อมสภาพยังไง ใช้งานได้นานแค่ไหน' },
+          { id: 'care_temp', label: 'ยิ่งร้อนยิ่งดีไหม', question: 'อากาศยิ่งร้อนยิ่งแดดแรง แผงโซลาร์ผลิตไฟได้ดีขึ้นไหม' },
+        ],
+      },
     ],
   },
   {
@@ -161,6 +171,15 @@ export const TOPIC_CATEGORIES: AssistantTopicCategory[] = [
         title: 'Net Zero',
         keywords: ['net zero', 'เน็ตซีโร่'],
         subQuestions: [{ id: 'nz_what', label: 'Net Zero คืออะไร', question: 'Net Zero คืออะไร' }],
+      },
+      {
+        id: 'grid_sell',
+        title: 'การขายไฟ / เชื่อมสายส่ง',
+        keywords: ['ขายไฟ', 'ppa', 'ไฟเข้ากริด', 'on-grid', 'ออนกริด'],
+        subQuestions: [
+          { id: 'grid_ppa', label: 'ขายไฟให้การไฟฟ้ายังไง', question: 'โรงไฟฟ้าโซลาร์ขายไฟให้การไฟฟ้ายังไง' },
+          { id: 'grid_ongrid', label: 'On-grid ต่างจากมีแบตยังไง', question: 'ระบบ on-grid ไม่มีแบตเตอรี่ ต่างจากระบบที่มีแบตเตอรี่ยังไง' },
+        ],
       },
     ],
   },
