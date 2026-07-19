@@ -376,6 +376,12 @@ export interface MoonPathResponse {
   zone: string
   date: string
   points: MoonPathPoint[]
+  /** Lit fraction of the Moon's disc for that date, 0 (new) .. 1 (full) -
+   * drives the phase-correct crescent marker + "% lit" label in the 3D view. */
+  illumination: number
+  /** True while the lit fraction is growing (new -> full), False shrinking -
+   * decides which limb (east/west) the crescent's lit side faces. */
+  waxing: boolean
 }
 
 export interface SystemSummary {

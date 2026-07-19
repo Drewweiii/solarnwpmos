@@ -43,6 +43,42 @@ def _norm_deg(x: float) -> float:
     return x % 360.0
 
 
+def moon_illumination(when: datetime) -> tuple[float, bool]:
+    """Returns (illuminated_fraction, waxing) for the Moon at `when`:
+    `illuminated_fraction` is 0.0 (new moon) .. 1.0 (full moon), `waxing` is
+    True while the lit fraction is growing (new -> full), False while shrinking
+    (full -> new). Used only to draw a phase-correct crescent/gibbous marker in
+    the 3D view - a decorative refinement, same low/medium-precision caveat as
+    `moon_position` (this file's own header).
+
+    Uses the Moon's mean elongation from the Sun, D = Lm - Ls (the exact same
+    quantity `moon_position` already computes for its perturbation terms): the
+    illuminated fraction is (1 - cos D) / 2, and the Moon is waxing while D is
+    in (0, 180) - i.e. the Moon is east of the Sun, rising/setting after it.
+    Mean (not fully perturbed) longitudes are plenty for choosing how fat a
+    crescent to draw; nobody reads phase to arc-minute accuracy off a marker.
+    """
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    else:
+        when = when.astimezone(timezone.utc)
+    d = _days_since_epoch(when)
+
+    sun_w = _norm_deg(282.9404 + 4.70935e-5 * d)
+    sun_M = _norm_deg(356.0470 + 0.9856002585 * d)
+    ls = _norm_deg(sun_M + sun_w)  # Sun's mean longitude
+
+    moon_N = _norm_deg(125.1228 - 0.0529538083 * d)
+    moon_w = _norm_deg(318.0634 + 0.1643573223 * d)
+    moon_M = _norm_deg(115.3654 + 13.0649929509 * d)
+    lm = _norm_deg(moon_N + moon_w + moon_M)  # Moon's mean longitude
+
+    elongation = _norm_deg(lm - ls)
+    fraction = (1.0 - math.cos(math.radians(elongation))) / 2.0
+    waxing = elongation < 180.0
+    return fraction, waxing
+
+
 def moon_position(when: datetime, latitude: float, longitude: float) -> tuple[float, float]:
     """Returns (azimuth_deg, elevation_deg) of the Moon as seen from
     (latitude, longitude) at `when` - same (azimuth_deg, elevation_deg)

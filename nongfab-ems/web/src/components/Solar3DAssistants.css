@@ -1,44 +1,61 @@
-/* น้อง Moon + น้อง Cloud launcher dock - floats on the LEFT edge of the 3D
-   View page, vertically centred, so it clears both globally-fixed corners
-   (น้อง Solar bottom-right, the visitor-chat button bottom-left). Two stacked
-   face-buttons, each toggling its own knowledge panel. */
+/* น้อง Moon + น้อง Cloud launcher - a normal in-page row (not a floating
+   fixed dock: an earlier fixed-position version didn't reliably paint over the
+   WebGL canvas, so the characters "didn't show", reported 2026-07-19). Sits at
+   the top of the 3D View page as an obvious labelled control; the two knowledge
+   panels it opens are the things that float (KnowledgeAssistantPanel.css). */
 
 .solar3d-assistant-dock {
-  position: fixed;
-  left: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 39; /* just under น้อง Solar's panel (41) and mascot (40) */
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 14px;
-  pointer-events: none; /* let the map/canvas behind the gaps stay interactive */
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.solar3d-assistant-dock-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  margin-right: 2px;
 }
 
 .solar3d-assistant-launcher {
   position: relative;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 2px;
-  pointer-events: auto;
+  gap: 8px;
 }
 
 .solar3d-assistant-button {
-  width: 60px;
-  height: 60px;
-  padding: 4px;
-  border: none;
+  width: 52px;
+  height: 52px;
+  padding: 3px;
+  border: 2px solid transparent;
   border-radius: 50%;
-  background: var(--card-bg, #fff);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
+  background: linear-gradient(135deg, #e0e7ff, #f1f5f9);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   cursor: pointer;
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  flex-shrink: 0;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
 }
 
 .solar3d-assistant-button:hover {
   transform: scale(1.08);
-  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.32);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+}
+
+.solar3d-assistant-launcher-moon .solar3d-assistant-button {
+  background: linear-gradient(135deg, #c7d2fe, #ede9fe);
+}
+.solar3d-assistant-launcher-cloud .solar3d-assistant-button {
+  background: linear-gradient(135deg, #bae6fd, #e0f2fe);
+}
+
+.solar3d-assistant-button[aria-expanded='true'] {
+  border-color: #38bdf8;
 }
 
 .solar3d-assistant-button:focus-visible {
@@ -53,24 +70,19 @@
 }
 
 .solar3d-assistant-name {
-  font-size: 0.7rem;
+  font-size: 0.82rem;
   font-weight: 600;
   color: var(--text, #1e293b);
-  background: var(--card-bg, #fff);
-  padding: 1px 6px;
-  border-radius: 8px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
   white-space: nowrap;
 }
 
-/* Play-interaction speech bubble, shown to the RIGHT of the character (it
-   sits on the left edge, so a bubble on the left would run off-screen). */
+/* Play-interaction speech bubble, floating above the character button. */
 .solar3d-assistant-speech {
   position: absolute;
-  left: calc(100% + 10px);
-  top: 6px;
+  bottom: calc(100% + 8px);
+  left: 0;
   width: max-content;
-  max-width: 220px;
+  max-width: 240px;
   background: var(--card-bg, #fff);
   color: var(--text, #1e293b);
   border: 1px solid var(--border, #e2e8f0);
@@ -78,28 +90,13 @@
   padding: 8px 12px;
   font-size: 0.85rem;
   line-height: 1.35;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
-  z-index: 1;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  z-index: 2;
 }
 
-/* On small screens the dock would crowd the canvas controls - shrink the
-   buttons and drop the always-on name labels (the aria-label still names
-   them for screen readers, and tapping still opens the titled panel). */
 @media (max-width: 640px) {
-  .solar3d-assistant-dock {
-    left: 10px;
-    gap: 10px;
-  }
-  .solar3d-assistant-button {
-    width: 48px;
-    height: 48px;
-  }
   .solar3d-assistant-name {
     display: none;
-  }
-  .solar3d-assistant-speech {
-    max-width: 160px;
-    font-size: 0.78rem;
   }
 }
 

@@ -61,6 +61,7 @@ export function Solar3DAssistants() {
   return (
     <>
       <div className="solar3d-assistant-dock" aria-label="ผู้ช่วยประจำหน้า 3D View">
+        <span className="solar3d-assistant-dock-label">ถามผู้ช่วยประจำหน้านี้ 👉</span>
         {renderLauncher(MOON_PERSONA, (mood) => <MoonFace mood={mood} />)}
         {renderLauncher(CLOUD_PERSONA, (mood) => <CloudFace mood={mood} />)}
       </div>

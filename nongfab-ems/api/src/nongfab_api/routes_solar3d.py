@@ -16,13 +16,13 @@ and so an unknown zone still 404s like the rest of the API.
 from __future__ import annotations
 
 from datetime import date as date_type
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from nongfab_common.assets import load_assets
 from nongfab_features.clearsky import compute_clearsky_and_position, nong_fab_site_location
-from nongfab_features.moon import moon_position
+from nongfab_features.moon import moon_illumination, moon_position
 from nongfab_features.panel_geometry import generate_zone_layout
 from nongfab_features.shading import average_solar_access_pct, string_power_balance, zone_solar_access
 from nongfab_forecast.pv_conversion import nong_fab_zone_capacities_kwp
@@ -109,6 +109,11 @@ class MoonPathResponse(BaseModel):
     zone: str
     date: str
     points: list[MoonPathPoint]
+    # Phase for that date (see moon.moon_illumination) - one value per day
+    # since it barely moves over 24h. Lets the 3D view draw a phase-correct
+    # crescent/gibbous marker + a "% lit" label instead of a plain full disc.
+    illumination: float = 0.0  # 0.0 new .. 1.0 full
+    waxing: bool = True  # True = growing (new->full), False = shrinking
 
 
 def _validate_zone(zone: str) -> str:
@@ -231,4 +236,7 @@ async def get_moon_path(zone: str, date: str | None = None, _user=Depends(requir
         for ts in index
         for az, el in [moon_position(ts.to_pydatetime(), lat, lon)]
     ]
-    return MoonPathResponse(zone=zone, date=day.isoformat(), points=points)
+    # Phase at local midday (a single representative instant - it drifts only
+    # ~1%/day, so one value comfortably describes the whole date's marker).
+    illumination, waxing = moon_illumination(start + timedelta(hours=12))
+    return MoonPathResponse(zone=zone, date=day.isoformat(), points=points, illumination=illumination, waxing=waxing)

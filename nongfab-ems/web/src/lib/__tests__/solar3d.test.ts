@@ -5,6 +5,7 @@ import {
   compassLabel,
   interpolateAzimuthDeg,
   interpolateSunPosition,
+  moonPhaseName,
   irradianceGhiColor,
   latLonToLocalMeters,
   solarAccessColor,
@@ -158,6 +159,26 @@ describe('interpolateSunPosition', () => {
     const mid = interpolateSunPosition(wrapPoints, '2026-07-18T00:07:30Z')
     expect(mid?.azimuthDeg).toBeCloseTo(0)
     expect(mid?.elevationDeg).toBeCloseTo(41)
+  })
+})
+
+describe('moonPhaseName', () => {
+  it('names the new/full extremes regardless of waxing flag', () => {
+    expect(moonPhaseName(0.01, true)).toContain('จันทร์ดับ')
+    expect(moonPhaseName(0.01, false)).toContain('จันทร์ดับ')
+    expect(moonPhaseName(0.99, true)).toContain('เต็มดวง')
+    expect(moonPhaseName(0.99, false)).toContain('เต็มดวง')
+  })
+
+  it('distinguishes waxing vs waning crescent/gibbous', () => {
+    expect(moonPhaseName(0.25, true)).toContain('ข้างขึ้น')
+    expect(moonPhaseName(0.25, false)).toContain('ข้างแรม')
+    expect(moonPhaseName(0.8, true)).toContain('ค่อนดวง')
+    expect(moonPhaseName(0.8, true)).toContain('ข้างขึ้น')
+  })
+
+  it('names ~half lit as a quarter moon', () => {
+    expect(moonPhaseName(0.5, true)).toContain('ครึ่งดวง')
   })
 })
 

@@ -111,6 +111,8 @@ const moonPath: MoonPathResponse = {
     { time: '2026-07-14T18:00:00Z', azimuth_deg: 60, elevation_deg: 15 },
     { time: '2026-07-14T23:45:00Z', azimuth_deg: 300, elevation_deg: -5 },
   ],
+  illumination: 0.25,
+  waxing: true,
 }
 
 const cloudConditions: CloudConditionsResponse = {

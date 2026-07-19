@@ -7,7 +7,7 @@ import { Solar3DIconRail } from '../components/Solar3DIconRail'
 import { Solar3DAssistants } from '../components/Solar3DAssistants'
 import { ZoneSelector } from '../components/ZoneSelector'
 import { nearestToTimestamp } from '../lib/chartData'
-import { zenithAngleDeg } from '../lib/solar3d'
+import { moonPhaseName, zenithAngleDeg } from '../lib/solar3d'
 import {
   useCloudConditions,
   useForecast,
@@ -279,6 +279,19 @@ export function Solar3DPage() {
         </div>
       )}
 
+      {/* Moon phase readout (2026-07-19) - names the phase + % lit so the
+          crescent/gibbous marker reads as an intended phase, not a glitch
+          (the "why is a half-moon up in the afternoon" confusion). Illumination
+          from GET /moon-path (moon.moon_illumination). */}
+      {moonPath.data && (
+        <div className="solar3d-moon-phase-card">
+          <span className="solar3d-moon-phase-label">🌙 เฟสดวงจันทร์วันนี้</span>
+          <span className="solar3d-moon-phase-value">
+            {moonPhaseName(moonPath.data.illumination, moonPath.data.waxing)} · สว่าง {(moonPath.data.illumination * 100).toFixed(0)}%
+          </span>
+        </div>
+      )}
+
       <div className="solar3d-forecast-readout" aria-label="Forecast vs actual comparison">
         <span className="solar3d-forecast-item">
           Forecast:{' '}
@@ -327,6 +340,8 @@ export function Solar3DPage() {
               moonAzimuthDeg={geometry.data.moon.azimuth_deg}
               moonElevationDeg={geometry.data.moon.elevation_deg}
               moonPathPoints={moonPath.data?.points ?? []}
+              moonIllumination={moonPath.data?.illumination ?? 1}
+              moonWaxing={moonPath.data?.waxing ?? true}
               atIso={atIso}
               isPlaying={isPlaying}
               onAnimatedTimeChange={handleAnimatedTimeChange}
