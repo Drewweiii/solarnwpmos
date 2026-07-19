@@ -519,4 +519,7 @@ export interface FeedbackItem {
   role: string
   text: string
   created_at: string
+  /** The sender's self-chosen display name; null for pre-2026-07-19 rows,
+   * where the admin view falls back to `username`. */
+  display_name: string | null
 }

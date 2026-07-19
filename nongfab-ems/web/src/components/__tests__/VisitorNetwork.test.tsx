@@ -581,6 +581,7 @@ describe('VisitorNetwork', () => {
       role: 'admin',
       text: 'ข้อความทดสอบ',
       created_at: '2026-01-01T00:00:00Z',
+      display_name: null,
     })
     const user = userEvent.setup()
     renderWidget()
@@ -591,7 +592,8 @@ describe('VisitorNetwork', () => {
     await user.type(textarea, 'ข้อความทดสอบ')
     await user.click(screen.getByRole('button', { name: 'ส่งข้อความ' }))
 
-    await waitFor(() => expect(api.postFeedback).toHaveBeenCalledWith('ข้อความทดสอบ', expect.any(String)))
+    await waitFor(() => expect(api.postFeedback).toHaveBeenCalled())
+    expect(vi.mocked(api.postFeedback).mock.calls[0][0]).toBe('ข้อความทดสอบ')
     expect(await screen.findByText('ส่งข้อความเรียบร้อยแล้วค่ะ ขอบคุณค่ะ')).toBeInTheDocument()
   })
 })

@@ -73,6 +73,23 @@ async def _ensure_recipient_client_id_column(conn: AsyncConnection) -> None:
         logger.info("startup schema patch: added chat_messages.recipient_client_id")
 
 
+async def _ensure_feedback_display_name_column(conn: AsyncConnection) -> None:
+    """Same self-healing pattern as `_ensure_recipient_client_id_column` above,
+    for `feedback_messages.display_name` (2026-07-19): `create_all` never alters
+    an existing table, and this deployment's store is a SQLite file on a Railway
+    volume with no SQL console to run a manual migration in, so patch it here."""
+
+    def _needs_column(sync_conn) -> bool:
+        insp = inspect(sync_conn)
+        if "feedback_messages" not in insp.get_table_names():
+            return False
+        return "display_name" not in {c["name"] for c in insp.get_columns("feedback_messages")}
+
+    if await conn.run_sync(_needs_column):
+        await conn.execute(text("ALTER TABLE feedback_messages ADD COLUMN display_name TEXT"))
+        logger.info("startup schema patch: added feedback_messages.display_name")
+
+
 def create_app(settings: Settings | None = None, engine: AsyncEngine | None = None) -> FastAPI:
     """`engine`, if given, is used as-is and never disposed by this app's
     lifespan (the caller owns it - e.g. a test fixture's in-memory sqlite
@@ -89,6 +106,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
             async with eng.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
                 await _ensure_recipient_client_id_column(conn)
+                await _ensure_feedback_display_name_column(conn)
         user_store = UserStore(eng)
         if settings.seed_demo_users:
             await user_store.seed_demo_users()

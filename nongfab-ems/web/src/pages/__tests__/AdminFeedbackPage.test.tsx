@@ -26,8 +26,8 @@ describe('AdminFeedbackPage', () => {
 
   it('lists submitted feedback messages', async () => {
     const items: FeedbackItem[] = [
-      { id: 2, username: 'pttlng', role: 'viewer', text: 'second message', created_at: '2026-01-02T00:00:00Z' },
-      { id: 1, username: 'pttlng', role: 'viewer', text: 'first message', created_at: '2026-01-01T00:00:00Z' },
+      { id: 2, username: 'pttlng', role: 'viewer', text: 'second message', created_at: '2026-01-02T00:00:00Z', display_name: 'คุณเอ' },
+      { id: 1, username: 'pttlng', role: 'viewer', text: 'first message', created_at: '2026-01-01T00:00:00Z', display_name: null },
     ]
     vi.spyOn(api, 'getFeedback').mockResolvedValue(items)
 

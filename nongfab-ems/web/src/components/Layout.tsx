@@ -82,7 +82,7 @@ export function Layout() {
         </nav>
         <div className="app-header-user">
           <span>
-            {username} <span className="app-header-role">({role})</span>
+            {chatProfile?.displayName || username} <span className="app-header-role">({role})</span>
           </span>
           <button type="button" onClick={logout}>
             Sign out

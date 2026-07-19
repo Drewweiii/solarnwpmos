@@ -95,3 +95,8 @@ class FeedbackMessageORM(Base):
     role: Mapped[str] = mapped_column(String)
     text: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    # The sender's self-chosen display name (2026-07-19) - the shared demo
+    # username can't identify who really wrote a note, so admin sees the name
+    # they picked. Nullable: rows written before this column existed have none,
+    # and application code falls back to `username` for those.
+    display_name: Mapped[str | None] = mapped_column(String, nullable=True)

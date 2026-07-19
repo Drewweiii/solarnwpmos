@@ -152,8 +152,8 @@ export interface VersionResponse {
 // so an idle tab still notices a backend redeploy.
 export const getVersion = (): Promise<VersionResponse> => request('/version', null)
 
-export const postFeedback = (text: string, token: string): Promise<FeedbackItem> =>
-  request('/feedback', token, { method: 'POST', body: JSON.stringify({ text }) })
+export const postFeedback = (text: string, token: string, displayName?: string | null): Promise<FeedbackItem> =>
+  request('/feedback', token, { method: 'POST', body: JSON.stringify({ text, display_name: displayName ?? null }) })
 
 export const getFeedback = (token: string): Promise<FeedbackItem[]> => request('/feedback', token)
 

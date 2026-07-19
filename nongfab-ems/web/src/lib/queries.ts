@@ -20,6 +20,7 @@ import {
 } from './api'
 import type { FinancialRequest, ForecastHorizon, SimulateRequest } from './types'
 import { useAuth } from './auth'
+import { loadChatProfile } from './chatProfile'
 
 export const ALL_ZONES_ID = 'ALL'
 export const REAL_ZONE_IDS = ['GIS', 'ISB', 'Jetty'] as const
@@ -264,7 +265,9 @@ export function useSubmitFeedback() {
   const { token } = useAuth()
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (text: string) => postFeedback(text, token!),
+    // Attach the visitor's self-chosen display name (chatProfile.ts) so admin
+    // sees who actually wrote the note, not just the shared login username.
+    mutationFn: (text: string) => postFeedback(text, token!, loadChatProfile()?.displayName ?? null),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['feedback'] }),
   })
 }
