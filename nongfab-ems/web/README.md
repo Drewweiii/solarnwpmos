@@ -2777,3 +2777,65 @@ re-seeds `timeOfDayMinutes` for that date the same way a manual date-picker
 change already does. Only fires on Play, not every render, so a
 manually-picked past/future date still holds correctly while paused for
 inspection.
+
+### Added - login screen's left side: น้อง Solar/moon/cloud react to the username/password fields (2026-07-18, Track 2)
+
+Requested after the user shared a reference clip of a login page whose
+character illustration watches the email field while typing and looks away
+(closed eyes) for the password field. Approved live with a specific scope:
+replace the login screen's left-side decoration only (previously a mirror
+of the right side's solar-system motif, `LoginSolarDecor.tsx`) - the right
+side keeps that motif unchanged, and the centered login form is untouched.
+Built with our own characters (น้อง Solar the sun, plus a new moon and
+cloud) rather than the clip's generic shapes, and with the exact approach
+the user specified: plain React state (`onFocus`/`onBlur`, lifted in
+`Login.tsx` as `focusedField`) + CSS/SVG transforms, no physics engine.
+
+New `LoginMascotDecor.tsx` renders all three characters, mood-mapped from
+`focusedField` (`moodFor()`, unit-tested directly): `'surprised'`
+(wide, alert eyes) while the username field is focused, `'blush'` (closed
+eyes - reuses the exact same closed-eye artwork the "เล่นกับน้อง Solar" pet-
+head interaction already uses) while the password field is focused, and
+`'idle'` otherwise. A CSS state class per case additionally leans the whole
+character cluster toward the form (watching) or away from it (shy), and
+idle gets a continuous gentle per-character wobble - `--wobble-*` CSS
+custom properties randomized once on mount (`Math.random()`, not re-rolled
+per render) so each character sways at a slightly different angle/rate.
+This is the "หลอกตา" (fake it) interpretation of the reference clip's more
+dramatic "knocked into a pile" easter egg the user also approved: cheap
+CSS keyframes with randomized parameters, not an actual physics
+simulation, since a literal topple-and-reset animation would need a real
+trigger design and risks looking janky without real physics - explicitly
+the complexity being avoided here.
+
+`MoonFace.tsx`/`CloudFace.tsx` are new, minimal sibling characters to
+`MascotFace.tsx`'s sun - simpler than the sun (no rays/rotation/sparkle
+overlays), but share its exact eye/mouth SVG system (`EyePair`,
+`MOUTH_PATH`, both newly exported from `MascotFace.tsx` for reuse) by
+drawing on the same 0-0-120-120 viewBox with the face in the same
+x=44-76/y=54-66 region, so no per-character offset math was needed.
+`LoginSolarDecor.tsx` trimmed to its right-side markup only (the left-side
+block and its now-unused `.login-solar-decor-left` CSS rule removed) -
+its own test still passes unchanged (only checked the root wrapper's
+`aria-hidden`/no-interactive-content, not which side).
+
+**Tested**: `LoginMascotDecor.test.tsx` (new - `moodFor()` unit tests plus
+render/state-class checks), `Login.test.tsx` (+3 tests: watching class on
+username focus, shy class on password focus, back to idle on blur). Full
+suite 347/347. **Also caught and fixed a CI build gap this session**: `tsc
+--noEmit -p .` and `vitest run` both stayed clean while `npm run build`
+(the actual CI step, `tsc -b` in project-reference build mode) failed on
+two real type errors elsewhere in the test suite (`VisitorNetwork.test.tsx`
+passing a `querySelector()`-returned `Element` to `within()`, which expects
+`HTMLElement`; a `tts.test.ts` `mock.calls.map()` callback with a tuple
+parameter type TS rejected against the inferred `any[][]` call-args type) -
+both fixed, and `npm run build` is now the local pre-push check instead of
+the incomplete `tsc --noEmit` substitute. Live-verified in a real browser
+(Playwright): idle shows all three characters clustered and clearly
+separated (not stacked/hidden behind each other); focusing username adds
+the watching state (wide eyes, leaned toward the form) and clears on blur;
+focusing password adds the shy state (closed eyes, leaned away) and clears
+on blur; the right-side solar decoration and the login form's centering
+(`form center X` measured equal to `viewport center X`) are both
+unaffected; both decorations correctly disappear below the existing
+1020px breakpoint.

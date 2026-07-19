@@ -6,7 +6,7 @@ interface MascotFaceProps {
   mood?: MascotMood
 }
 
-const MOUTH_PATH: Record<MascotMood, string> = {
+export const MOUTH_PATH: Record<MascotMood, string> = {
   idle: 'M52 71 Q60 78 68 71',
   happy: 'M45 68 Q60 88 75 68',
   sad: 'M50 77 Q60 68 70 77',
@@ -22,9 +22,9 @@ const MOUTH_PATH: Record<MascotMood, string> = {
 // Which "family" of eyes each mood uses - grouped rather than 1:1 with mood
 // so the visual language stays consistent (e.g. every shy/happy-ish mood
 // gets the same closed "^ ^" eyes) instead of tuning 10 one-off shapes.
-type EyeStyle = 'normal' | 'closed' | 'squint' | 'wide' | 'heart' | 'star'
+export type EyeStyle = 'normal' | 'closed' | 'squint' | 'wide' | 'heart' | 'star'
 
-const EYE_STYLE: Record<MascotMood, EyeStyle> = {
+export const EYE_STYLE: Record<MascotMood, EyeStyle> = {
   idle: 'normal',
   happy: 'normal',
   sad: 'normal',
@@ -170,7 +170,12 @@ export function MascotFace({ mood = 'idle' }: MascotFaceProps) {
   )
 }
 
-function EyePair({ style }: { style: EyeStyle }) {
+/** Exported so other characters sharing น้อง Solar's visual language (the
+ * moon/cloud on the login screen, LoginMascotDecor.tsx) can draw matching
+ * eyes without duplicating these SVG paths - only works out of the box for
+ * a body drawn on the same 0-0-120-120 viewBox with eyes expected around
+ * x=44-76/y=54-66, same as this file's own sun body. */
+export function EyePair({ style }: { style: EyeStyle }) {
   if (style === 'closed') {
     return (
       <g className="mascot-eyes" fill="none" stroke="#5b3210" strokeWidth="2.4" strokeLinecap="round">
