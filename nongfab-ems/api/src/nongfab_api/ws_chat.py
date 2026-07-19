@@ -271,45 +271,86 @@ async def ws_chat(websocket: WebSocket) -> None:
             # untrusted-input boundary here - just gets skipped rather than
             # crashing the whole connection.
             raw = await websocket.receive_text()
+            # Everything from here down is wrapped so that a failure handling
+            # ONE message (a DB write that raises, an unexpected payload shape,
+            # etc.) is logged and reported back to the sender instead of
+            # silently killing the whole socket. Found live 2026-07-19: on
+            # production every send dropped the connection with "no close frame"
+            # and the message was neither delivered, persisted, nor
+            # acknowledged - the classic signature of an unhandled exception in
+            # `store.add_message` (e.g. a full volume / locked or read-only
+            # SQLite file) propagating past the `except WebSocketDisconnect`
+            # below, hitting `finally`, and disconnecting. A WebSocketDisconnect
+            # itself must still bubble up to end the loop, so it's re-raised.
             try:
-                data = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(data, dict):
-                continue
-
-            if data.get("type") == "update_profile":
-                new_display_name = _resolve_display_name(user, data.get("display_name"))
-                new_avatar = _clean_field(data.get("avatar"))
-                manager.update_identity(websocket, new_display_name, new_avatar)
-                await manager.broadcast_online_users()
-                continue
-
-            text = str(data.get("text", "")).strip()
-            if not text:
-                continue
-            recipient_client_id = _clean_field(data.get("recipient_client_id"))
-            if not recipient_client_id:
-                continue  # every message must be addressed to somebody - no public broadcast anymore
-
-            current = manager.get_identity(websocket)
-            msg_display_name = _resolve_display_name(user, data["display_name"]) if data.get("display_name") else display_name
-            if current is not None and not data.get("display_name"):
-                msg_display_name = current.display_name
-            msg_avatar = _clean_field(data.get("avatar")) if data.get("avatar") else (current.avatar if current else avatar)
-
-            message = await store.add_message(
-                user.username, user.role, text[:MAX_MESSAGE_LENGTH], msg_display_name, msg_avatar, client_id, recipient_client_id
-            )
-            payload = message.to_dict()
-            await manager.send_to_client(client_id, payload)
-            if recipient_client_id != client_id:
-                await manager.send_to_client(recipient_client_id, payload)
+                await _handle_chat_frame(raw, websocket, user, store, manager, client_id, display_name, avatar)
+            except WebSocketDisconnect:
+                raise
+            except Exception:  # noqa: BLE001 - one bad message must not tear down the socket
+                logger.exception("ws/chat: failed to handle a message frame; keeping socket open")
+                try:
+                    await websocket.send_json(
+                        {"type": "error", "message": "ส่งข้อความไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"}
+                    )
+                except Exception:  # noqa: BLE001 - if even the error notice can't be sent, just wait for the next frame
+                    pass
     except WebSocketDisconnect:
         logger.debug("ws/chat client disconnected")
     finally:
         manager.disconnect(websocket)
         await manager.broadcast_online_users()
+
+
+async def _handle_chat_frame(
+    raw: str,
+    websocket: WebSocket,
+    user: AuthenticatedUser,
+    store: "ChatStore",
+    manager: "ConnectionManager",
+    client_id: str,
+    display_name: str,
+    avatar: str | None,
+) -> None:
+    """Handle a single received /ws/chat text frame: a profile update, or a
+    private message (persist it, then push to the sender's own tabs and the
+    recipient's). Kept a separate function purely so `ws_chat`'s loop can wrap
+    exactly this in a per-frame try/except (see its call site) - any exception
+    here is caught there, logged, and surfaced to the sender rather than
+    killing the connection."""
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return
+    if not isinstance(data, dict):
+        return
+
+    if data.get("type") == "update_profile":
+        new_display_name = _resolve_display_name(user, data.get("display_name"))
+        new_avatar = _clean_field(data.get("avatar"))
+        manager.update_identity(websocket, new_display_name, new_avatar)
+        await manager.broadcast_online_users()
+        return
+
+    text = str(data.get("text", "")).strip()
+    if not text:
+        return
+    recipient_client_id = _clean_field(data.get("recipient_client_id"))
+    if not recipient_client_id:
+        return  # every message must be addressed to somebody - no public broadcast anymore
+
+    current = manager.get_identity(websocket)
+    msg_display_name = _resolve_display_name(user, data["display_name"]) if data.get("display_name") else display_name
+    if current is not None and not data.get("display_name"):
+        msg_display_name = current.display_name
+    msg_avatar = _clean_field(data.get("avatar")) if data.get("avatar") else (current.avatar if current else avatar)
+
+    message = await store.add_message(
+        user.username, user.role, text[:MAX_MESSAGE_LENGTH], msg_display_name, msg_avatar, client_id, recipient_client_id
+    )
+    payload = message.to_dict()
+    await manager.send_to_client(client_id, payload)
+    if recipient_client_id != client_id:
+        await manager.send_to_client(recipient_client_id, payload)
 
 
 @router.get("/chat/history")

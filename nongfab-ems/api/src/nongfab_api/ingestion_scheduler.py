@@ -465,7 +465,7 @@ def start_background_ingestion(store: RealDataStore, settings) -> list[asyncio.T
             _poll_nwp_forever(store, settings.nwp_poll_interval_seconds, settings.nwp_poll_forecast_hours), name="ingestion-poll-nwp"
         ),
     ]
-    if getattr(settings, "enable_background_retraining", True):
+    if getattr(settings, "enable_background_retraining", False):
         tasks.append(
             asyncio.create_task(
                 _retrain_forever(
