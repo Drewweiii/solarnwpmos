@@ -361,12 +361,10 @@ function SunMarker({
 
 interface MoonMarkerProps {
   moonPathPoints: MoonPathPoint[]
-  sunPathPoints: SunPathPoint[]
   atIso: string
   isPlaying: boolean
   fallbackMoonAzimuthDeg: number
   fallbackMoonElevationDeg: number
-  fallbackSunElevationDeg: number
   orbitRadius: number
   moonRadius: number
   glowRadius: number
@@ -389,21 +387,24 @@ interface MoonMarkerProps {
 // continuous 24h arc, so `interpolateSunPosition` (generic over any
 // {time, azimuth_deg, elevation_deg}[] - reused here rather than writing a
 // near-identical "interpolateMoonPosition") never returns null for it.
-// Visibility instead requires two real conditions at once: the Moon's own
-// elevation is genuinely above its horizon, AND the Sun is currently below
-// its own horizon (`interpolateSunPosition(sunPathPoints, ...)` returning
-// null - sunPathPoints only covers daylight, so null there already means
-// "sun is down"). This is a deliberate "one or the other, not both" scene
-// convention (the request was literally "replace the sun"), not a claim
-// that the real sun and moon are never in the sky at once.
+//
+// Visibility (2026-07-19): the Moon marker shows whenever the Moon itself is
+// above the horizon (`elevationDeg > 0`), matching the drawn moon-path arc's
+// own `elevation_deg > 0` filter so the marker traverses the *whole* arc it
+// sits on, rise (east) to set (west). The earlier "only while the Sun is
+// down" gate was removed after the user reported the Moon "doesn't move
+// across the full horizon": on any date where the Moon leads the Sun it has
+// already crossed to the western sky by the time the Sun sets, so gating on
+// sun-down clipped the marker to a short western setting arc even though the
+// full E->W arc line was drawn. Showing the Moon whenever it is up is also
+// astronomically honest - a daytime Moon is common - and lets Play sweep it
+// smoothly across the sky the way the Sun does.
 function MoonMarker({
   moonPathPoints,
-  sunPathPoints,
   atIso,
   isPlaying,
   fallbackMoonAzimuthDeg,
   fallbackMoonElevationDeg,
-  fallbackSunElevationDeg,
   orbitRadius,
   moonRadius,
   glowRadius,
@@ -428,12 +429,9 @@ function MoonMarker({
     const elevationDeg = interpolatedMoon?.elevationDeg ?? fallbackMoonElevationDeg
     const [x, y, z] = sunPositionVector(azimuthDeg, elevationDeg, orbitRadius)
 
-    const interpolatedSun = interpolateSunPosition(sunPathPoints, atIsoNow)
-    const sunIsDown = interpolatedSun ? interpolatedSun.elevationDeg <= 0 : fallbackSunElevationDeg <= 0
-
     if (groupRef.current) {
       groupRef.current.position.set(x, y, z)
-      groupRef.current.visible = sunIsDown && elevationDeg > 0
+      groupRef.current.visible = elevationDeg > 0
     }
   })
 
@@ -1075,12 +1073,10 @@ export function Solar3DScene({
       {moonPathLine.length > 1 && <Line points={moonPathLine} color="#94a3b8" lineWidth={1} />}
       <MoonMarker
         moonPathPoints={moonPathPoints}
-        sunPathPoints={sunPathPoints}
         atIso={atIso}
         isPlaying={isPlaying}
         fallbackMoonAzimuthDeg={moonAzimuthDeg}
         fallbackMoonElevationDeg={moonElevationDeg}
-        fallbackSunElevationDeg={sunElevationDeg}
         orbitRadius={sunOrbitRadius}
         moonRadius={moonRadius}
         glowRadius={moonGlowRadius}
