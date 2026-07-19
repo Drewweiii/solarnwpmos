@@ -45,20 +45,20 @@
      purple/pink are all taken - see the other --chart-* vars above). */
   --chart-actual-today: #db2777;
   --chart-actual-past: #92400e;
-  /* The 9-variable dashboard's remaining lines (2026-07-18) - I/I_wrf reuse
-     --chart-actual-past/--chart-forecast (same "actual vs forecast" meaning
-     as the main power chart above), these 6 are new: one per variable that
-     doesn't already have a color, picked to stay visually distinct from
-     every --chart-* above (every warm hue - amber/orange/pink/brown/red -
-     and every cool hue already used - blue/green/teal/purple - is spoken
-     for, so these lean into the remaining gold/slate/indigo/sky/cyan/rose
-     range). */
-  --chart-clearsky: #ca8a04;
-  --chart-cloud-index: #64748b;
-  --chart-zenith: #4f46e5;
-  --chart-humidity: #0ea5e9;
-  --chart-wind: #06b6d4;
-  --chart-uv: #e11d48;
+  /* Forecast page's 9-variable (Songsiri reference) grouped graphs
+     (2026-07-18) - I_wrf itself reuses --chart-forecast (dashed), matching
+     the "dashed = forecast/prediction" convention already established on
+     this page's main chart; these 6 are new hues, picked to stay visually
+     distinct from every --chart-* above (blue/green/amber/teal/red/gray/
+     pink/brown are all already spoken for by other series on this same
+     page). */
+  --chart-irradiance: #ca8a04;
+  --chart-clearsky: #0ea5e9;
+  --chart-temp: #ea580c;
+  --chart-rh: #0891b2;
+  --chart-wind: #475569;
+  --chart-cosz: #4f46e5;
+  --chart-khat: #65a30d;
   --danger: #dc2626;
   --danger-bg: rgba(220, 38, 38, 0.1);
   --ok: #16a34a;
@@ -107,12 +107,13 @@
     --chart-error: #a8a29e;
     --chart-actual-today: #f9a8d4;
     --chart-actual-past: #d97706;
-    --chart-clearsky: #fbbf24;
-    --chart-cloud-index: #94a3b8;
-    --chart-zenith: #818cf8;
-    --chart-humidity: #38bdf8;
-    --chart-wind: #22d3ee;
-    --chart-uv: #fb7185;
+    --chart-irradiance: #facc15;
+    --chart-clearsky: #38bdf8;
+    --chart-temp: #fb923c;
+    --chart-rh: #22d3ee;
+    --chart-wind: #94a3b8;
+    --chart-cosz: #818cf8;
+    --chart-khat: #a3e635;
     --danger: #f87171;
     --danger-bg: rgba(248, 113, 113, 0.15);
     --ok: #4ade80;

@@ -957,36 +957,67 @@ against the SQLite-backed `app` fixture (the exact backend this bug
 reproduces on) and `test_ws_chat.py`'s matching test for chat messages.
 Full backend suite 159 passed.
 
-## `GET /weather/strip` extended with jitkomut's remaining 9 forecast variables (2026-07-18, Track 1 work, done by Track 2 with permission)
+### Added - `GET /weather/conditions` + extended `GET /weather/strip` for all 9 Songsiri reference variables (2026-07-19)
 
-ForecastPage's planned 3x3 real-time table + grouped graphs need all 9 of
-jitkomut's reference-paper variables, not just the 2 (ssrd_w_m2/temp_c)
-this endpoint already carried. Added, per point: `ghi_clearsky_w_m2`
-(I_clr) and `cos_zenith` - both pure pvlib solar geometry (Ineichen
-clear-sky + solar position, `nongfab_features.clearsky`), needing no
-weather forecast at all, so populated for the *entire* window including
-future hours; `cloud_index` (k-hat) - the real Himawari-derived clear-sky
-index already used by the Sum-k LSTM training pipeline, nearest-in-time
-join against `cloud_history`, `None` wherever no observation exists nearby
-(which is always true for future hours - Himawari only observes, it
-doesn't forecast); `relative_humidity_pct` and `wind_speed_ms` (from
-`nwp_history`'s existing columns, wind speed computed via
-`hypot(u, v)`) - deliberately `None` for future timestamps even though
-the GFS row technically carries a value there, since unlike ssrd/temp
-neither was ever validated as a trained-model regressor in this pipeline.
+The user asked whether ForecastPage's app actually uses all 9 input
+variables from Jitkomut Songsiri's reference deck (I, RH, T, UV, WS, I_clr,
+cosθ, k̂, I_wrf - see "Reference: Songsiri" in `forecast/README.md`), and
+if not, whether the missing ones could be sourced. Audited `real_data.py`/
+`local_store.py`/`clearsky.py`: I/T/I_clr/k̂(as cloud index)/I_wrf(as
+`real_future_regressors`) were already real model features; RH and wind
+(`wind10m_u_ms`/`wind10m_v_ms`) were ingested into `nwp_history` but never
+exposed via any route or used as a feature; UV was ingested via a separate
+NASA POWER daily source (`uv_history`) but never wired to anything;
+zenith angle was computed internally (`clearsky.compute_clearsky_and_
+position`) but never surfaced as its own field.
 
-Also added a separate `uv_daily` list on the response (not part of
-`points`) for the last 14 days of accumulated UV history - `uv_history` is
-daily-resolution only (NASA POWER's own granularity), so it can't share
-the hourly points list's shape without fabricating intra-day values.
+New `GET /weather/conditions` route (`routes_weather.py`) returns a single
+"now" snapshot of all 9: `irradiance_w_m2`, `temp_c`, `relative_humidity_
+pct`, `wind_speed_ms`, `clearsky_ghi_w_m2`, `zenith_deg`, `cos_zenith`,
+`clear_sky_index`, `forecast_irradiance_w_m2`/`forecast_valid_at` (I_wrf -
+honestly documented as the same underlying GFS source at a near-future
+valid_time, not an independent second model, since no independent
+telemetry sensor exists at this site), `uv_index`/`uv_observation_date`
+(can be `None` even when everything else is available, since NASA POWER is
+daily-cadence, not hourly - `_UV_MAX_AGE_DAYS = 2` staleness tolerance).
 
-See `web/README.md`'s matching dated entry for the fuller "which of the 9
-were already used vs. newly surfaced" audit and the frontend side of this.
+A single snapshot can't power a time-series graph, so `GET /weather/strip`
+(already a time series, already consumed by ForecastPage's `WeatherStrip`
+component) was extended instead of building a second windowed endpoint -
+`WeatherStripPoint` gained `relative_humidity_pct`/`wind_speed_ms`
+(from the matched real NWP row when available, `None` in synthetic-fallback
+mode) and `clearsky_ghi_w_m2`/`zenith_deg`/`cos_zenith`/`clear_sky_index`
+(always populated in both real and synthetic mode - pure pvlib astronomy,
+independent of data source). Reuses the existing real/synthetic honesty
+labeling (`data_source` field) rather than introducing a new one.
 
-**Tested**: 5 new tests in `test_routes_weather.py` - solar geometry
-present for the whole window including future hours, cloud_index populated
-near a real observation and null further away, RH/wind null specifically
-for future timestamps (not past/now), UV daily history filtered to the
-recent window, and the synthetic-fallback path still computing geometry
-honestly while leaving cloud/RH/wind/UV empty rather than fabricated.
-22/22 in this file, full backend suite 172/172, `ruff check` clean.
+**Tested**: `test_routes_weather.py` grew from ~14 to 25 tests - new
+coverage for `/weather/conditions` (all-9-present happy path, UV null when
+no/stale UV data, no-forecast-row when only past data exists, requires
+auth) and for the extended `/weather/strip` (synthetic points carry
+astronomy fields but not RH/wind, real points carry all 6 new fields with
+correct values, RH/wind null specifically for future timestamps - see the
+merge-reconciliation note below). Full `api` suite 174 passed, `ruff check`
+clean. This round's frontend consumer (the 3x3 live table + grouped
+variable graphs) is documented in `web/README.md`'s matching 2026-07-19
+entry.
+
+**Merge note**: Track 2 independently built the same `/weather/strip`
+extension in parallel (with the user's permission to cross into Track 1
+territory for this one piece), using different field names
+(`ghi_clearsky_w_m2`/`cloud_index`/a separate `uv_daily` list) and a
+genuinely better catch: RH/wind should stay `None` for *future* timestamps
+even in real-data mode, since - unlike ssrd/temp - neither was ever
+validated as a trained-model regressor in this pipeline, so showing them
+as "forecast" would overstate confidence this project hasn't earned for
+them. Reconciling the two independent implementations (both pushed to this
+shared branch before either was aware of the other): kept this round's own
+field names/shape end-to-end, since a complete, tested frontend (3x3 table
++ grouped graphs) was already built against them and Track 2's own
+frontend piece hadn't landed yet - but adopted the RH/wind future-nulling
+fix into `_real_window()`. Track 2's `cloud_index` (real Himawari k-hat,
+an alternative to this round's ssrd/clearsky-ratio `clear_sky_index`) and
+`uv_daily` (a real multi-day UV trend, which could someday replace the "no
+UV chart" honest placeholder on ForecastPage - see web/README.md) were not
+carried over, to keep this reconciliation scoped - either would be a
+reasonable follow-up, not a redo of this round's work.

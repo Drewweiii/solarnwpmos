@@ -87,20 +87,29 @@ export interface ForecastResponse {
   model_type: string
 }
 
+// 2026-07-18: gained the rest of the Songsiri 9-variable set (see
+// CurrentConditionsResponse's own docstring) for ForecastPage's grouped
+// variable graphs - `relative_humidity_pct`/`wind_speed_ms` are null in
+// synthetic-fallback mode (the synthetic baseline never models them);
+// `clearsky_ghi_w_m2`/`zenith_deg`/`cos_zenith` are always populated (pure
+// astronomy, independent of data source).
 export interface WeatherStripPoint {
   timestamp: string
   temp_c: number
   ssrd_w_m2: number
-  // The 9 jitkomut variables (2026-07-18) - see routes_weather.py's own
-  // docstring for the full audit of which were already used vs. newly
-  // surfaced, and why relative_humidity_pct/wind_speed_ms are deliberately
-  // null for future timestamps while ghi_clearsky_w_m2/cos_zenith (pure
-  // solar geometry, no forecast needed) never are.
-  ghi_clearsky_w_m2: number
-  cos_zenith: number
-  cloud_index: number | null
+  // relative_humidity_pct/wind_speed_ms are deliberately null for future
+  // timestamps even in real-data mode (2026-07-19 merge reconciliation) -
+  // unlike ssrd/temp, neither was ever validated as a trained-model
+  // regressor in this pipeline, so presenting them as "forecast" would
+  // overstate confidence this project hasn't earned for them yet.
+  // clearsky_ghi_w_m2/zenith_deg/cos_zenith are pure solar geometry (no
+  // forecast needed) and are always populated, past or future.
   relative_humidity_pct: number | null
   wind_speed_ms: number | null
+  clearsky_ghi_w_m2: number
+  zenith_deg: number
+  cos_zenith: number
+  clear_sky_index: number | null
 }
 
 // "real" once GET /weather/strip finds real accumulated NWP data covering
@@ -111,18 +120,9 @@ export interface WeatherStripPoint {
 // own `dataSource` prop against it too.
 export type ForecastDataSource = 'real' | 'synthetic'
 
-// UV index is daily-resolution only (NASA POWER's own granularity) - a
-// separate list, not part of `points`, since it can't share the hourly
-// series' shape without fabricating intra-day values that don't exist.
-export interface UvDailyPoint {
-  date: string
-  uv_index: number
-}
-
 export interface WeatherStripResponse {
   data_source: ForecastDataSource
   points: WeatherStripPoint[]
-  uv_daily: UvDailyPoint[]
 }
 
 // GET /weather/clouds - latest real Himawari cloud reading, site-wide (same
@@ -153,6 +153,35 @@ export interface PrecipitationConditionsResponse {
   observed_at: string | null
   precip_mm: number | null
   intensity: PrecipitationIntensity | null
+}
+
+// GET /weather/conditions - real-time snapshot of the 9 solar-forecasting
+// input variables from Songsiri's reference deck (I, RH, T, UV, WS, I_clr,
+// cosθ, k-hat, I_wrf - see forecast/README.md's "Reference: Songsiri"
+// section), added 2026-07-18 for ForecastPage's 3x3 variable table. `UV` is
+// daily-resolution (NASA POWER), everything else is effectively real-time
+// (next NWP poll, ~hourly) - `uv_observation_date` makes that different
+// cadence explicit rather than implying UV updates as often as the rest.
+// `forecast_irradiance_w_m2`/`forecast_valid_at` (I_wrf) are the NWP
+// model's own near-future prediction, a genuinely different instant than
+// `irradiance_w_m2` (I, the nearest-to-now reading) - see the route's own
+// docstring for why both ultimately trace back to the same GFS source (no
+// independent telemetry sensor exists at this site).
+export interface CurrentConditionsResponse {
+  available: boolean
+  observed_at: string | null
+  irradiance_w_m2: number | null
+  temp_c: number | null
+  relative_humidity_pct: number | null
+  wind_speed_ms: number | null
+  clearsky_ghi_w_m2: number | null
+  zenith_deg: number | null
+  cos_zenith: number | null
+  clear_sky_index: number | null
+  forecast_irradiance_w_m2: number | null
+  forecast_valid_at: string | null
+  uv_index: number | null
+  uv_observation_date: string | null
 }
 
 export interface HourlyPoint {

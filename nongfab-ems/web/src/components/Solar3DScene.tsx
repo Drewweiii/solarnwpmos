@@ -11,8 +11,17 @@ import type { Ref } from 'react'
 import type { DirectionalLight, Group } from 'three'
 import { TextureLoader, type Texture } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
-import { advanceSimClockMs, angleArcPoints, interpolateSunPosition, solarAccessColor, sunPositionVector, zenithAngleDeg } from '../lib/solar3d'
-import type { MoonPathPoint, Panel, PrecipitationIntensity, SunPathPoint } from '../lib/types'
+import {
+  advanceSimClockMs,
+  angleArcPoints,
+  interpolateSunPosition,
+  irradianceGhiColor,
+  latLonToLocalMeters,
+  solarAccessColor,
+  sunPositionVector,
+  zenithAngleDeg,
+} from '../lib/solar3d'
+import type { IrradianceGridPoint, MoonPathPoint, Panel, PrecipitationIntensity, SunPathPoint } from '../lib/types'
 
 // Exposed to Solar3DPage's icon rail "reset camera" button - React 19 takes
 // `ref` as a plain prop (no forwardRef wrapper needed), see this component's
@@ -42,11 +51,15 @@ const SUN_GLOW_RADIUS_FRACTION = 0.16
 // visibility flips).
 const MOON_RADIUS_FRACTION = 0.065
 const MOON_GLOW_RADIUS_FRACTION = 0.1
-// Kept well inside the sun's own orbit radius so the angle-diagram
-// protractor (see SunAngleDiagram) reads as a small reference instrument
-// near the observer, not something competing with the sun/moon/panels for
-// visual attention.
-const ANGLE_DIAGRAM_RADIUS_FRACTION = 0.3
+// Equal to the sun's own orbit radius (fraction 1.0) so every angle-diagram
+// arc/reference-ray (see SunAngleDiagram) literally terminates AT the sun
+// marker's real rendered position, instead of stopping short at a smaller
+// reference-instrument radius - changed 2026-07-18 per the user's explicit
+// follow-up request that the angle lines visibly "ลากวัดไปหาดวงอาทิตย์" (draw/
+// measure out to reach the sun itself), after an earlier round had this at
+// 0.3 (a compact protractor near the observer, not reaching the sun) and the
+// user reported that wasn't what they meant.
+const ANGLE_DIAGRAM_RADIUS_FRACTION = 1.0
 
 // Simulated sim-minutes advanced per real second while the icon-rail play
 // button is on - tuned so a typical Thailand daylight span (~12-13h) glides
@@ -530,6 +543,52 @@ function SunAngleDiagram({ azimuthDeg, elevationDeg, radius }: SunAngleDiagramPr
   )
 }
 
+interface IrradianceGroundOverlayProps {
+  points: IrradianceGridPoint[]
+  originLat: number
+  originLon: number
+  markerRadiusM: number
+  visible: boolean
+}
+
+// Literal single-image merge of the former standalone MapLibre Irradiance
+// Map into this WebGL scene (2026-07-18, per the user's own explicit
+// request/confirmed design: "วาง irradiance เป็นจุดสีบนพื้นดินในฉาก 3D" -
+// place irradiance as colored points on the ground in the 3D scene, rather
+// than a separate map section below it). Reuses the exact same plant-wide
+// grid (GET /irradiance-map's `grid`, 10x10 = 100 points spanning the
+// plant's full target bbox) and the exact same 4-stop color ramp the old
+// MapLibre `circle-color` paint expression used (see irradianceGhiColor's
+// own docstring) - not a redesign, just a different rendering surface.
+//
+// Each point's real (lat, lon) is projected into this zone's own local
+// (east_m, north_m) frame via `latLonToLocalMeters`, anchored at the SAME
+// centroid `nongfab_features.panel_geometry` already uses as (0, 0) for
+// this zone's own panels - so a grid point and a panel share one ground
+// plane with no separate coordinate system. Honesty caveat worth keeping
+// explicit: the grid spans the whole ~2km plant, so most of its 100 points
+// land well outside any one zone's own local panel footprint (GIS/ISB's
+// block is tens of meters across) - they simply render far out on/beyond
+// the ground plane rather than being filtered down to "nearby only", since
+// a real irradiance field is continuous across that whole distance, not
+// just at the panels themselves.
+function IrradianceGroundOverlay({ points, originLat, originLon, markerRadiusM, visible }: IrradianceGroundOverlayProps) {
+  if (!visible || points.length === 0) return null
+  return (
+    <group>
+      {points.map((p, i) => {
+        const { eastM, northM } = latLonToLocalMeters(p.lat, p.lon, originLat, originLon)
+        return (
+          <mesh key={i} rotation={[-Math.PI / 2, 0, 0]} position={[eastM, 0.04, -northM]}>
+            <circleGeometry args={[markerRadiusM, 24]} />
+            <meshBasicMaterial color={irradianceGhiColor(p.ghi_w_m2)} transparent opacity={0.55} depthWrite={false} />
+          </mesh>
+        )
+      })}
+    </group>
+  )
+}
+
 interface CloudLayerProps {
   center: [number, number]
   span: number
@@ -782,6 +841,18 @@ interface Solar3DSceneProps {
   // - approved 2026-07-16 over keeping pure shading. Defaults to 1 (no
   // dimming) if the caller has no performance data yet.
   zoneOutputRatio?: number
+  // Plant-wide irradiance grid (GET /irradiance-map's `grid`) + this zone's
+  // own real surveyed centroid (the origin every grid point gets projected
+  // relative to) - see IrradianceGroundOverlay's own docstring for the full
+  // 2026-07-18 "merge the separate map into this scene" story. `visible`
+  // toggles the overlay on/off (Solar3DPage's own checkbox) without an
+  // extra network request either way. Both default to "off"/empty so every
+  // existing caller (and every test that doesn't pass them) keeps rendering
+  // exactly as before.
+  irradianceGrid?: IrradianceGridPoint[]
+  irradianceOriginLat?: number
+  irradianceOriginLon?: number
+  showIrradianceOverlay?: boolean
 }
 
 export function Solar3DScene({
@@ -807,6 +878,10 @@ export function Solar3DScene({
   groundStyle,
   satelliteTileUrl,
   zoneOutputRatio = 1,
+  irradianceGrid = [],
+  irradianceOriginLat = 0,
+  irradianceOriginLon = 0,
+  showIrradianceOverlay = false,
   ref,
 }: Solar3DSceneProps & { ref?: Ref<Solar3DSceneHandle> }) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null)
@@ -873,6 +948,11 @@ export function Solar3DScene({
   const moonRadius = sunOrbitRadius * MOON_RADIUS_FRACTION
   const moonGlowRadius = sunOrbitRadius * MOON_GLOW_RADIUS_FRACTION
   const angleDiagramRadius = sunOrbitRadius * ANGLE_DIAGRAM_RADIUS_FRACTION
+  // Scaled to this zone's own full layout span (not a fixed meters value -
+  // same floor+scale pattern as the sun/moon markers above), so a grid
+  // point reads as a legible ground disk at any zone's real scale, from
+  // GIS/ISB's tens-of-meters block up to Jetty's ~1.25km trestle.
+  const irradianceMarkerRadiusM = Math.max(4, bounds.full.span * 0.06)
 
   const sunPathLine = useMemo(
     () => sunPathPoints.map((p) => sunPositionVector(p.azimuth_deg, p.elevation_deg, sunOrbitRadius)),
@@ -949,6 +1029,14 @@ export function Solar3DScene({
       {groundStyle === 'satellite' && satelliteTileUrl && (
         <SatelliteGroundPlane tileUrl={satelliteTileUrl} center={bounds.full.center} size={bounds.full.span * 1.5} />
       )}
+
+      <IrradianceGroundOverlay
+        points={irradianceGrid}
+        originLat={irradianceOriginLat}
+        originLon={irradianceOriginLon}
+        markerRadiusM={irradianceMarkerRadiusM}
+        visible={showIrradianceOverlay}
+      />
 
       {blockFootprints.map((f) => (
         <BuildingMass key={f.blockId} minEast={f.minEast} maxEast={f.maxEast} minNorth={f.minNorth} maxNorth={f.maxNorth} mountType={mountType} />

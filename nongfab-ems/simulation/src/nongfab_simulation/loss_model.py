@@ -12,6 +12,34 @@ Soiling defaults are zone-aware (Jetty/marine higher than GIS/ISB/land) per
 literature typical values, NOT real O&M measurement (none exists yet - see
 README "Known gaps"). Confirmed with the user (2026-07-14): use literature/
 standard values, not fabricated site-specific numbers.
+
+**Checked for a Thailand/marine-specific replacement (2026-07-18), kept the
+generic defaults**: the user asked whether a better-cited, region-specific
+figure exists to replace the generic NREL PVWatts numbers below. A
+literature search turned up real Thailand soiling/degradation studies and
+real coastal/marine soiling studies, but none of them is a clean, directly-
+substitutable "annual soiling loss %" for *this* site's actual conditions
+(a Thai monsoon-climate, land-and-pier-over-water installation, not
+comparable to the specific sites those papers measured):
+- Thai composite-climate rooftop PV studies report daily soiling reduction
+  of ~4% (rainy season) up to ~20% (dry season) - a *daily instantaneous*
+  figure, not an annual-average loss %, and not derived from a utility-
+  scale ground-mount or pier-mounted array like GIS/ISB/Jetty.
+- Coastal/marine soiling studies exist (e.g. Atacama Desert coastline,
+  offshore floating-PV salt-spray lab experiments), but those sites are
+  climatically nothing like tropical, rain-washed Thailand (the Atacama is
+  one of the driest deserts on Earth - dust never gets rinsed off the way
+  Thailand's monsoon season does it for free) - substituting a number from
+  either would trade one placeholder for a *worse*, false-precision one
+  (implying site-specific rigor a mismatched source can't actually provide).
+
+Verdict: no literature source found clears the bar of "clearly better than
+the current generic default for this specific site" - keeping
+`DEFAULT_SOILING_PCT_MARINE`/`_LAND` as documented industry-generic
+placeholders remains the more honest choice than swapping in a
+context-mismatched "real" number. Revisit if the user has a specific paper
+in mind, or once real O&M cleaning/inspection data exists for Nong Fab
+itself.
 """
 
 from __future__ import annotations

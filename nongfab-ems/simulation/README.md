@@ -73,6 +73,19 @@ call that does it.
   modules commonly warranty ~0.4-0.7%/year, but this repo doesn't assert a
   specific figure without a source).
 
+**Searched for a Thailand/marine-specific substitute (2026-07-18)**: the
+user asked what the Energy Report's loss percentages are based on and
+whether real Thailand-specific data could be pulled from the web instead of
+the generic PVWatts defaults above. Found real but context-mismatched
+studies - Thai composite-climate daily soiling-rate papers, Atacama Desert
+coastal soiling data, offshore floating-PV salt-spray lab results - none of
+which transfer cleanly to Nong Fab's actual tropical-monsoon, pier-over-
+water conditions without introducing false precision (a specific-looking
+number from the wrong climate/geometry is less honest than an
+acknowledged generic default). Kept the existing PVWatts defaults; the full
+search and its inconclusive verdict is documented in `loss_model.py`'s own
+module docstring, not just here.
+
 ## Recheck findings (2026-07-24) - two real bugs, both fixed
 
 1. **`ScenarioParams` allowed physically-backwards values.** `curtailment_pct`

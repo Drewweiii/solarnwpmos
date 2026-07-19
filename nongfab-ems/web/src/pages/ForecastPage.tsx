@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { RefObject } from 'react'
 import type { DotItemDotProps } from 'recharts'
 import {
   Area,
@@ -22,6 +23,7 @@ import {
   buildCompetitionRows,
   exactTimeKey,
   filterToRecentPast,
+  indexNearestToTimestamp,
   mergeGeneratedAndForecast,
   centeredScrollPosition,
   mergeMinuteAheadRows,
@@ -36,6 +38,7 @@ import {
   ALL_ZONES_ID,
   useAllZonesForecast,
   useAllZonesPerformance,
+  useCurrentConditions,
   useForecast,
   usePerformance,
   useWeatherStrip,
@@ -43,7 +46,15 @@ import {
 } from '../lib/queries'
 import { useForecastHistory } from '../lib/forecastHistory'
 import { formatDateHourIct, formatHourIct as formatHour } from '../lib/timeScrub'
-import type { ForecastHorizon, ForecastPoint, GeneratedPowerPoint, HourlyPoint } from '../lib/types'
+import type {
+  CurrentConditionsResponse,
+  ForecastDataSource,
+  ForecastHorizon,
+  ForecastPoint,
+  GeneratedPowerPoint,
+  HourlyPoint,
+  WeatherStripPoint,
+} from '../lib/types'
 import './ForecastPage.css'
 
 type HorizonToggle = 'day' | 'hour'
@@ -111,6 +122,43 @@ function scrollableChartWidthPx(pointCount: number, pxPerPoint: number): number 
   return Math.max(CHART_MIN_WIDTH_PX, pointCount * pxPerPoint)
 }
 
+// Auto-centers a scrollable chart's default scroll position on "today"/"now"
+// instead of leaving it at the far-left (oldest) edge (2026-07-18) - used
+// for the Minute-ahead panel below, which doesn't get the explicit pan
+// slider the main chart has (see MAIN_CHART_PX_PER_POINT/chartScrollRef
+// further down): its own ~90-minute span is narrow enough that a slider
+// control is overkill, but it still benefits from opening centered rather
+// than at the far-left edge. Centers ONCE per `resetKey` (zone combo)
+// rather than on every poll refresh, so it doesn't fight a viewer who has
+// since panned to look at something else - only a genuine dataset swap
+// re-centers.
+function useCenterChartOnce(pointIndex: number, pxPerPoint: number, resetKey: string) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const centeredForRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (centeredForRef.current === resetKey) return
+    const el = containerRef.current
+    if (!el || pointIndex < 0) return
+    const targetCenterPx = pointIndex * pxPerPoint
+    const maxScrollLeft = Math.max(0, el.scrollWidth - el.clientWidth)
+    el.scrollLeft = Math.max(0, Math.min(targetCenterPx - el.clientWidth / 2, maxScrollLeft))
+    centeredForRef.current = resetKey
+  }, [pointIndex, pxPerPoint, resetKey])
+
+  return containerRef
+}
+
+// Shown above the Minute-ahead panel's own scrollable chart so the (native,
+// and otherwise easy to miss - e.g. auto-hiding trackpad scrollbars) pan
+// affordance is obvious without relying on a viewer noticing a thin
+// scrollbar on its own (2026-07-18) - the main chart's explicit slider
+// (below) doesn't need this same hint, since the slider itself is already
+// visible.
+function ScrollHint() {
+  return <p className="forecast-chart-scroll-hint">↔ ลาก/เลื่อนซ้าย-ขวาเพื่อดูข้อมูลย้อนหลังและล่วงหน้าได้ (เริ่มต้นที่ตำแหน่งปัจจุบัน)</p>
+}
+
 // Pixels per data point on the main power chart specifically - a named
 // constant (not a magic number re-typed at each call site) so the width
 // passed to scrollableChartWidthPx and the centering math in the scroll
@@ -129,6 +177,11 @@ export function ForecastPage() {
   const allPerformance = useAllZonesPerformance()
   const allForecast = useAllZonesForecast(horizon)
   const weatherStrip = useWeatherStrip()
+  // The 9 Songsiri-reference forecasting input variables (site-wide, not
+  // per-zone - same "weather is site-wide" reasoning /weather/strip already
+  // documents) - powers the 3x3 live variable table + grouped graphs below
+  // (2026-07-18, see SolarVariablesTable/SolarVariablesGraphs).
+  const currentConditions = useCurrentConditions()
 
   // Minute-ahead (CNN-LSTM) is a fixed near-real-time horizon, not part of
   // the Day-ahead/Intra-day toggle above - shown in its own always-visible
@@ -339,6 +392,16 @@ export function ForecastPage() {
     : singleHourForecast.error
       ? singleHourForecast
       : undefined
+
+  // "Now" position within the Minute-ahead panel's own row array, and a
+  // default-centered scroll container ref for it - see useCenterChartOnce's
+  // own docstring above. Recomputed whenever the underlying rows change, but
+  // only actually scrolls once per zone combo, so it doesn't undo a viewer's
+  // manual pan on every poll. The main chart uses its own explicit pan
+  // slider instead (chartScrollRef/centeredScrollPosition below), which
+  // doesn't need this hook.
+  const minuteChartNowIndex = useMemo(() => indexNearestToTimestamp(minuteChartRows, new Date().toISOString()), [minuteChartRows])
+  const minuteChartScrollRef = useCenterChartOnce(minuteChartNowIndex, 20, `${zoneId}:minute`)
 
   return (
     <div className="forecast-page">
@@ -574,6 +637,7 @@ export function ForecastPage() {
         isLoading={minuteLoading}
         hasError={Boolean(minuteError)}
         isPhysicsBaseline={minuteIsPhysicsBaseline}
+        scrollRef={minuteChartScrollRef}
       />
 
       {horizonToggle === 'hour' && <ErrorChartPanel rows={chartRows} />}
@@ -581,6 +645,14 @@ export function ForecastPage() {
       <ModelCompetitionPanel rows={competitionRows} isLoading={competitionLoading} hasError={Boolean(competitionError)} />
 
       <WeatherStrip
+        points={weatherStrip.data?.points ?? []}
+        dataSource={weatherStrip.data?.data_source}
+        isLoading={weatherStrip.isLoading}
+      />
+
+      <SolarVariablesTable conditions={currentConditions.data} isLoading={currentConditions.isLoading} />
+
+      <SolarVariablesGraphs
         points={weatherStrip.data?.points ?? []}
         dataSource={weatherStrip.data?.data_source}
         isLoading={weatherStrip.isLoading}
@@ -786,6 +858,11 @@ interface MinuteAheadPanelProps {
   isLoading: boolean
   hasError: boolean
   isPhysicsBaseline: boolean
+  // Default-centers this chart's scroll position on "now" once per zone -
+  // see useCenterChartOnce's own docstring in ForecastPage.tsx. Owned by the
+  // parent (not a local ref here) because the hook's centering-once state
+  // needs to live as long as the page, not remount with this panel.
+  scrollRef: RefObject<HTMLDivElement | null>
 }
 
 // Minute-ahead (CNN-LSTM, 10-min steps out to 60 min) always shown - unlike
@@ -797,7 +874,7 @@ interface MinuteAheadPanelProps {
 // backward history (client-side accumulated, see ForecastPage's own
 // `minutePoints`) and an hourly-resolution actual-power overlay, both added
 // 2026-07-18 per the user's request.
-function MinuteAheadPanel({ rows, isLoading, hasError, isPhysicsBaseline }: MinuteAheadPanelProps) {
+function MinuteAheadPanel({ rows, isLoading, hasError, isPhysicsBaseline, scrollRef }: MinuteAheadPanelProps) {
   return (
     <section className="forecast-minute-panel" aria-label="Minute-ahead power forecast chart">
       <h3 className="forecast-minute-title">Minute-ahead forecast (CNN-LSTM, ~30 min back to 60 min ahead)</h3>
@@ -807,56 +884,59 @@ function MinuteAheadPanel({ rows, isLoading, hasError, isPhysicsBaseline }: Minu
       )}
       {!isLoading && !hasError && rows.length === 0 && <p className="forecast-status">No data yet.</p>}
       {rows.length > 0 && (
-        <div className="forecast-chart-scroll">
-          <div style={{ width: scrollableChartWidthPx(rows.length, 20), height: 140 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={rows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                <XAxis dataKey="timestamp" tickFormatter={formatHour} minTickGap={30} allowDuplicatedCategory={false} />
-                <YAxis unit=" kW" width={80} />
-                <Tooltip
-                  labelFormatter={(label) => (typeof label === 'string' ? formatHour(label) : String(label))}
-                  formatter={(value) => (typeof value === 'number' ? value.toFixed(1) : String(value))}
-                />
-                <Line
-                  dataKey="pred"
-                  name="Minute-ahead forecast"
-                  stroke="var(--chart-minute)"
-                  strokeWidth={2}
-                  strokeDasharray="1 6"
-                  strokeLinecap="round"
-                  dot={{ r: 2 }}
-                  connectNulls
-                />
-                <Line
-                  dataKey="actualPast"
-                  name="Actual power (before today)"
-                  stroke="var(--chart-actual-past)"
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
-                  connectNulls
-                />
-                <Line
-                  dataKey="actualToday"
-                  name="Actual power (earlier today)"
-                  stroke="var(--chart-actual-today)"
-                  strokeWidth={2}
-                  strokeDasharray="6 3"
-                  dot={{ r: 3 }}
-                  connectNulls
-                />
-                <Line
-                  dataKey="actualNow"
-                  name="Actual power (now)"
-                  stroke="var(--accent)"
-                  strokeWidth={2}
-                  dot={{ r: 4 }}
-                  connectNulls
-                />
-              </LineChart>
-            </ResponsiveContainer>
+        <>
+          <ScrollHint />
+          <div className="forecast-chart-scroll" ref={scrollRef}>
+            <div style={{ width: scrollableChartWidthPx(rows.length, 20), height: 140 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={rows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                  <XAxis dataKey="timestamp" tickFormatter={formatHour} minTickGap={30} allowDuplicatedCategory={false} />
+                  <YAxis unit=" kW" width={80} />
+                  <Tooltip
+                    labelFormatter={(label) => (typeof label === 'string' ? formatHour(label) : String(label))}
+                    formatter={(value) => (typeof value === 'number' ? value.toFixed(1) : String(value))}
+                  />
+                  <Line
+                    dataKey="pred"
+                    name="Minute-ahead forecast"
+                    stroke="var(--chart-minute)"
+                    strokeWidth={2}
+                    strokeDasharray="1 6"
+                    strokeLinecap="round"
+                    dot={{ r: 2 }}
+                    connectNulls
+                  />
+                  <Line
+                    dataKey="actualPast"
+                    name="Actual power (before today)"
+                    stroke="var(--chart-actual-past)"
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    connectNulls
+                  />
+                  <Line
+                    dataKey="actualToday"
+                    name="Actual power (earlier today)"
+                    stroke="var(--chart-actual-today)"
+                    strokeWidth={2}
+                    strokeDasharray="6 3"
+                    dot={{ r: 3 }}
+                    connectNulls
+                  />
+                  <Line
+                    dataKey="actualNow"
+                    name="Actual power (now)"
+                    stroke="var(--accent)"
+                    strokeWidth={2}
+                    dot={{ r: 4 }}
+                    connectNulls
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-        </div>
+        </>
       )}
       {!isLoading && !hasError && isPhysicsBaseline && rows.length > 0 && (
         <p className="forecast-status forecast-status-caption">Physics-baseline fallback shown (no trained CNN-LSTM model yet).</p>
@@ -895,12 +975,16 @@ function ErrorChartPanel({ rows }: { rows: ChartRow[] }) {
               formatter={(value) => (typeof value === 'number' ? value.toFixed(2) : String(value))}
             />
             <Legend />
+            {/* 3 distinct dash patterns (not just 3 colors) so any two lines
+                that happen to cross or run close together stay tellable apart
+                - color alone wasn't enough per the user's 2026-07-18 report
+                ("เส้นกราฟ...มีการซ้อนกัน แม้แยกสีแล้วก็จริง"). */}
             <Line
               dataKey="errorLightgbm"
               name="Error - LightGBM (RMSE)"
               stroke="var(--chart-lgbm)"
               strokeWidth={1.5}
-              strokeDasharray="4 4"
+              strokeDasharray="6 3"
               dot={false}
               connectNulls
             />
@@ -909,7 +993,8 @@ function ErrorChartPanel({ rows }: { rows: ChartRow[] }) {
               name="Error - Random Forest (RMSE)"
               stroke="var(--chart-rf)"
               strokeWidth={1.5}
-              strokeDasharray="4 4"
+              strokeDasharray="1 3"
+              strokeLinecap="round"
               dot={false}
               connectNulls
             />
@@ -918,7 +1003,7 @@ function ErrorChartPanel({ rows }: { rows: ChartRow[] }) {
               name="Error - Sum-k LSTM (RMSE)"
               stroke="var(--chart-sumk)"
               strokeWidth={1.5}
-              strokeDasharray="4 4"
+              strokeDasharray="8 3 1 3"
               dot={false}
               connectNulls
             />
@@ -1025,6 +1110,314 @@ function ModelCompetitionPanel({ rows, isLoading, hasError }: ModelCompetitionPa
           (การเลือกผู้ชนะแทบไม่ต่างผล) ยิ่งค่านี้มาก ยิ่งแปลว่าโมเดลที่ชนะแม่นยำกว่าตัวอื่นอย่างมีนัยสำคัญ — นี่คือค่าที่คำนวณจากผลการ
           validation ของแต่ละโมเดล ไม่ใช่ค่าความไม่ลงรอยกันของค่าพยากรณ์สดแบบเรียลไทม์ (ดูรายละเอียดในคำแนะนำการอ่านหน้านี้ด้านบน)
         </p>
+      )}
+    </section>
+  )
+}
+
+const VARIABLE_UNAVAILABLE = '—'
+
+function formatVar(value: number | null | undefined, digits: number): string {
+  return value == null ? VARIABLE_UNAVAILABLE : value.toFixed(digits)
+}
+
+interface SolarVariablesTableProps {
+  conditions: CurrentConditionsResponse | undefined
+  isLoading: boolean
+}
+
+// Live-updating 3x3 table of all 9 Jitkomut Songsiri reference-deck input
+// variables (I, RH, T / UV, WS, I_clr / cosθ, k̂, I_wrf - reading order
+// matches that reference image), per the user's own 2026-07-18 request,
+// after confirming ("ทำครบ 9 ตัว ระบุ UV เป็นรายวัน") that all 9 should be
+// shown even though UV is only ever daily-resolution. Backed by GET
+// /weather/conditions (see routes_weather.py's own docstring for the full
+// per-variable audit of which were already real model features vs.
+// ingested-but-never-surfaced) and refetched on the same poll interval
+// every other live readout on this page already uses - no bespoke
+// "real-time" plumbing needed beyond that.
+function SolarVariablesTable({ conditions, isLoading }: SolarVariablesTableProps) {
+  if (isLoading) return <p className="forecast-status">Loading…</p>
+  if (!conditions || !conditions.available) {
+    return <p className="forecast-status">No live weather data available yet.</p>
+  }
+
+  return (
+    <section className="solar-variables-table-section" aria-label="9 solar forecasting input variables">
+      <h3 className="forecast-minute-title">ตัวแปรพยากรณ์พลังงานแสงอาทิตย์ทั้ง 9 ตัว (Songsiri reference)</h3>
+      <p className="forecast-error-subtitle">ค่าล่าสุดของตัวแปรทั้ง 9 ตัวที่งานวิจัยอ้างอิงของระบบนี้ใช้ - อัปเดตข้อมูลอัตโนมัติเป็นระยะ</p>
+      <div className="solar-variables-grid">
+        <VariableCell symbol="I" label="Irradiance" value={formatVar(conditions.irradiance_w_m2, 0)} unit="W/m²" />
+        <VariableCell symbol="RH" label="Relative humidity" value={formatVar(conditions.relative_humidity_pct, 0)} unit="%" />
+        <VariableCell symbol="T" label="Temperature" value={formatVar(conditions.temp_c, 1)} unit="°C" />
+        <VariableCell
+          symbol="UV"
+          label="UV index"
+          value={formatVar(conditions.uv_index, 1)}
+          unit="ดัชนี"
+          caption={conditions.uv_observation_date ? `ข้อมูลรายวัน (${conditions.uv_observation_date})` : 'ไม่มีข้อมูล UV'}
+        />
+        <VariableCell symbol="WS" label="Wind speed" value={formatVar(conditions.wind_speed_ms, 1)} unit="m/s" />
+        <VariableCell symbol="I_clr" label="Clear-sky GHI" value={formatVar(conditions.clearsky_ghi_w_m2, 0)} unit="W/m²" />
+        <VariableCell
+          symbol="cosθ"
+          label="Cosine of zenith angle"
+          value={formatVar(conditions.cos_zenith, 2)}
+          unit=""
+          caption={conditions.zenith_deg != null ? `zenith ${conditions.zenith_deg.toFixed(0)}°` : undefined}
+        />
+        <VariableCell
+          symbol="k̂"
+          label="Clear-sky index"
+          value={formatVar(conditions.clear_sky_index, 2)}
+          unit=""
+          caption={conditions.clear_sky_index == null ? 'กลางคืน/ไม่มีข้อมูล' : undefined}
+        />
+        <VariableCell
+          symbol="I_wrf"
+          label="NWP forecast irradiance"
+          value={formatVar(conditions.forecast_irradiance_w_m2, 0)}
+          unit="W/m²"
+          caption={
+            conditions.forecast_valid_at ? `พยากรณ์ ณ ${formatDateHourIct(conditions.forecast_valid_at)}` : 'ไม่มีข้อมูลพยากรณ์ขณะนี้'
+          }
+        />
+      </div>
+      <p className="forecast-status forecast-status-caption">
+        I_wrf ใช้ข้อมูลจาก GFS (โมเดล NWP เดียวกับที่ใช้คำนวณ I) ที่เวลาล่วงหน้าใกล้ที่สุด ไม่ใช่โมเดลอิสระตัวที่สอง - ไม่มีเซนเซอร์วัดจริงหน้างานแยกต่างหาก
+      </p>
+    </section>
+  )
+}
+
+interface VariableCellProps {
+  symbol: string
+  label: string
+  value: string
+  unit: string
+  caption?: string
+}
+
+function VariableCell({ symbol, label, value, unit, caption }: VariableCellProps) {
+  return (
+    <div className="solar-variable-cell">
+      <span className="solar-variable-symbol">{symbol}</span>
+      <span className="solar-variable-value">
+        {value}
+        {unit && value !== VARIABLE_UNAVAILABLE && <span className="solar-variable-unit"> {unit}</span>}
+      </span>
+      <span className="solar-variable-label">{label}</span>
+      {caption && <span className="solar-variable-caption">{caption}</span>}
+    </div>
+  )
+}
+
+interface IrradianceRow {
+  timestamp: string
+  iActual: number | null
+  iForecast: number | null
+  iSynthetic: number | null
+  iClr: number
+}
+
+// `isReal` (the WHOLE weatherStrip response's own `data_source`, not a
+// per-point flag - GET /weather/strip is either real-covered or synthetic-
+// fallback for its entire window, never a mix) decides which of the 3
+// irradiance lines a given point can honestly feed:
+//  - real: past/now points -> `iActual` (a genuine ingested GFS reading),
+//    future points -> `iForecast` (the same GFS source's own forward-
+//    looking value, i.e. I_wrf - see routes_weather.py's own I_wrf caveat).
+//  - synthetic: every point -> `iSynthetic` (the physics-only fallback
+//    curve, which is neither a real "actual" reading nor a real NWP
+//    forecast) - kept in its own field specifically so it never gets
+//    mislabeled as either, per the user's own explicit "don't fake a
+//    forecast that doesn't exist" instruction.
+// `iClr` (clear-sky GHI) is always populated either way - pure astronomy,
+// no real/synthetic distinction applies to it.
+function buildIrradianceRows(points: WeatherStripPoint[], isReal: boolean, nowMs: number): IrradianceRow[] {
+  return points.map((p) => {
+    const isFuture = new Date(p.timestamp).getTime() > nowMs
+    return {
+      timestamp: p.timestamp,
+      iActual: isReal && !isFuture ? p.ssrd_w_m2 : null,
+      iForecast: isReal && isFuture ? p.ssrd_w_m2 : null,
+      iSynthetic: !isReal ? p.ssrd_w_m2 : null,
+      iClr: p.clearsky_ghi_w_m2,
+    }
+  })
+}
+
+interface SolarVariablesGraphsProps {
+  points: WeatherStripPoint[]
+  dataSource: ForecastDataSource | undefined
+  isLoading: boolean
+}
+
+const VARIABLE_CHART_TOOLTIP_FORMATTER = (value: unknown) => (typeof value === 'number' ? value.toFixed(2) : String(value))
+const VARIABLE_CHART_LABEL_FORMATTER = (label: unknown) => (typeof label === 'string' ? formatDateHourIct(label) : String(label))
+
+// Grouped time-series graphs for the same 9 Songsiri-reference variables the
+// table above shows as a single live snapshot - per the user's own
+// 2026-07-18 request/confirmed grouping ("เห็นด้วยตามที่เสนอ"): the
+// irradiance trio (I/I_clr/I_wrf) share one chart, k̂+cosθ share one chart
+// (both unitless, comparable 0-1-ish scale), and T/RH/WS each get their own
+// chart. UV gets NO chart at all - it has no time series anywhere in this
+// system (NASA POWER is daily-cadence only, not part of /weather/strip),
+// and the user was explicit that a variable with no real forecast (or, in
+// UV's case, no real time series at all) should never have one faked just
+// to fill a chart slot - see the UV caption below instead.
+//
+// Data source: GET /weather/strip, the SAME already-time-series endpoint
+// the WeatherStrip component above already renders (not a second,
+// duplicate fetch) - reuses its existing real/synthetic honesty labeling
+// (see buildIrradianceRows's own docstring for how that plays out for the
+// irradiance chart specifically) rather than building a parallel windowed
+// endpoint.
+function SolarVariablesGraphs({ points, dataSource, isLoading }: SolarVariablesGraphsProps) {
+  const isReal = dataSource === 'real'
+  const irradianceRows = useMemo(() => buildIrradianceRows(points, isReal, Date.now()), [points, isReal])
+  const hasRh = points.some((p) => p.relative_humidity_pct != null)
+  const hasWind = points.some((p) => p.wind_speed_ms != null)
+
+  return (
+    <section className="solar-variables-graphs-section" aria-label="9 solar forecasting variable graphs">
+      <div className="weather-strip-header">
+        <span className="forecast-minute-title">กราฟตัวแปรพยากรณ์พลังงานแสงอาทิตย์</span>
+        {!isLoading && dataSource && (
+          <span
+            className={
+              dataSource === 'real' ? 'data-source-badge data-source-badge-real' : 'data-source-badge data-source-badge-synthetic'
+            }
+          >
+            {dataSource === 'real' ? 'Real data' : 'Demo data'}
+          </span>
+        )}
+      </div>
+      {isLoading && <p className="forecast-status">Loading…</p>}
+      {!isLoading && points.length === 0 && <p className="forecast-status">No data yet.</p>}
+      {!isLoading && points.length > 0 && (
+        <>
+          <div className="solar-variable-chart">
+            <h4 className="solar-variable-chart-title">I / I_clr / I_wrf - ความเข้มรังสีอาทิตย์</h4>
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={irradianceRows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <XAxis dataKey="timestamp" tickFormatter={formatDateHourIct} minTickGap={60} />
+                <YAxis unit=" W/m²" width={70} />
+                <Tooltip labelFormatter={VARIABLE_CHART_LABEL_FORMATTER} formatter={VARIABLE_CHART_TOOLTIP_FORMATTER} />
+                <Legend />
+                <Line dataKey="iClr" name="I_clr (clear-sky GHI)" stroke="var(--chart-clearsky)" strokeWidth={2} dot={false} connectNulls />
+                <Line dataKey="iActual" name="I (irradiance, actual)" stroke="var(--chart-irradiance)" strokeWidth={2} dot={false} connectNulls />
+                <Line
+                  dataKey="iForecast"
+                  name="I_wrf (NWP forecast)"
+                  stroke="var(--chart-forecast)"
+                  strokeWidth={2}
+                  strokeDasharray="7 4"
+                  dot={false}
+                  connectNulls
+                />
+                <Line
+                  dataKey="iSynthetic"
+                  name="I (แบบจำลองฟิสิกส์สำรอง)"
+                  stroke="var(--chart-irradiance)"
+                  strokeWidth={2}
+                  strokeDasharray="1 3"
+                  dot={false}
+                  connectNulls
+                />
+              </LineChart>
+            </ResponsiveContainer>
+            {!isReal && (
+              <p className="forecast-status forecast-status-caption">
+                ยังไม่มีข้อมูลจริงครอบคลุมช่วงเวลานี้เพียงพอ - เส้น I ที่แสดงเป็นแบบจำลองฟิสิกส์สำรองเท่านั้น ไม่ใช่ค่าจริงหรือค่าพยากรณ์ I_wrf จริง
+                (ไม่ฝืนแสดงค่าพยากรณ์ที่ไม่มีอยู่จริง)
+              </p>
+            )}
+          </div>
+
+          <div className="solar-variable-chart">
+            <h4 className="solar-variable-chart-title">T - อุณหภูมิ</h4>
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={points} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <XAxis dataKey="timestamp" tickFormatter={formatDateHourIct} minTickGap={60} />
+                <YAxis unit=" °C" width={60} />
+                <Tooltip labelFormatter={VARIABLE_CHART_LABEL_FORMATTER} formatter={VARIABLE_CHART_TOOLTIP_FORMATTER} />
+                <Line dataKey="temp_c" name="T (temperature)" stroke="var(--chart-temp)" strokeWidth={2} dot={false} connectNulls />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="solar-variable-chart">
+            <h4 className="solar-variable-chart-title">k̂ / cosθ - ดัชนีท้องฟ้าใส และ cosine ของมุมเซนิท</h4>
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={points} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <XAxis dataKey="timestamp" tickFormatter={formatDateHourIct} minTickGap={60} />
+                <YAxis width={50} />
+                <Tooltip labelFormatter={VARIABLE_CHART_LABEL_FORMATTER} formatter={VARIABLE_CHART_TOOLTIP_FORMATTER} />
+                <Legend />
+                <Line dataKey="cos_zenith" name="cosθ" stroke="var(--chart-cosz)" strokeWidth={2} dot={false} />
+                <Line
+                  dataKey="clear_sky_index"
+                  name="k̂ (clear-sky index)"
+                  stroke="var(--chart-khat)"
+                  strokeWidth={2}
+                  strokeDasharray="4 2"
+                  dot={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+            <p className="forecast-status forecast-status-caption">k̂ ไม่มีค่าตอนกลางคืน (clear-sky GHI ใกล้ 0 ทำให้อัตราส่วนไม่มีความหมาย)</p>
+          </div>
+
+          <div className="solar-variable-chart">
+            <h4 className="solar-variable-chart-title">RH - ความชื้นสัมพัทธ์</h4>
+            {hasRh ? (
+              <ResponsiveContainer width="100%" height={180}>
+                <LineChart data={points} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                  <XAxis dataKey="timestamp" tickFormatter={formatDateHourIct} minTickGap={60} />
+                  <YAxis unit=" %" width={50} />
+                  <Tooltip labelFormatter={VARIABLE_CHART_LABEL_FORMATTER} formatter={VARIABLE_CHART_TOOLTIP_FORMATTER} />
+                  <Line dataKey="relative_humidity_pct" name="RH (relative humidity)" stroke="var(--chart-rh)" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="forecast-status forecast-status-caption">
+                ไม่มีข้อมูลความชื้นสัมพัทธ์ในช่วงเวลานี้ (ระบบยังไม่มีข้อมูลจริงเพียงพอ ใช้แบบจำลองฟิสิกส์สำรองซึ่งไม่ได้จำลองความชื้นไว้) - ไม่แสดงกราฟเพื่อไม่ให้ดูเหมือนมีข้อมูลจริง
+              </p>
+            )}
+          </div>
+
+          <div className="solar-variable-chart">
+            <h4 className="solar-variable-chart-title">WS - ความเร็วลม</h4>
+            {hasWind ? (
+              <ResponsiveContainer width="100%" height={180}>
+                <LineChart data={points} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                  <XAxis dataKey="timestamp" tickFormatter={formatDateHourIct} minTickGap={60} />
+                  <YAxis unit=" m/s" width={60} />
+                  <Tooltip labelFormatter={VARIABLE_CHART_LABEL_FORMATTER} formatter={VARIABLE_CHART_TOOLTIP_FORMATTER} />
+                  <Line dataKey="wind_speed_ms" name="WS (wind speed)" stroke="var(--chart-wind)" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="forecast-status forecast-status-caption">
+                ไม่มีข้อมูลความเร็วลมในช่วงเวลานี้ (ระบบยังไม่มีข้อมูลจริงเพียงพอ ใช้แบบจำลองฟิสิกส์สำรองซึ่งไม่ได้จำลองลมไว้) - ไม่แสดงกราฟเพื่อไม่ให้ดูเหมือนมีข้อมูลจริง
+              </p>
+            )}
+          </div>
+
+          <div className="solar-variable-chart">
+            <h4 className="solar-variable-chart-title">UV - ดัชนีรังสียูวี</h4>
+            <p className="forecast-status forecast-status-caption">
+              UV เป็นข้อมูลรายวันเท่านั้น (อัปเดตวันละครั้งจาก NASA POWER ดู forecast/README.md) ไม่มีข้อมูลรายชั่วโมงหรือค่าพยากรณ์ล่วงหน้าจริงให้แสดงเป็นกราฟตามช่วงเวลาได้
+              - ดูค่าล่าสุดได้ในตารางด้านบน (ไม่ฝืนสุ่ม/ประมาณค่าเพื่อทำเป็นกราฟ)
+            </p>
+          </div>
+        </>
       )}
     </section>
   )

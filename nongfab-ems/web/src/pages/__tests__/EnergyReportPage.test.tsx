@@ -124,10 +124,10 @@ describe('EnergyReportPage', () => {
     expect(await screen.findByText(/simulated zone/i)).toBeInTheDocument()
   })
 
-  it('renders the losses breakdown including temperature', async () => {
+  it('renders the losses breakdown including temperature, with Thai labels', async () => {
     renderPage()
-    expect(await screen.findByText('Temperature')).toBeInTheDocument()
-    expect(screen.getByText('Soiling')).toBeInTheDocument()
+    expect(await screen.findByText('อุณหภูมิ')).toBeInTheDocument()
+    expect(screen.getByText('ฝุ่น/คราบสกปรกบนแผง')).toBeInTheDocument()
     expect(screen.getByText(/total system loss/i)).toBeInTheDocument()
   })
 

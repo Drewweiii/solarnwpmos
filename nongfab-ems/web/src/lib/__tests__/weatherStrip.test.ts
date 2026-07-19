@@ -11,11 +11,12 @@ function point(timestamp: string, temp_c: number, ssrd_w_m2: number): WeatherStr
     timestamp,
     temp_c,
     ssrd_w_m2,
-    ghi_clearsky_w_m2: 0,
-    cos_zenith: 0,
-    cloud_index: null,
     relative_humidity_pct: null,
     wind_speed_ms: null,
+    clearsky_ghi_w_m2: 0,
+    zenith_deg: 90,
+    cos_zenith: 0,
+    clear_sky_index: null,
   }
 }
 

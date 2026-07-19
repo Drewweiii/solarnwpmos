@@ -21,15 +21,22 @@ export const MONTH_LABELS = [
   'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
 ]
 
+// Thai labels (2026-07-18 user request) - the underlying values themselves
+// are unchanged, still the NREL PVWatts-style literature defaults documented
+// in simulation/loss_model.py's own module docstring (soiling/shading/
+// mismatch/DC wiring/connections/availability), plus a real per-request
+// temperature-derate figure and the zone's real inverter efficiency - see
+// that docstring for which of these are literature placeholders vs.
+// genuinely computed.
 const LOSS_LABELS: Record<string, string> = {
-  temperature_pct: 'Temperature',
-  soiling_pct: 'Soiling',
-  shading_pct: 'Shading',
-  mismatch_pct: 'Mismatch',
-  dc_wiring_pct: 'DC wiring',
-  connections_pct: 'Connections',
-  availability_pct: 'Availability',
-  inverter_loss_pct: 'Inverter',
+  temperature_pct: 'อุณหภูมิ',
+  soiling_pct: 'ฝุ่น/คราบสกปรกบนแผง',
+  shading_pct: 'เงาบัง',
+  mismatch_pct: 'ความไม่สมดุลของแผง (Mismatch)',
+  dc_wiring_pct: 'สายไฟฝั่ง DC',
+  connections_pct: 'จุดต่อสาย',
+  availability_pct: 'ความพร้อมใช้งานของระบบ',
+  inverter_loss_pct: 'อินเวอร์เตอร์',
 }
 const LOSS_ORDER = Object.keys(LOSS_LABELS)
 

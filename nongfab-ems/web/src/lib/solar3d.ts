@@ -117,6 +117,71 @@ export function sunPositionVector(azimuthDeg: number, elevationDeg: number, radi
   return [x, y, z]
 }
 
+// 111,320 m is the standard equirectangular-projection constant for one
+// degree of latitude (WGS84 mean); longitude's own meters-per-degree is
+// scaled by cos(latitude) since meridians converge toward the poles.
+const METERS_PER_DEG_LAT = 111_320
+
+/** Approximate flat-earth (equirectangular tangent-plane) projection of a
+ * (lat, lon) point into local east/north meters relative to an origin point
+ * - good to well under 1% error at the <2km scale this plant spans (see
+ * `nongfab_features.panel_geometry`'s own docstring, which documents the
+ * exact same approximation server-side to lay out each zone's panels
+ * relative to that zone's own surveyed centroid; `Panel.east_m`/`north_m`
+ * are the output of that same math). Passing a zone's own centroid as
+ * `originLat`/`originLon` is what lets an irradiance grid point (real
+ * lat/lon, from GET /irradiance-map) land in the exact same local frame a
+ * `Panel` already uses, so both can share one ground plane with no further
+ * conversion - added 2026-07-18 to merge the separate MapLibre irradiance
+ * map into this scene as colored ground points (see Solar3DScene.tsx's
+ * IrradianceGroundOverlay), per the user's own explicit request. */
+export function latLonToLocalMeters(
+  lat: number,
+  lon: number,
+  originLat: number,
+  originLon: number,
+): { eastM: number; northM: number } {
+  const metersPerDegLon = METERS_PER_DEG_LAT * Math.cos((originLat * Math.PI) / 180)
+  return {
+    eastM: (lon - originLon) * metersPerDegLon,
+    northM: (lat - originLat) * METERS_PER_DEG_LAT,
+  }
+}
+
+// Same 4-stop blue -> amber -> red ramp (0 / 300 / 600 / 1000 W/m^2) the
+// former standalone MapLibre irradiance-map overlay used for its
+// `circle-color` paint expression - reused as-is (not redesigned) so the
+// merged-into-3D ground overlay reads with the same color meaning a viewer
+// may already associate with "clear sky blue -> hazy amber -> intense red".
+const IRRADIANCE_COLOR_STOPS: [number, [number, number, number]][] = [
+  [0, [30, 58, 138]], // #1e3a8a
+  [300, [37, 99, 235]], // #2563eb
+  [600, [245, 158, 11]], // #f59e0b
+  [1000, [239, 68, 68]], // #ef4444
+]
+
+/** Linearly interpolated color for a GHI reading (W/m^2), clamped to the
+ * [0, 1000] display range `MAX_DISPLAY_GHI_W_M2` (irradiance_map.py) already
+ * clips server-side - see `IRRADIANCE_COLOR_STOPS`'s own docstring for where
+ * the 4 stops come from. Returns an `rgb(...)` CSS/Three.js-color-compatible
+ * string. */
+export function irradianceGhiColor(ghiWm2: number): string {
+  const clamped = Math.max(0, Math.min(1000, ghiWm2))
+  for (let i = 0; i < IRRADIANCE_COLOR_STOPS.length - 1; i++) {
+    const [fromVal, fromRgb] = IRRADIANCE_COLOR_STOPS[i]
+    const [toVal, toRgb] = IRRADIANCE_COLOR_STOPS[i + 1]
+    if (clamped >= fromVal && clamped <= toVal) {
+      const t = toVal === fromVal ? 0 : (clamped - fromVal) / (toVal - fromVal)
+      const r = Math.round(fromRgb[0] + (toRgb[0] - fromRgb[0]) * t)
+      const g = Math.round(fromRgb[1] + (toRgb[1] - fromRgb[1]) * t)
+      const b = Math.round(fromRgb[2] + (toRgb[2] - fromRgb[2]) * t)
+      return `rgb(${r}, ${g}, ${b})`
+    }
+  }
+  const lastRgb = IRRADIANCE_COLOR_STOPS[IRRADIANCE_COLOR_STOPS.length - 1][1]
+  return `rgb(${lastRgb[0]}, ${lastRgb[1]}, ${lastRgb[2]})`
+}
+
 /** Points along an azimuth/altitude/zenith-angle protractor arc on the
  * sun's "sky dome" (see `sunPositionVector`), linearly sweeping azimuth and
  * elevation together from (azFromDeg, elFromDeg) to (azToDeg, elToDeg) -
