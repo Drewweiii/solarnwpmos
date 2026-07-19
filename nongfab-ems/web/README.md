@@ -2559,3 +2559,84 @@ message preview elsewhere on screen at the same time). Full suite 323/323,
 contexts (Playwright, real API+WS, not mocked): rapid-fire sends, thread
 reopen persistence, the toast appearing/opening/clearing, and the mascot's
 quick-reply chips reappearing via 📚.
+
+### Fixed - น้อง Solar's voice reads mixed Thai/English text clearly instead of mangling whichever language isn't `th-TH` (2026-07-18, Track 2)
+
+Reported live: "อยากแก้ระบบเสียงน้อง solar ปรับปรุงเสียงการอ่านภาษาไทย ภาษาอังกฤษ
+อยากให้ชัดเจนมากขึ้นอีกเยอะๆ". Every 🔊 reply here is naturally mixed-language
+(น้อง Solar's own canned answers mix Thai sentences with English technical
+terms - "kWp", "GIS", "Forecast", "NPV/IRR/LCOE") - `tts.ts` previously
+forced the *entire* utterance through a single hardcoded `lang: 'th-TH'`,
+so a Thai voice engine mangled every English word it hit (and would equally
+mangle Thai text if the lang were flipped to English). Fixed with a new
+`segmentByLanguage()`: splits the reply into consecutive same-script runs
+(Thai Unicode block vs. Latin letters; digits/punctuation stay attached to
+whichever run they're already inside rather than fragmenting it), and
+`speakText()` now queues one utterance per run with its own matching
+`lang` - the Web Speech API plays queued `speak()` calls back to back in
+order, so no manual chaining via `onend` was needed. Also slowed the
+default `rate` from 1.0 to 0.92 (a small, still-natural-sounding change -
+most Thai TTS voices read noticeably rushed at "normal" speed), and added
+voice selection: `speechSynthesis.getVoices()` is cached per-language (a
+`WeakMap` keyed on the `SpeechSynthesis` instance, handling the
+`voiceschanged` async-load quirk Chrome has), preferring a voice whose name
+mentions "Google" when more than one matches - on Chrome those are the
+higher-quality network-backed voices, the clearest win available here
+without shipping/calling a paid TTS API (out of scope per this project's
+zero-cost-API rule).
+
+**Tested**: `tts.test.ts` rewritten (15 tests: `segmentByLanguage` unit
+tests for pure-Thai/pure-English/mixed/digit-folding/empty-input cases,
+plus `speakText` tests for per-segment queuing, the slowed rate, voice
+preference, and the pre-existing cancel/unavailable-synth behavior).
+Existing `speechSynthesis` stubs in `AIAssistant.test.tsx`,
+`VisitorNetwork.test.tsx`, and `stickers.test.ts` were missing
+`getVoices`/`addEventListener` (real browsers always expose both) - added
+so they don't throw now that `tts.ts` actually calls them; one AIAssistant
+test's exact-one-utterance assertion loosened to match the new
+multi-utterance-per-mixed-reply reality (asserts at least one call and
+that the reply opens in Thai, not a fixed call count). Full suite
+335/335, `tsc` clean. Live-verified in a real Chromium tab (Playwright,
+`speechSynthesis`/`SpeechSynthesisUtterance` instrumented via
+`Object.defineProperty` to capture actual queued utterances - a plain
+`window.speechSynthesis = ...` reassignment is a silent no-op in Chromium,
+a real getter-only accessor on `Window.prototype`): the greeting's ☀️
+"น้อง Solar" / "AI" mix produced 5 correctly-alternating th-TH/en-US
+utterances, all at the slowed 0.92 rate.
+
+### Added - more emoji throughout น้อง Solar's replies, doubled the "เล่นกับน้อง Solar" play catalog (2026-07-18, Track 2)
+
+Reported live alongside the TTS clarity fix: "เพิ่มอิโมจิ และการเล่นกับน้อง
+solar". Two separate, purely additive content changes, no logic touched:
+
+1. **Emoji pass** - `assistant.ts`'s 11 hand-written canned replies (help
+   navigation, kWp/irradiance/plant-factor/forecast-horizon definitions,
+   current-power/today-energy/forecast/capacity/weather/financial live-data
+   answers) and `AssistantPanel.tsx`'s 3 menu messages (category/group/sub-
+   question prompts) each got one fitting leading emoji. `assistantContent.ts`'s
+   all 34 guided-topic answers got the same treatment via a small one-off
+   script (topic-appropriate emoji per entry - ☀️ for what a solar cell is,
+   🔌 for what an inverter is, 💰 for the electricity-bill breakdown, etc.)
+   rather than 34 manual edits. Every emoji was placed as a prefix/suffix
+   around the factual content, never inside a substring any existing test
+   asserts on (numbers+units, exact page names, etc.) - confirmed by the
+   full suite still passing unchanged except for the handful of exact-string
+   menu/interaction-speech assertions that intentionally now include the
+   added emoji.
+2. **Play catalog doubled** - `mascotInteractions.ts`'s "เล่นกับน้อง Solar"
+   catalog grew from 12 to 24 (sing, dance, wink, selfie, give a star, fist-
+   bump, sunbathe, tell a secret, compliment, fake-sneeze, lullaby, sunglasses
+   pose), all reusing the 10 existing `MascotFace` moods rather than inventing
+   new ones - a new mood needs real face SVG art, which is design work, not a
+   data-only change, so this stayed a safe, purely additive catalog expansion.
+
+**Tested**: `mascotInteractions.test.ts`'s "generous number" threshold
+bumped from ≥10 to ≥20 to reflect the real growth, plus a new test asserting
+every interaction's label contains at least one emoji (`\p{Extended_Pictographic}`).
+`AIAssistant.test.tsx`'s handful of exact-string menu/interaction-speech
+assertions updated to include the now-present emoji. Full suite 336/336,
+`tsc` clean. Live-verified in a real browser (Playwright): the greeting,
+category-menu chips, and a kWp knowledge answer all render their new
+leading emoji correctly; the play panel shows all 24 buttons in its grid;
+clicking the new "💃 ชวนเต้น" button visibly changes the mascot's face and
+shows its speech bubble, same as every pre-existing interaction.

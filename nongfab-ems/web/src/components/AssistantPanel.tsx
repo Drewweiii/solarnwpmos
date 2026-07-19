@@ -76,7 +76,7 @@ function categoryMenuMessage(): ChatMessage {
   return {
     id: CATEGORY_MENU_ID,
     role: 'assistant',
-    text: 'อยากถามเรื่องอะไรดีครับ เลือกหมวดได้เลย:',
+    text: 'อยากถามเรื่องอะไรดีครับ 🤔 เลือกหมวดได้เลย:',
     options: starterOptions(),
   }
 }
@@ -87,7 +87,7 @@ function groupMenuMessage(categoryId: string, role: string | null | undefined): 
   return {
     id: `${GROUP_MENU_ID_PREFIX}${categoryId}`,
     role: 'assistant',
-    text: `หมวด "${category.title}" มีหัวข้ออะไรบ้าง เลือกได้เลยครับ:`,
+    text: `หมวด "${category.title}" มีหัวข้ออะไรบ้าง 📂 เลือกได้เลยครับ:`,
     options: [
       ...groupsForRole(category, role).map((g): AssistantOption => ({ kind: 'group', label: g.title, groupId: g.id })),
       BACK_TO_CATEGORIES_OPTION,
@@ -101,7 +101,7 @@ function subQuestionMenuMessage(groupId: string): ChatMessage | null {
   return {
     id: `${SUB_MENU_ID_PREFIX}${groupId}`,
     role: 'assistant',
-    text: `"${group.title}" อยากรู้เรื่องไหนครับ:`,
+    text: `"${group.title}" อยากรู้เรื่องไหนครับ ❓:`,
     options: [
       ...group.subQuestions.map((sq): AssistantOption => ({ kind: 'question', label: sq.label, question: sq.question })),
       BACK_TO_CATEGORIES_OPTION,

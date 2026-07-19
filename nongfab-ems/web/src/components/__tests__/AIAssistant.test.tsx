@@ -36,7 +36,7 @@ describe('AIAssistant', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.restoreAllMocks()
-    vi.stubGlobal('speechSynthesis', { speak: vi.fn(), cancel: vi.fn() })
+    vi.stubGlobal('speechSynthesis', { speak: vi.fn(), cancel: vi.fn(), getVoices: vi.fn(() => []), addEventListener: vi.fn() })
     vi.stubGlobal(
       'SpeechSynthesisUtterance',
       class {
@@ -143,9 +143,15 @@ describe('AIAssistant', () => {
       expect(speakButtons.length).toBeGreaterThan(0) // the greeting itself is an assistant message
 
       await user.click(speakButtons[0])
-      expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1)
-      const utterance = (window.speechSynthesis.speak as ReturnType<typeof vi.fn>).mock.calls[0][0] as SpeechSynthesisUtterance
-      expect(utterance.lang).toBe('th-TH')
+      // The greeting mixes Thai with English words ("Solar", "AI") - tts.ts
+      // (2026-07-18 clarity pass) now queues one utterance per same-script
+      // run rather than forcing the whole mixed-language reply through a
+      // single th-TH voice, so this asserts at least one utterance went out
+      // and that the reply *opens* in Thai, not an exact call count.
+      const speakMock = window.speechSynthesis.speak as ReturnType<typeof vi.fn>
+      expect(speakMock.mock.calls.length).toBeGreaterThan(0)
+      const firstUtterance = speakMock.mock.calls[0][0] as SpeechSynthesisUtterance
+      expect(firstUtterance.lang).toBe('th-TH')
     })
 
     it('does not show a speak button on the user\'s own echoed message', async () => {
@@ -173,7 +179,7 @@ describe('AIAssistant', () => {
       expect(await screen.findByRole('button', { name: '📚 ดูหมวดคำถามอื่น' })).toBeInTheDocument()
 
       await user.click(screen.getByRole('button', { name: '📚 ดูหมวดคำถามอื่น' }))
-      expect(await screen.findByText('อยากถามเรื่องอะไรดีครับ เลือกหมวดได้เลย:')).toBeInTheDocument()
+      expect(await screen.findByText('อยากถามเรื่องอะไรดีครับ 🤔 เลือกหมวดได้เลย:')).toBeInTheDocument()
     })
 
     it('a topic group menu also offers a way back to other categories', async () => {
@@ -219,7 +225,7 @@ describe('AIAssistant', () => {
       await user.click(menuButton)
       await user.click(menuButton)
 
-      expect(screen.getAllByText('อยากถามเรื่องอะไรดีครับ เลือกหมวดได้เลย:')).toHaveLength(1)
+      expect(screen.getAllByText('อยากถามเรื่องอะไรดีครับ 🤔 เลือกหมวดได้เลย:')).toHaveLength(1)
     })
 
     it('bouncing between 📚 back-to-categories and picking the same category repeatedly does not stack menus either (reported again via screen recording, 2026-07-18)', async () => {
@@ -238,7 +244,7 @@ describe('AIAssistant', () => {
       await user.click(menuButton)
       await pickCategory()
 
-      expect(screen.queryAllByText('อยากถามเรื่องอะไรดีครับ เลือกหมวดได้เลย:')).toHaveLength(0)
+      expect(screen.queryAllByText('อยากถามเรื่องอะไรดีครับ 🤔 เลือกหมวดได้เลย:')).toHaveLength(0)
       expect(screen.getAllByText(/หมวด "ความรู้เรื่องระบบ Solar" มีหัวข้ออะไรบ้าง/)).toHaveLength(1)
     })
   })
@@ -276,7 +282,7 @@ describe('AIAssistant', () => {
       await user.click(screen.getByRole('button', { name: 'เล่นกับน้อง Solar' }))
 
       await user.click(screen.getByRole('button', { name: '👉 จิ้มแก้ม' }))
-      expect(await screen.findByText('อย่าจิ้มเค้าาา!')).toBeInTheDocument()
+      expect(await screen.findByText('อย่าจิ้มเค้าาา! 😖')).toBeInTheDocument()
     })
 
     it('does not add anything to the chat log - play interactions are purely visual on the mascot', async () => {
@@ -302,7 +308,7 @@ describe('AIAssistant', () => {
       await user.click(screen.getByRole('button', { name: '🤏 บีบแก้ม' }))
       await user.click(screen.getByRole('button', { name: '🌸 มอบดอกไม้' }))
 
-      expect(await screen.findByText('ขอบคุณดอกไม้สวยๆ นะครับ 🌸')).toBeInTheDocument()
+      expect(await screen.findByText('ขอบคุณดอกไม้สวยๆ นะครับ 🌸💐')).toBeInTheDocument()
       expect(screen.getByRole('group', { name: 'เล่นกับน้อง Solar' })).toBeInTheDocument()
     })
   })
