@@ -991,11 +991,33 @@ mode) and `clearsky_ghi_w_m2`/`zenith_deg`/`cos_zenith`/`clear_sky_index`
 independent of data source). Reuses the existing real/synthetic honesty
 labeling (`data_source` field) rather than introducing a new one.
 
-**Tested**: `test_routes_weather.py` grew from ~14 to 24 tests - new
+**Tested**: `test_routes_weather.py` grew from ~14 to 25 tests - new
 coverage for `/weather/conditions` (all-9-present happy path, UV null when
 no/stale UV data, no-forecast-row when only past data exists, requires
 auth) and for the extended `/weather/strip` (synthetic points carry
 astronomy fields but not RH/wind, real points carry all 6 new fields with
-correct values). Full `api` suite 174 passed, `ruff check` clean. This
-round's frontend consumer (the 3x3 live table + grouped variable graphs)
-is documented in `web/README.md`'s matching 2026-07-19 entry.
+correct values, RH/wind null specifically for future timestamps - see the
+merge-reconciliation note below). Full `api` suite 174 passed, `ruff check`
+clean. This round's frontend consumer (the 3x3 live table + grouped
+variable graphs) is documented in `web/README.md`'s matching 2026-07-19
+entry.
+
+**Merge note**: Track 2 independently built the same `/weather/strip`
+extension in parallel (with the user's permission to cross into Track 1
+territory for this one piece), using different field names
+(`ghi_clearsky_w_m2`/`cloud_index`/a separate `uv_daily` list) and a
+genuinely better catch: RH/wind should stay `None` for *future* timestamps
+even in real-data mode, since - unlike ssrd/temp - neither was ever
+validated as a trained-model regressor in this pipeline, so showing them
+as "forecast" would overstate confidence this project hasn't earned for
+them. Reconciling the two independent implementations (both pushed to this
+shared branch before either was aware of the other): kept this round's own
+field names/shape end-to-end, since a complete, tested frontend (3x3 table
++ grouped graphs) was already built against them and Track 2's own
+frontend piece hadn't landed yet - but adopted the RH/wind future-nulling
+fix into `_real_window()`. Track 2's `cloud_index` (real Himawari k-hat,
+an alternative to this round's ssrd/clearsky-ratio `clear_sky_index`) and
+`uv_daily` (a real multi-day UV trend, which could someday replace the "no
+UV chart" honest placeholder on ForecastPage - see web/README.md) were not
+carried over, to keep this reconciliation scoped - either would be a
+reasonable follow-up, not a redo of this round's work.

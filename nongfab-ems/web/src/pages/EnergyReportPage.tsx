@@ -8,12 +8,15 @@ import './EnergyReportPage.css'
 
 const REAL_ZONE_IDS = ['GIS', 'ISB', 'Jetty'] as const
 
-// Full Thai month names (2026-07-18 user request) - same `th-TH` locale
-// Solar3DPage.tsx already uses for its own simulated-date caption, just
-// spelled out here as a fixed array instead of a per-render
-// `toLocaleDateString` call, since this axis only ever needs the 12 labels
-// once, not a real date object per tick.
-const MONTH_LABELS = [
+// Full Thai month names (not abbreviated) - per the user's explicit 2026-07-18
+// request ("ใส่เดือนกำกับเป็นภาษาไทย เเบบเต็มๆ"). Long enough that the axis
+// ticks need angling to avoid overlapping at 12-per-chart - see the XAxis
+// props below (same angle/textAnchor/tickMargin pattern already established
+// on ForecastPage.tsx's own long-label axis). Exported (not module-private)
+// so it's unit-testable directly - recharts' <ResponsiveContainer> reports
+// zero width/height in jsdom and never renders its tick text, so asserting
+// on this through a full page render isn't possible.
+export const MONTH_LABELS = [
   'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
   'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
 ]
@@ -100,10 +103,19 @@ export function EnergyReportPage() {
           <section className="energy-report-section" aria-label="Monthly generation">
             <h2>Monthly generation (estimated)</h2>
             <div className="energy-report-chart">
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={report.data.monthly}>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={report.data.monthly} margin={{ top: 8, right: 8, left: 0, bottom: 32 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="month" tickFormatter={(m: number) => MONTH_LABELS[m - 1]} stroke="var(--text)" fontSize={12} />
+                  <XAxis
+                    dataKey="month"
+                    tickFormatter={(m: number) => MONTH_LABELS[m - 1]}
+                    stroke="var(--text)"
+                    fontSize={12}
+                    angle={-40}
+                    textAnchor="end"
+                    height={50}
+                    tickMargin={8}
+                  />
                   <YAxis stroke="var(--text)" fontSize={12} />
                   <Tooltip
                     contentStyle={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8 }}

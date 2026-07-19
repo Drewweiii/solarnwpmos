@@ -25,6 +25,7 @@ import {
   filterToRecentPast,
   indexNearestToTimestamp,
   mergeGeneratedAndForecast,
+  centeredScrollPosition,
   mergeMinuteAheadRows,
   nearestToNow,
   sumForecastAcrossZones,
@@ -122,14 +123,15 @@ function scrollableChartWidthPx(pointCount: number, pxPerPoint: number): number 
 }
 
 // Auto-centers a scrollable chart's default scroll position on "today"/"now"
-// instead of leaving it at the far-left (oldest) edge (2026-07-18, per the
-// user's explicit follow-up: the earlier scroll-to-pan implementation above
-// technically worked, but always opened scrolled all the way left, so "now"
-// - the whole reason to scroll - started off-screen and the scrollbar itself
-// wasn't obviously discoverable. Centers ONCE per `resetKey` (zone+horizon
-// combo) rather than on every poll refresh, so it doesn't fight a viewer who
-// has since panned to look at something else - only a genuine dataset swap
-// (switching zone or horizon tab) re-centers.
+// instead of leaving it at the far-left (oldest) edge (2026-07-18) - used
+// for the Minute-ahead panel below, which doesn't get the explicit pan
+// slider the main chart has (see MAIN_CHART_PX_PER_POINT/chartScrollRef
+// further down): its own ~90-minute span is narrow enough that a slider
+// control is overkill, but it still benefits from opening centered rather
+// than at the far-left edge. Centers ONCE per `resetKey` (zone combo)
+// rather than on every poll refresh, so it doesn't fight a viewer who has
+// since panned to look at something else - only a genuine dataset swap
+// re-centers.
 function useCenterChartOnce(pointIndex: number, pxPerPoint: number, resetKey: string) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const centeredForRef = useRef<string | null>(null)
@@ -147,14 +149,21 @@ function useCenterChartOnce(pointIndex: number, pxPerPoint: number, resetKey: st
   return containerRef
 }
 
-// Shown above every horizontally-scrollable chart so the (native, and
-// otherwise easy to miss - e.g. auto-hiding trackpad scrollbars) pan
+// Shown above the Minute-ahead panel's own scrollable chart so the (native,
+// and otherwise easy to miss - e.g. auto-hiding trackpad scrollbars) pan
 // affordance is obvious without relying on a viewer noticing a thin
-// scrollbar on its own (2026-07-18, per the user's repeated "ยังไม่ทำแถบเลื่อน"
-// feedback on a feature that was technically already there).
+// scrollbar on its own (2026-07-18) - the main chart's explicit slider
+// (below) doesn't need this same hint, since the slider itself is already
+// visible.
 function ScrollHint() {
   return <p className="forecast-chart-scroll-hint">↔ ลาก/เลื่อนซ้าย-ขวาเพื่อดูข้อมูลย้อนหลังและล่วงหน้าได้ (เริ่มต้นที่ตำแหน่งปัจจุบัน)</p>
 }
+
+// Pixels per data point on the main power chart specifically - a named
+// constant (not a magic number re-typed at each call site) so the width
+// passed to scrollableChartWidthPx and the centering math in the scroll
+// effect below can never silently drift apart from each other.
+const MAIN_CHART_PX_PER_POINT = 28
 
 export function ForecastPage() {
   const [zoneId, setZoneId] = useState(ALL_ZONES_ID)
@@ -223,6 +232,66 @@ export function ForecastPage() {
     [hourly, forecastPoints, generatedHistory],
   )
   const current = useMemo(() => nearestToNow(hourly), [hourly])
+
+  // A visible slider (not just implicit native scroll) for panning the main
+  // chart through history/future, with "now" centered by default rather
+  // than sitting at the scrolled-to-the-left starting edge - reported
+  // 2026-07-18: "ยังไม่ทำแถบเลื่อนในกราฟ...ช่วงเส้นกราฟของวันนี้ให้ตั้งไว้
+  // ตรงกลางกรอบจะดีที่สุดเวลาเลื่อน". `centeredForRef` tracks which
+  // zone/horizon selection has already been auto-centered, so this only
+  // happens once per selection (the first time real data lands) rather
+  // than re-centering - and silently discarding wherever the user scrolled
+  // to - on every background poll refresh.
+  const chartScrollRef = useRef<HTMLDivElement>(null)
+  const centeredForRef = useRef<string | null>(null)
+  const [chartScrollLeft, setChartScrollLeft] = useState(0)
+  const [chartMaxScroll, setChartMaxScroll] = useState(0)
+
+  useEffect(() => {
+    const container = chartScrollRef.current
+    if (!container || chartRows.length === 0) return
+    const selectionKey = `${zoneId}:${horizonToggle}`
+    if (centeredForRef.current === selectionKey) return
+    centeredForRef.current = selectionKey
+
+    const { scrollLeft, max } = centeredScrollPosition(
+      chartRows,
+      new Date().toISOString(),
+      MAIN_CHART_PX_PER_POINT,
+      container.clientWidth,
+      container.scrollWidth,
+    )
+    container.scrollLeft = scrollLeft
+    setChartScrollLeft(scrollLeft)
+    setChartMaxScroll(max)
+  }, [chartRows, zoneId, horizonToggle])
+
+  // Keeps the slider in sync if the user pans by native touch/trackpad/
+  // scrollbar instead of dragging the slider itself, and recomputes the
+  // scrollable range on resize (the container's width, and therefore how
+  // much of the fixed-pixel-width chart overflows it, changes with it).
+  useEffect(() => {
+    const container = chartScrollRef.current
+    if (!container) return
+    function onScroll() {
+      if (container) setChartScrollLeft(container.scrollLeft)
+    }
+    function onResize() {
+      if (container) setChartMaxScroll(Math.max(0, container.scrollWidth - container.clientWidth))
+    }
+    container.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onResize)
+    onResize()
+    return () => {
+      container.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onResize)
+    }
+  }, [chartRows])
+
+  function handleChartSliderChange(value: number) {
+    setChartScrollLeft(value)
+    if (chartScrollRef.current) chartScrollRef.current.scrollLeft = value
+  }
 
   const capacityKw = isAllZones
     ? (registry?.zones.reduce((sum, z) => sum + z.ac_capacity_kw, 0) ?? 0)
@@ -324,13 +393,13 @@ export function ForecastPage() {
       ? singleHourForecast
       : undefined
 
-  // "Now" position within each scrollable chart's own row array, and a
-  // default-centered scroll container ref for each - see useCenterChartOnce's
+  // "Now" position within the Minute-ahead panel's own row array, and a
+  // default-centered scroll container ref for it - see useCenterChartOnce's
   // own docstring above. Recomputed whenever the underlying rows change, but
-  // only actually scrolls once per zone+horizon (or zone, for Minute-ahead)
-  // combo, so it doesn't undo a viewer's manual pan on every poll.
-  const mainChartNowIndex = useMemo(() => indexNearestToTimestamp(chartRows, new Date().toISOString()), [chartRows])
-  const mainChartScrollRef = useCenterChartOnce(mainChartNowIndex, 28, `${zoneId}:${horizonToggle}`)
+  // only actually scrolls once per zone combo, so it doesn't undo a viewer's
+  // manual pan on every poll. The main chart uses its own explicit pan
+  // slider instead (chartScrollRef/centeredScrollPosition below), which
+  // doesn't need this hook.
   const minuteChartNowIndex = useMemo(() => indexNearestToTimestamp(minuteChartRows, new Date().toISOString()), [minuteChartRows])
   const minuteChartScrollRef = useCenterChartOnce(minuteChartNowIndex, 20, `${zoneId}:minute`)
 
@@ -446,10 +515,8 @@ export function ForecastPage() {
           )}
           {!isLoading && chartRows.length === 0 && <p className="forecast-status">No data yet.</p>}
           {chartRows.length > 0 && (
-            <>
-              <ScrollHint />
-              <div className="forecast-chart-scroll" ref={mainChartScrollRef}>
-              <div style={{ width: scrollableChartWidthPx(chartRows.length, 28), height: 320 }}>
+            <div className="forecast-chart-scroll" ref={chartScrollRef}>
+              <div style={{ width: scrollableChartWidthPx(chartRows.length, MAIN_CHART_PX_PER_POINT), height: 320 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={chartRows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
@@ -471,11 +538,16 @@ export function ForecastPage() {
                   dot={{ r: 2 }}
                   connectNulls
                 />
+                {/* Dashed (not solid, unlike actualPast/actualNow either side of
+                    it) - the 3 "actual" lines share a color legend already, but
+                    color alone was hard to tell apart at a glance where lines
+                    cross/overlap - reported 2026-07-18. */}
                 <Line
                   dataKey="actualToday"
                   name="Actual power (earlier today)"
                   stroke="var(--chart-actual-today)"
                   strokeWidth={2}
+                  strokeDasharray="6 3"
                   dot={{ r: 2 }}
                   connectNulls
                 />
@@ -496,20 +568,46 @@ export function ForecastPage() {
                   fill="var(--chart-pi)"
                   fillOpacity={0.25}
                 />
+                {/* Dotted (round dots via a very short dash + round linecap,
+                    not a plain dash) - Forecast is the one line every other
+                    line on this chart gets compared against, so it needs its
+                    own distinct style, not just its own color, at every point
+                    it overlaps one of the 3 "actual" lines - reported
+                    2026-07-18: "เส้นกราฟ...มีการซ้อนกัน...ให้ใช้บางเส้นเป็น
+                    เส้นประ เส้นประแบบจุดแทนขีด". */}
                 <Line
                   dataKey="pred"
                   name="Forecast"
                   stroke="var(--chart-forecast)"
                   strokeWidth={2}
-                  strokeDasharray="7 4"
+                  strokeDasharray="1 6"
+                  strokeLinecap="round"
                   dot={horizonToggle === 'hour' ? forecastDot : { r: 2 }}
                   connectNulls
                 />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
-              </div>
-            </>
+          </div>
+          )}
+          {chartRows.length > 0 && chartMaxScroll > 0 && (
+            <div className="forecast-chart-slider">
+              <span className="forecast-chart-slider-icon" aria-hidden="true">
+                ◀ อดีต
+              </span>
+              <input
+                type="range"
+                className="forecast-chart-slider-input"
+                min={0}
+                max={chartMaxScroll}
+                value={chartScrollLeft}
+                onChange={(e) => handleChartSliderChange(Number(e.target.value))}
+                aria-label="เลื่อนดูช่วงเวลาย้อนหลังหรืออนาคตในกราฟ"
+              />
+              <span className="forecast-chart-slider-icon" aria-hidden="true">
+                อนาคต ▶
+              </span>
+            </div>
           )}
           {!isLoading && !forecastError && chartRows.some((r) => r.actualPast != null || r.actualToday != null || r.actualNow != null) && (
             <p className="forecast-status forecast-status-caption">
@@ -804,7 +902,8 @@ function MinuteAheadPanel({ rows, isLoading, hasError, isPhysicsBaseline, scroll
                     name="Minute-ahead forecast"
                     stroke="var(--chart-minute)"
                     strokeWidth={2}
-                    strokeDasharray="7 4"
+                    strokeDasharray="1 6"
+                    strokeLinecap="round"
                     dot={{ r: 2 }}
                     connectNulls
                   />
@@ -821,6 +920,7 @@ function MinuteAheadPanel({ rows, isLoading, hasError, isPhysicsBaseline, scroll
                     name="Actual power (earlier today)"
                     stroke="var(--chart-actual-today)"
                     strokeWidth={2}
+                    strokeDasharray="6 3"
                     dot={{ r: 3 }}
                     connectNulls
                   />

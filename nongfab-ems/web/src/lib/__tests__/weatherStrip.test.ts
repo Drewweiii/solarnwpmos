@@ -2,18 +2,23 @@ import { describe, expect, it } from 'vitest'
 import { buildStripBlocks, fractionIntoHour } from '../weatherStrip'
 import type { WeatherStripPoint } from '../types'
 
-// This file's tests only exercise buildStripBlocks'/fractionIntoHour's
-// temp_c/ssrd_w_m2/timestamp handling - the rest of WeatherStripPoint's
-// fields (2026-07-18) are irrelevant here, so a single shared filler object
-// keeps every fixture below from having to repeat all 6 of them.
-const EXTRA_FIELDS = {
-  relative_humidity_pct: null,
-  wind_speed_ms: null,
-  clearsky_ghi_w_m2: 0,
-  zenith_deg: 90,
-  cos_zenith: 0,
-  clear_sky_index: null,
-} satisfies Omit<WeatherStripPoint, 'timestamp' | 'temp_c' | 'ssrd_w_m2'>
+// The 9-variable fields (2026-07-18) aren't read by buildStripBlocks/
+// fractionIntoHour at all - this factory fills them with harmless defaults
+// so each test below only has to spell out the temp_c/ssrd_w_m2 it actually
+// cares about.
+function point(timestamp: string, temp_c: number, ssrd_w_m2: number): WeatherStripPoint {
+  return {
+    timestamp,
+    temp_c,
+    ssrd_w_m2,
+    relative_humidity_pct: null,
+    wind_speed_ms: null,
+    clearsky_ghi_w_m2: 0,
+    zenith_deg: 90,
+    cos_zenith: 0,
+    clear_sky_index: null,
+  }
+}
 
 describe('fractionIntoHour', () => {
   it('is 0 exactly on the hour', () => {
@@ -31,11 +36,11 @@ describe('fractionIntoHour', () => {
 
 describe('buildStripBlocks', () => {
   const points: WeatherStripPoint[] = [
-    { timestamp: '2026-07-17T12:00:00.000Z', temp_c: 29.0, ssrd_w_m2: 400, ...EXTRA_FIELDS },
-    { timestamp: '2026-07-17T13:00:00.000Z', temp_c: 30.0, ssrd_w_m2: 600, ...EXTRA_FIELDS },
-    { timestamp: '2026-07-17T14:00:00.000Z', temp_c: 32.0, ssrd_w_m2: 800, ...EXTRA_FIELDS },
-    { timestamp: '2026-07-17T15:00:00.000Z', temp_c: 31.5, ssrd_w_m2: 700, ...EXTRA_FIELDS },
-    { timestamp: '2026-07-17T16:00:00.000Z', temp_c: 30.5, ssrd_w_m2: 500, ...EXTRA_FIELDS },
+    point('2026-07-17T12:00:00.000Z', 29.0, 400),
+    point('2026-07-17T13:00:00.000Z', 30.0, 600),
+    point('2026-07-17T14:00:00.000Z', 32.0, 800),
+    point('2026-07-17T15:00:00.000Z', 31.5, 700),
+    point('2026-07-17T16:00:00.000Z', 30.5, 500),
   ]
 
   it('returns 2*hoursEachSide + 2 blocks, offsets -N..+N+1 inclusive', () => {
@@ -66,7 +71,7 @@ describe('buildStripBlocks', () => {
   })
 
   it('a missing hour renders as a null placeholder, not a crash', () => {
-    const sparse: WeatherStripPoint[] = [{ timestamp: '2026-07-17T14:00:00.000Z', temp_c: 32.0, ssrd_w_m2: 800, ...EXTRA_FIELDS }]
+    const sparse: WeatherStripPoint[] = [point('2026-07-17T14:00:00.000Z', 32.0, 800)]
     const blocks = buildStripBlocks(sparse, new Date('2026-07-17T14:00:00.000Z'), 1)
     const missing = blocks.find((b) => b.offset === 1)!
     expect(missing.temp_c).toBeNull()

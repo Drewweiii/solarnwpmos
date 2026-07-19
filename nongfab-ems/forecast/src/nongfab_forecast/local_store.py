@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
 from collections.abc import Iterable
 from contextlib import contextmanager
 from datetime import datetime
@@ -88,8 +89,20 @@ class RealDataStore:
         self._path = db_path if db_path is not None else default_db_path()
         # :memory: needs a single held-open connection (a fresh connect() would be a
         # *different*, independently-empty in-memory DB each time) - every other path
-        # reconnects per call, per this module's own docstring.
-        self._memory_conn = sqlite3.connect(self._path) if self._path == ":memory:" else None
+        # reconnects per call, per this module's own docstring. That single connection
+        # is created in whatever thread constructs this store, but production calls
+        # into it from more than one thread over the store's lifetime: api/'s startup
+        # wiring (asyncio.to_thread) for request-driven reads/writes, and a
+        # separately-scheduled background retrain job for periodic reads - found live
+        # 2026-07-18 via Railway's own deploy logs ("retrain failed for Jetty/day"):
+        # sqlite3.Connection defaults to raising "SQLite objects created in a thread
+        # can only be used in that same thread" the moment a second thread touches it.
+        # check_same_thread=False lifts that same-thread assertion; _memory_lock
+        # (below) is what actually makes that safe, since a single sqlite3.Connection
+        # still isn't safe for genuinely concurrent use from multiple threads even
+        # with the check disabled - every _connect() call serializes on it.
+        self._memory_conn = sqlite3.connect(self._path, check_same_thread=False) if self._path == ":memory:" else None
+        self._memory_lock = threading.Lock() if self._memory_conn is not None else None
         if self._memory_conn is not None:
             self._memory_conn.executescript(_SCHEMA)
             self._migrate(self._memory_conn)
@@ -123,7 +136,8 @@ class RealDataStore:
     @contextmanager
     def _connect(self):
         if self._memory_conn is not None:
-            yield self._memory_conn
+            with self._memory_lock:
+                yield self._memory_conn
             return
         conn = sqlite3.connect(self._path)
         try:

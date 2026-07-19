@@ -2344,3 +2344,218 @@ If you are developing a production application, we recommend enabling type-aware
 ```
 
 See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+
+### Fixed - AI assistant menu stacking, take two: bouncing between two menu buttons still stacked (2026-07-18, Track 2)
+
+The user's first stacking report (earlier same-day entry above) was fixed
+for the case of the *same* button tapped repeatedly - a stable id on the
+category-menu message let repeated 📚 taps no-op once it was already the
+last message. But the user then sent a screen recording showing it was
+still happening: repeatedly tapping "📚 ดูหมวดคำถามอื่น" and then re-picking
+the *same* category kept appending a fresh pair of menu bubbles forever.
+Root cause the first fix missed: `groupMenuMessage`/`subQuestionMenuMessage`
+had no dedup guard at all and used non-deterministic `Date.now()`-based ids,
+so alternating between two different menu-producing buttons always looked
+like "a new last message" to the old single-id check even though nothing
+new was actually being asked.
+
+Fixed properly this time with a general rule instead of a per-button
+patch: every menu-level message (category/group/sub-question) now gets a
+stable, content-derived id (`grp-${categoryId}`, `sub-${groupId}`), and
+`pushOrReplaceMenu()` checks whether the *trailing* message is *any* kind
+of menu (`isMenuMessageId`) - if so it's replaced in place instead of
+appended, regardless of which specific menu it was. Only a real question/
+answer (or the very first menu shown right after one) still starts a new
+bubble. Net effect: however many times a visitor bounces around the menu
+tree without asking an actual question, only one menu bubble ever sits at
+the bottom of the chat log, updating in place.
+
+**Tested**: new regression test reproduces the exact click sequence from
+the recording (pick category → back → pick same category, four times) and
+asserts zero duplicate category-menu bubbles and exactly one trailing
+group-menu bubble. Full suite 310/310, `tsc` clean. **Live-verified via
+Playwright** against a real dev server + API (not just the test harness):
+scripted the identical bounce sequence in a real browser session and
+confirmed only one menu bubble remains on screen afterward (screenshot
+matches the assertion).
+
+### Fixed - Energy Report's monthly chart used single-letter English month labels (2026-07-18, Track 1 work, done by Track 2 with permission)
+
+The user asked for full (not abbreviated) Thai month names on the Monthly
+generation chart - it previously read `MONTH_LABELS = ['J', 'F', 'M', ...]`,
+a single English letter per bar. Replaced with the full spelled-out Thai
+names (มกราคม, กุมภาพันธ์, ... ธันวาคม), which are long enough that the
+X-axis ticks needed angling (`angle={-40}`, `textAnchor="end"`, extra
+`height`/`tickMargin`/bottom margin) to avoid overlapping across 12 bars -
+same pattern ForecastPage.tsx already established for its own long-label
+axis. `MONTH_LABELS` is now exported (not module-private) since recharts'
+`<ResponsiveContainer>` never renders real tick text under jsdom (reports
+zero measured width/height), so the only reliable way to test this is
+asserting on the array the chart's `tickFormatter`/`labelFormatter` both
+read from, not by querying rendered SVG text.
+
+**Tested**: new test asserts all 12 entries, first/last values, and that
+none are single-character abbreviations. Full suite 311/311, `tsc` clean.
+**Live-verified via Playwright**: logged in, navigated to Energy Report,
+screenshotted the rendered chart - all 12 full Thai names render angled,
+legible, with no overlap or clipping.
+
+### Fixed - Forecast page's overlapping chart lines were hard to tell apart even with different colors (2026-07-18, Track 1 work, done by Track 2 with permission)
+
+The Day-ahead/Intra-day power chart and the Minute-ahead chart both plot
+4 lines over the same time axis (`actualPast`, `actualToday`, `actualNow`,
+`pred`/Forecast) - each already its own color, but at every point two of
+them cross or run close together, color alone wasn't enough to tell which
+was which at a glance. Gave the two most-likely-to-overlap lines their own
+stroke style instead of just color: `pred` (Forecast, the one every other
+line gets compared against) is now dotted - a very short dash
+(`strokeDasharray="1 6"`) with `strokeLinecap="round"` so each dash
+renders as a small round dot rather than a rectangular dash, per the
+user's explicit preference for "เส้นประแบบจุดแทนขีด" (dot-style, not
+dash-style) - and `actualToday` gets a regular dash (`"6 3"`) since it
+sits directly between `actualPast` and `actualNow` and is the one most
+often sandwiched between two solid lines. `actualPast` and `actualNow`
+stay solid as the two "anchor" reference lines.
+
+**Tested**: `ForecastPage.test.tsx` full suite still passes unchanged
+(12/12) - this is a pure presentation change, no data/behavior shift.
+`tsc` clean. **Live-verified via Playwright**: logged in, screenshotted
+the rendered Day-ahead chart - confirmed the dotted Forecast line is
+visually distinct from the solid Actual-power line at every point they
+cross, including where the two directly overlap.
+
+### Added - explicit chart-panning slider on Forecast, "now" centered by default (2026-07-18, Track 1 work, done by Track 2 with permission)
+
+The main power chart (Day-ahead/Intra-day) was already rendered at a real
+pixel width wider than its container, panned via native `overflow-x: auto`
+scroll - but there was no visible control hinting that there was anything
+*to* scroll to, and the default scroll position was wherever the browser
+happened to land (effectively the left/oldest edge), not "now". User
+report: "ยังไม่ทำแถบเลื่อนในกราฟ...ช่วงเส้นกราฟของวันนี้ให้ตั้งไว้ตรงกลางกรอบ".
+
+Added an explicit `<input type="range">` synced bidirectionally with the
+scroll container (dragging it scrolls the chart; native touch/trackpad
+scroll updates it back), and a one-time auto-center on "now" the first
+time real data lands for a given zone/horizon selection - deliberately
+*not* on every background poll refresh, which would otherwise yank a user
+who's scrolled away back to "now" every time the data refetches. The
+centering math itself (`centeredScrollPosition` in `lib/chartData.ts`) is
+a pure function taking rows/now/pxPerPoint/widths and returning
+`{scrollLeft, max}` - kept separate from the DOM-wiring `useEffect` so
+it's directly unit-testable, since jsdom never runs real layout and
+`scrollWidth`/`clientWidth` are always 0 there (the same constraint that
+already forced Energy Report's month-label test into the same pattern,
+see that entry above).
+
+**A real, pre-existing bug found and fixed along the way**: building this
+revealed `.forecast-chart-section` (a flex item, `flex: 3 1 480px`) was
+never actually shrinking to fit its row - flex items default to
+`min-width: auto`, meaning "never shrink below your content's own
+intrinsic width," and this section's content includes a fixed ~4000px-wide
+scroll track. Without `min-width: 0`, the *section itself* ballooned out
+to ~4000px instead of the scrollable child ever getting a chance to clip
+anything - confirmed live by reading `scrollWidth`/`clientWidth` off the
+real DOM node and finding them identical (no overflow ever existed). This
+means the chart's native scroll-to-see-history feature, despite being
+built and documented earlier the same day, may never have actually worked
+in the first place at typical viewport widths - not a regression from
+today's change, a latent bug this work happened to surface.
+
+**Tested**: 5 new `centeredScrollPosition` unit tests in
+`chartData.test.ts` (centers correctly, clamps at both edges, no-op when
+content already fits, handles an empty series) - 316/316 full suite,
+`tsc` clean, production build succeeds. **Live-verified via Playwright**
+against a real dev server + API: confirmed `.forecast-chart-section`'s
+measured width now matches its row (no more blowout), the slider renders
+with a real min/max/value once there's genuine overflow, dragging it
+actually moves `scrollLeft`, and the initial position lands centered on
+"now" rather than 0 - screenshotted before and after the CSS fix to
+confirm the before-state reproduced the bug exactly as diagnosed.
+
+### In progress - the 9-variable dashboard, part 1: types + backend wiring (2026-07-18, Track 1 work, done by Track 2 with permission)
+
+First checkpoint of a larger feature (3x3 real-time table + grouped graphs
+for jitkomut's 9 reference-paper variables), landed separately from the UI
+itself per this session's "commit after each real chunk" policy. The
+9-variable audit locked in earlier the same day (from a since-lost prior
+session - see `HANDOFF.md`/this session's own notes): **5 already used**
+- I (`ssrd_w_m2`), T (`temp_c`), I_clr, k-hat (as `cloud_index`), I_wrf
+(the same `ssrd_w_m2` field's future-forecast portion, split client-side
+by timestamp vs. now - see ForecastPage's existing actualPast/pred split,
+which this mirrors rather than inventing a new distinction). **4 newly
+surfaced**: RH and wind speed were collected into `nwp_history` but never
+read anywhere; UV index exists only as daily-resolution NASA POWER data;
+zenith angle was computed elsewhere (Solar3DPage) but never exposed via
+any weather endpoint.
+
+`lib/types.ts`'s `WeatherStripPoint`/`WeatherStripResponse` now match the
+extended `GET /weather/strip` response (see `api/README.md`'s matching
+entry for the backend side) - `ghi_clearsky_w_m2`, `cos_zenith`,
+`cloud_index`, `relative_humidity_pct`, `wind_speed_ms` per point, plus a
+separate `uv_daily` list. Planned graph grouping (already agreed, not yet
+built): I/I_clr/I_wrf together (same W/m² unit, all have actual+forecast),
+T alone (has its own NWP forecast), k-hat + cos(zenith) together (both
+unitless ~0-1, no forecast - derived-from-now only), RH/wind/UV each on
+their own graph (different units, genuinely no forecast model for any of
+them - not fabricating one).
+
+**Tested**: existing `weatherStrip.test.ts`/`assistant.test.ts`/
+`ForecastPage.test.tsx` mocks updated for the new required fields (a
+`point()` test factory added to `weatherStrip.test.ts` so each case only
+spells out what it actually varies). Full suite 316/316, `tsc` clean - no
+UI changes yet, so nothing new to live-verify at this checkpoint.
+
+### Fixed - private chat message-loss race, mascot's 4 starter questions vanishing for good, plus a "someone messaged you" notification (2026-07-18, Track 2)
+
+Reported live via screen recording: typing and sending a message in the
+private visitor chat visibly cleared the input (confirming the send fired)
+but the message never appeared, and reopening the same thread later still
+didn't show it. Root cause: `useChatSocket.ts`'s `openConversation` fires
+`GET /chat/history` the moment a thread is opened, and separately, the
+visitor's own send gets WS-echoed back almost immediately (same open
+connection, no HTTP/auth/DB round trip) - if that still-in-flight history
+fetch resolves *after* the echo already appended the new message to state,
+its old `messages: [...history]` overwrite silently wiped the just-sent
+message back out. Fixed by merging the fetched history with whatever's
+already in state (deduped by the DB's own globally-monotonic message id)
+instead of replacing it outright - new `mergeMessagesById()`. Verified two
+ways: a new unit test that reproduces the exact ordering (live WS message
+arrives before a deliberately-delayed `getChatHistory` mock resolves), and
+a live two-browser-context Playwright run (two real logins, one client
+firing 3 rapid sends) confirming all 3 survive both the initial send and a
+full close/reopen of the thread.
+
+Also fixed, reported in the same message: น้อง Solar's 4 starter quick-reply
+chips (ตอนนี้ผลิตไฟเท่าไหร่ / พยากรณ์พรุ่งนี้เป็นยังไง / หน้านี้ใช้งานยังไง /
+kWp คืออะไร) only ever rendered on the greeting message, and
+`AssistantPanel.tsx` only renders a message's `options` when it's the
+*trailing* message in the chat log (an intentional rule from the earlier
+menu-stacking fix) - so the moment a visitor asked anything or picked any
+menu button, those 4 chips were gone for the rest of the session with no
+way back short of closing and reopening the whole panel. Fixed by folding
+them into `categoryMenuMessage()` too (new shared `starterOptions()`), so
+they're reachable any time via the 📚 button, not just once at the very
+start.
+
+New, not just fixed: an incoming-message toast (`VisitorNetwork.tsx`'s
+`NotificationToast`) - requested alongside the bug report ("ทำระบบแจ้งเตือน
+ด้วยว่าใครแชทหรือทักมา"). Anchored above the chat toggle so it's visible
+whether the widget is open or fully collapsed (the badge count alone
+required reopening the panel just to see who messaged), shows the sender's
+avatar/name and a text preview (or a sticker-specific "ส่งสติกเกอร์ 🎉 ..."
+line, not the raw encoded string), auto-dismisses after 6s or on its own ×
+button, and clicking it opens straight into that thread. Suppressed for a
+thread already on screen (the bubble itself is enough) and for the
+visitor's own outgoing messages. Opening a peer's thread directly from the
+contact list also clears any of that peer's still-showing toast, so it
+never lingers pointing at a conversation already open.
+
+**Tested**: `useChatSocket.test.tsx` (+1 race-condition regression test),
+`AIAssistant.test.tsx` (+1 starter-questions-reachable-via-📚 test),
+`VisitorNetwork.test.tsx` (+5 notification-toast tests, +2 existing tests
+adjusted to scope their queries now that a toast can legitimately show a
+message preview elsewhere on screen at the same time). Full suite 323/323,
+`tsc` clean. Live-verified end to end with two separate logged-in browser
+contexts (Playwright, real API+WS, not mocked): rapid-fire sends, thread
+reopen persistence, the toast appearing/opening/clearing, and the mascot's
+quick-reply chips reappearing via 📚.

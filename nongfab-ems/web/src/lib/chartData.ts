@@ -448,6 +448,29 @@ export function nearestToTimestamp<T extends { timestamp: string }>(points: T[],
   )
 }
 
+/** Where a horizontally-scrollable chart should start scrolled to, so "now"
+ * sits at the horizontal center of the visible viewport instead of the
+ * default left-edge starting position - reported 2026-07-18: "ช่วงเส้นกราฟ
+ * ของวันนี้ให้ตั้งไว้ตรงกลางกรอบจะดีที่สุดเวลาเลื่อน". A pure function (no DOM
+ * access) so it's directly unit-testable - ForecastPage.tsx's own scroll
+ * container ref can't be exercised under jsdom, which never runs real
+ * layout and always reports `scrollWidth`/`clientWidth` as 0.
+ */
+export function centeredScrollPosition<T extends { timestamp: string }>(
+  rows: T[],
+  nowIso: string,
+  pxPerPoint: number,
+  containerWidthPx: number,
+  contentWidthPx: number,
+): { scrollLeft: number; max: number } {
+  const max = Math.max(0, contentWidthPx - containerWidthPx)
+  const nowRow = nearestToTimestamp(rows, nowIso)
+  const nowIndex = nowRow ? rows.indexOf(nowRow) : rows.length - 1
+  const nowPx = nowIndex * pxPerPoint
+  const scrollLeft = Math.min(max, Math.max(0, nowPx - containerWidthPx / 2))
+  return { scrollLeft, max }
+}
+
 /** The hourly point whose timestamp is closest to right now. */
 export function nearestToNow(hourly: HourlyPoint[]): HourlyPoint | undefined {
   return nearestToTimestamp(hourly, new Date().toISOString())

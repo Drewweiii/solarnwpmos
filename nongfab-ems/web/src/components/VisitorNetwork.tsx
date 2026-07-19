@@ -9,6 +9,28 @@ import './VisitorNetwork.css'
 
 type Tab = 'chat' | 'feedback'
 
+const NOTIFICATION_AUTO_DISMISS_MS = 6000
+const NOTIFICATION_PREVIEW_MAX_LENGTH = 60
+
+interface IncomingNotification {
+  /** The message's own id, not just the peer's client id - guarantees a
+   * fresh notification always restarts its own auto-dismiss timer even if
+   * the previous one was for the exact same peer. */
+  messageId: number
+  peerClientId: string
+  displayName: string
+  avatar: string | null
+  preview: string
+}
+
+function notificationPreview(message: ChatMessage): string {
+  const sticker = decodeSticker(message.text)
+  if (sticker) return `ส่งสติกเกอร์ ${sticker.emoji} ${sticker.label}`
+  return message.text.length > NOTIFICATION_PREVIEW_MAX_LENGTH
+    ? `${message.text.slice(0, NOTIFICATION_PREVIEW_MAX_LENGTH)}…`
+    : message.text
+}
+
 /** Floating bottom-left widget: private 1:1 visitor chat (pick someone from
  * the contact list, then talk - see useChatSocket.ts's docstring for why
  * this replaced the old single shared public room) plus a "message admin"
@@ -52,31 +74,91 @@ export function VisitorNetwork() {
   // name/avatar here are never sent, since the send form only renders once
   // `savedProfile` is non-null.
   const profileForSocket = savedProfile ?? { clientId: getOrCreateClientId(), displayName: '', avatarId: '' }
+  // Who's messaging you, surfaced even while the whole widget is collapsed
+  // (not just a badge count) - requested live 2026-07-18 alongside the
+  // chat-history bug: a visitor closed on some other tab/page had no way to
+  // notice someone had messaged them short of periodically reopening the
+  // panel to check. `isOpenRef`/`tabRef`/`selectedPeerRef` mirror the latest
+  // render's state into the onLiveMessage callback below without having to
+  // recreate `chat` (and thus the whole WS connection setup) on every open/
+  // close/tab-switch - `useChatSocket` already keeps its own callback ref
+  // fresh the same way (see its `onLiveMessageRef`).
+  const [notification, setNotification] = useState<IncomingNotification | null>(null)
+  const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const isOpenRef = useRef(isOpen)
+  isOpenRef.current = isOpen
+  const tabRef = useRef(tab)
+  tabRef.current = tab
+  const selectedPeerRef = useRef(selectedPeerClientId)
+  selectedPeerRef.current = selectedPeerClientId
+
+  function dismissNotification() {
+    clearTimeout(notificationTimerRef.current)
+    setNotification(null)
+  }
+
   const chat = useChatSocket(
     profileForSocket,
     selectedPeerClientId,
     isActiveView,
-    // Speak a sticker's Thai caption aloud the moment it actually arrives
-    // live, and only for the thread currently on screen - never for replayed
-    // history, and never for a conversation the user isn't even looking at.
     (message) => {
-      const peerClientId = message.client_id === profileForSocket.clientId ? message.recipient_client_id : message.client_id
-      if (peerClientId !== selectedPeerClientId) return
-      const sticker = decodeSticker(message.text)
-      if (sticker) speakSticker(sticker)
+      const isOwn = message.client_id === profileForSocket.clientId
+      const peerClientId = isOwn ? message.recipient_client_id : message.client_id
+      if (!peerClientId || isOwn) return
+
+      // Speak a sticker's Thai caption aloud the moment it actually arrives
+      // live, and only for the thread currently on screen - never for
+      // replayed history, and never for a conversation the user isn't even
+      // looking at.
+      if (peerClientId === selectedPeerRef.current) {
+        const sticker = decodeSticker(message.text)
+        if (sticker) speakSticker(sticker)
+      }
+
+      // Already looking straight at this exact thread - the message bubble
+      // itself is enough, a toast on top would just be noise.
+      const alreadyViewing = isOpenRef.current && tabRef.current === 'chat' && selectedPeerRef.current === peerClientId
+      if (alreadyViewing) return
+
+      clearTimeout(notificationTimerRef.current)
+      setNotification({ messageId: message.id, peerClientId, displayName: message.display_name, avatar: message.avatar, preview: notificationPreview(message) })
+      notificationTimerRef.current = setTimeout(() => setNotification(null), NOTIFICATION_AUTO_DISMISS_MS)
     },
   )
   const { totalUnreadCount, contacts } = chat
   const onlineCount = contacts.filter((c) => c.online).length
   const titleId = useId()
 
+  useEffect(() => () => clearTimeout(notificationTimerRef.current), [])
+
   function closePanel() {
     setIsOpen(false)
     setSelectedPeerClientId(null)
   }
 
+  function openNotificationThread() {
+    if (!notification) return
+    const peerClientId = notification.peerClientId
+    dismissNotification()
+    setIsOpen(true)
+    setTab('chat')
+    setSelectedPeerClientId(peerClientId)
+  }
+
+  // Opening a peer's thread directly from the contact list (bypassing the
+  // toast entirely) should also clear a still-showing notification for that
+  // same peer - it would otherwise linger pointing at a conversation the
+  // visitor is now already looking at.
+  function selectPeer(peerClientId: string | null) {
+    if (notification && peerClientId === notification.peerClientId) dismissNotification()
+    setSelectedPeerClientId(peerClientId)
+  }
+
   return (
     <>
+      {notification && (
+        <NotificationToast notification={notification} onClick={openNotificationThread} onDismiss={dismissNotification} />
+      )}
       <button
         type="button"
         className="visitor-toggle"
@@ -129,7 +211,7 @@ export function VisitorNetwork() {
                 chat={chat}
                 profile={savedProfile}
                 selectedPeerClientId={selectedPeerClientId}
-                onSelectPeer={setSelectedPeerClientId}
+                onSelectPeer={selectPeer}
                 onEditProfile={() => setIsEditingProfile(true)}
               />
             ) : (
@@ -196,6 +278,39 @@ function ChatTab({
         </button>
       )}
     </>
+  )
+}
+
+function NotificationToast({
+  notification,
+  onClick,
+  onDismiss,
+}: {
+  notification: IncomingNotification
+  onClick: () => void
+  onDismiss: () => void
+}) {
+  const avatar = avatarById(notification.avatar)
+  return (
+    <div className="visitor-notification-toast" role="status">
+      {/* Fixed aria-label (not the sender's name) on purpose - a name-based
+          role query elsewhere in the app (e.g. picking a contact row by
+          display name) must not accidentally match this toast too, since
+          both a contact row and this toast can legitimately be on screen
+          for the same sender at once. */}
+      <button type="button" className="visitor-notification-body" aria-label="เปิดข้อความแจ้งเตือน" onClick={onClick}>
+        <span className="visitor-avatar-circle visitor-notification-avatar" style={{ background: avatar.color }} aria-hidden="true">
+          {avatar.emoji}
+        </span>
+        <span className="visitor-notification-text">
+          <span className="visitor-notification-name">💬 {notification.displayName} ทักคุณมา</span>
+          <span className="visitor-notification-preview">{notification.preview}</span>
+        </span>
+      </button>
+      <button type="button" className="visitor-notification-close" onClick={onDismiss} aria-label="ปิดการแจ้งเตือน">
+        ×
+      </button>
+    </div>
   )
 }
 

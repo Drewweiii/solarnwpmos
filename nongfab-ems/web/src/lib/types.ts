@@ -97,6 +97,13 @@ export interface WeatherStripPoint {
   timestamp: string
   temp_c: number
   ssrd_w_m2: number
+  // relative_humidity_pct/wind_speed_ms are deliberately null for future
+  // timestamps even in real-data mode (2026-07-19 merge reconciliation) -
+  // unlike ssrd/temp, neither was ever validated as a trained-model
+  // regressor in this pipeline, so presenting them as "forecast" would
+  // overstate confidence this project hasn't earned for them yet.
+  // clearsky_ghi_w_m2/zenith_deg/cos_zenith are pure solar geometry (no
+  // forecast needed) and are always populated, past or future.
   relative_humidity_pct: number | null
   wind_speed_ms: number | null
   clearsky_ghi_w_m2: number

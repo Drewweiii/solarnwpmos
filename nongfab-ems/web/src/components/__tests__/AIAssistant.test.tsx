@@ -189,6 +189,26 @@ describe('AIAssistant', () => {
       expect(await screen.findByRole('button', { name: '📚 ดูหมวดคำถามอื่น' })).toBeInTheDocument()
     })
 
+    it('the 4 starter quick-reply questions are reachable again via 📚 after they scroll off as the trailing message (reported live 2026-07-18: gone for good after the first interaction)', async () => {
+      const user = userEvent.setup()
+      renderAssistant()
+      await user.click(screen.getByRole('button', { name: /เปิดผู้ช่วย AI/i }))
+
+      // Asking anything makes the greeting (and its quick-reply chips) no
+      // longer the trailing message, so those buttons stop rendering.
+      const input = await screen.findByLabelText('พิมพ์คำถามถึงผู้ช่วย AI')
+      await user.type(input, 'kWp คือ อะไร')
+      await user.click(screen.getByRole('button', { name: 'ส่ง' }))
+      await waitFor(() => expect(screen.getByText(/กิโลวัตต์พีค/)).toBeInTheDocument())
+      expect(screen.queryByRole('button', { name: 'ตอนนี้ผลิตไฟเท่าไหร่' })).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'เปิดหมวดคำถาม' }))
+      expect(await screen.findByRole('button', { name: 'ตอนนี้ผลิตไฟเท่าไหร่' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'พยากรณ์พรุ่งนี้เป็นยังไง' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'หน้านี้ใช้งานยังไง' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'kWp คืออะไร' })).toBeInTheDocument()
+    })
+
     it('repeatedly tapping the 📚 header icon does not stack duplicate menus in the chat log', async () => {
       const user = userEvent.setup()
       renderAssistant()
@@ -200,6 +220,26 @@ describe('AIAssistant', () => {
       await user.click(menuButton)
 
       expect(screen.getAllByText('อยากถามเรื่องอะไรดีครับ เลือกหมวดได้เลย:')).toHaveLength(1)
+    })
+
+    it('bouncing between 📚 back-to-categories and picking the same category repeatedly does not stack menus either (reported again via screen recording, 2026-07-18)', async () => {
+      const user = userEvent.setup()
+      renderAssistant()
+      await user.click(screen.getByRole('button', { name: /เปิดผู้ช่วย AI/i }))
+
+      const menuButton = await screen.findByRole('button', { name: 'เปิดหมวดคำถาม' })
+      const pickCategory = () => user.click(screen.getByRole('button', { name: /ความรู้เรื่องระบบ Solar/ }))
+
+      await pickCategory()
+      await user.click(screen.getByRole('button', { name: '📚 ดูหมวดคำถามอื่น' }))
+      await pickCategory()
+      await user.click(screen.getByRole('button', { name: '📚 ดูหมวดคำถามอื่น' }))
+      await pickCategory()
+      await user.click(menuButton)
+      await pickCategory()
+
+      expect(screen.queryAllByText('อยากถามเรื่องอะไรดีครับ เลือกหมวดได้เลย:')).toHaveLength(0)
+      expect(screen.getAllByText(/หมวด "ความรู้เรื่องระบบ Solar" มีหัวข้ออะไรบ้าง/)).toHaveLength(1)
     })
   })
 

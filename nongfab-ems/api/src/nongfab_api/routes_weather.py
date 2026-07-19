@@ -12,6 +12,28 @@ falling back to the same synthetic day/night baseline every other
 unauthenticated-telemetry route in this app already uses otherwise -
 `data_source` in the response says which, so the frontend can label it
 honestly rather than imply it's live weather when it isn't.
+
+## The 9 variables (2026-07-18, see get_current_conditions's own docstring
+for the full per-variable audit of which were already real model features
+vs. ingested-but-never-surfaced)
+
+Extended the same window to also carry the rest of the Songsiri reference
+deck's 9 forecast variables, for ForecastPage's real-time 3x3 table +
+grouped graphs (see web/README.md's matching dated entry). I/T/I_wrf were
+already here (`ssrd_w_m2`/`temp_c` - I is the actual/past/now portion,
+I_wrf is the same field's future-forecast portion, split client-side by
+timestamp vs. now exactly like the main power chart already splits
+actualPast/actualNow vs. pred). `relative_humidity_pct`/`wind_speed_ms`
+are `None` in synthetic-fallback mode (the synthetic baseline models
+temperature/irradiance only) AND for future timestamps even in real-data
+mode (2026-07-19: unlike ssrd/temp, neither was ever validated as a
+trained-model regressor in this pipeline, so presenting them as "forecast"
+would overstate confidence this project hasn't earned for them yet - the
+user's own explicit instruction: "ถ้าบางตัวแปรไม่มีการforecast ก็ไม่เป็นไร
+ไม่ต้องไปฝืนสุ่มค่าข้อมูล forecast"). `clearsky_ghi_w_m2`/`zenith_deg`/
+`cos_zenith`/`clear_sky_index` are always populated - pure pvlib astronomy
+plus a ratio against `ssrd_w_m2`, independent of whether the NWP data
+itself is real or synthetic.
 """
 
 from __future__ import annotations
@@ -55,10 +77,11 @@ class WeatherStripPoint(BaseModel):
     # data when available, spanning both past and a bit of future - see
     # this module's own docstring). `relative_humidity_pct`/`wind_speed_ms`
     # are None in synthetic-fallback mode (the synthetic baseline models
-    # temperature/irradiance only); `clearsky_ghi_w_m2`/`zenith_deg`/
-    # `cos_zenith`/`clear_sky_index` are always populated - they're pure
-    # astronomy (pvlib) plus a ratio against `ssrd_w_m2`, independent of
-    # whether the NWP data itself is real or synthetic.
+    # temperature/irradiance only) and for future timestamps even in real
+    # mode (see this module's own docstring); `clearsky_ghi_w_m2`/
+    # `zenith_deg`/`cos_zenith`/`clear_sky_index` are always populated -
+    # they're pure astronomy (pvlib) plus a ratio against `ssrd_w_m2`,
+    # independent of whether the NWP data itself is real or synthetic.
     relative_humidity_pct: float | None = None
     wind_speed_ms: float | None = None
     clearsky_ghi_w_m2: float
@@ -110,23 +133,28 @@ def _real_window(store: RealDataStore, now: datetime, hours_each_side: int) -> l
     points: list[WeatherStripPoint] = []
     for target in targets:
         row = _nearest_real_row(df, target)
-        if row is not None:
-            ssrd = float(row["ssrd_w_m2"])
-            clearsky_ghi, zenith_deg, cos_zenith = _clearsky_fields(target)
-            rh = row.get("relative_humidity_pct")
-            points.append(
-                WeatherStripPoint(
-                    timestamp=target,
-                    temp_c=float(row["temp2m_c"]),
-                    ssrd_w_m2=ssrd,
-                    relative_humidity_pct=float(rh) if pd.notna(rh) else None,
-                    wind_speed_ms=_wind_speed_ms(row.get("wind10m_u_ms"), row.get("wind10m_v_ms")),
-                    clearsky_ghi_w_m2=clearsky_ghi,
-                    zenith_deg=zenith_deg,
-                    cos_zenith=cos_zenith,
-                    clear_sky_index=_clear_sky_index(ssrd, clearsky_ghi),
-                )
+        if row is None:
+            continue
+        ssrd = float(row["ssrd_w_m2"])
+        clearsky_ghi, zenith_deg, cos_zenith = _clearsky_fields(target)
+        # RH/wind are never shown for future hours even though the GFS row
+        # technically carries a value there - see this module's own docstring
+        # on why (never validated as trained regressors, unlike ssrd/temp).
+        is_future = target > now
+        rh = row.get("relative_humidity_pct")
+        points.append(
+            WeatherStripPoint(
+                timestamp=target,
+                temp_c=float(row["temp2m_c"]),
+                ssrd_w_m2=ssrd,
+                relative_humidity_pct=None if is_future else (float(rh) if pd.notna(rh) else None),
+                wind_speed_ms=None if is_future else _wind_speed_ms(row.get("wind10m_u_ms"), row.get("wind10m_v_ms")),
+                clearsky_ghi_w_m2=clearsky_ghi,
+                zenith_deg=zenith_deg,
+                cos_zenith=cos_zenith,
+                clear_sky_index=_clear_sky_index(ssrd, clearsky_ghi),
             )
+        )
 
     if len(points) < len(targets) * _MIN_REAL_COVERAGE_FRACTION:
         return None

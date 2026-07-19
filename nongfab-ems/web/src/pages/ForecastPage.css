@@ -261,10 +261,48 @@
 
 .forecast-chart-section {
   flex: 3 1 480px;
+  /* Flex items default to `min-width: auto`, which means "never shrink
+     below your content's own intrinsic width" - and this section's content
+     includes a fixed-pixel-width scroll track (.forecast-chart-scroll's
+     child, see ForecastPage.tsx's scrollableChartWidthPx) that's routinely
+     several times wider than the viewport. Without this override, the
+     *section itself* was ballooning out to match that width instead of
+     staying at its own flex-basis and letting the overflow scroll inside
+     it - found live 2026-07-18 while wiring up the chart-panning slider:
+     .forecast-chart-scroll's measured scrollWidth and clientWidth were
+     identical (both ~4000px, neither clipped to the actual viewport),
+     which is what "no overflow, so no scrolling ever actually happens"
+     looks like. This is why the chart *looked* like it wasn't scrollable
+     even before today - the overflow-x: auto rule was never getting a
+     chance to do anything. */
+  min-width: 0;
   padding: 16px;
   border-radius: 10px;
   background: var(--card-bg);
   border: 1px solid var(--border);
+}
+
+/* An explicit, discoverable control for panning the chart through history/
+   future - the chart was already natively scrollable (overflow-x: auto on
+   .forecast-chart-scroll), but that alone gave no visible hint that there
+   was anything to scroll to. 2026-07-18. */
+.forecast-chart-slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text);
+  opacity: 0.85;
+}
+
+.forecast-chart-slider-icon {
+  white-space: nowrap;
+}
+
+.forecast-chart-slider-input {
+  flex: 1 1 auto;
+  accent-color: var(--accent);
 }
 
 .forecast-clock-block {

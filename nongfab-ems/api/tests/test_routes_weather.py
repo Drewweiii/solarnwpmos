@@ -303,6 +303,32 @@ def test_get_precipitation_conditions_intensity_bands(engine, tmp_path, monkeypa
     assert resp.json()["intensity"] == expected_intensity
 
 
+def test_get_weather_strip_nulls_relative_humidity_and_wind_for_future_hours_only(engine, tmp_path, monkeypatch):
+    from nongfab_api.auth import create_access_token
+
+    monkeypatch.setattr(routes_weather, "datetime", _FixedDatetime)
+    monkeypatch.setattr(dev_data, "datetime", _FixedDatetime)
+    app, settings = _app_with_file_backed_store(engine, tmp_path)
+    hour_start = _FIXED_NOW.replace(minute=0, second=0, microsecond=0)
+
+    with TestClient(app) as client:
+        app.state.real_data_store.insert_nwp_points(_real_points_around(_FIXED_NOW, hours_each_side=4))
+        token = create_access_token("tester", "viewer", settings, app.state.deploy_id)
+        resp = client.get("/weather/strip?hours_each_side=4", headers={"Authorization": f"Bearer {token}"})
+    points = resp.json()["points"]
+
+    past_point = next(p for p in points if datetime.fromisoformat(p["timestamp"]) == hour_start - timedelta(hours=2))
+    assert past_point["relative_humidity_pct"] == pytest.approx(70.0)
+    assert past_point["wind_speed_ms"] is not None
+
+    future_point = next(p for p in points if datetime.fromisoformat(p["timestamp"]) == hour_start + timedelta(hours=2))
+    assert future_point["relative_humidity_pct"] is None
+    assert future_point["wind_speed_ms"] is None
+    # ssrd/temp, unlike RH/wind, are still shown for the future - they're the
+    # already-established I_wrf/T forecast, this isn't a new restriction.
+    assert future_point["ssrd_w_m2"] is not None
+
+
 def test_get_weather_strip_falls_back_to_synthetic_when_real_coverage_too_sparse(engine, tmp_path, monkeypatch):
     from nongfab_api.auth import create_access_token
 

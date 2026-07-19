@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '../../lib/api'
@@ -211,7 +211,7 @@ describe('VisitorNetwork', () => {
 
   it('a message from one peer never shows up in a different peer thread', async () => {
     const user = userEvent.setup()
-    renderWidget()
+    const { container } = renderWidget()
     await openWidget(user)
     await setupProfile(user)
 
@@ -243,11 +243,16 @@ describe('VisitorNetwork', () => {
 
     await user.click(await screen.findByRole('button', { name: /Alice/ }))
     await screen.findByLabelText('พิมพ์ข้อความแชท')
-    expect(screen.queryByText('ข้อความลับของบ๊อบ')).not.toBeInTheDocument()
+    // Scoped to the open thread's own message list - the incoming-message
+    // toast (added 2026-07-18) legitimately shows a preview of Bob's
+    // message elsewhere on screen at the same time; that's not the bug this
+    // test guards against (a message rendered inside the wrong thread).
+    const messageList = () => container.querySelector<HTMLElement>('.visitor-messages')!
+    expect(within(messageList()).queryByText('ข้อความลับของบ๊อบ')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'กลับไปหน้ารายชื่อผู้ชม' }))
     await user.click(await screen.findByRole('button', { name: /Bob/ }))
-    expect(await screen.findByText('ข้อความลับของบ๊อบ')).toBeInTheDocument()
+    expect(await within(messageList()).findByText('ข้อความลับของบ๊อบ')).toBeInTheDocument()
   })
 
   it('remembers a saved viewer profile across remounts and offers an edit-profile button', async () => {
@@ -345,6 +350,153 @@ describe('VisitorNetwork', () => {
 
     await user.click(await screen.findByRole('button', { name: /someone/ }))
     await waitFor(() => expect(container.querySelector('.visitor-unread-badge')).not.toBeInTheDocument())
+  })
+
+  describe('การแจ้งเตือนข้อความเข้า (incoming-message notification, added 2026-07-18)', () => {
+    it('shows a toast naming the sender and a preview when their message arrives while the panel is closed', async () => {
+      const user = userEvent.setup()
+      renderWidget()
+      await openWidget(user)
+      await setupProfile(user)
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.open())
+      await user.click(screen.getByRole('button', { name: 'ปิดกล่องเครือข่ายผู้ชม' }))
+
+      act(() =>
+        ws.emit({
+          type: 'message',
+          id: 5,
+          username: 'someone',
+          role: 'viewer',
+          text: 'แวะมาทักหน่อยนะ',
+          created_at: '2026-01-01T00:00:00Z',
+          display_name: 'Someone',
+          avatar: 'dog',
+          client_id: 'a-different-browser',
+          recipient_client_id: 'me',
+        }),
+      )
+
+      expect(await screen.findByText('💬 Someone ทักคุณมา')).toBeInTheDocument()
+      expect(screen.getByText('แวะมาทักหน่อยนะ')).toBeInTheDocument()
+    })
+
+    it('clicking the toast opens the panel straight to that sender\'s thread', async () => {
+      const user = userEvent.setup()
+      renderWidget()
+      await openWidget(user)
+      await setupProfile(user)
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.open())
+      await user.click(screen.getByRole('button', { name: 'ปิดกล่องเครือข่ายผู้ชม' }))
+
+      act(() =>
+        ws.emit({
+          type: 'message',
+          id: 5,
+          username: 'someone',
+          role: 'viewer',
+          text: 'สวัสดีครับ',
+          created_at: '2026-01-01T00:00:00Z',
+          display_name: 'Someone',
+          avatar: 'dog',
+          client_id: 'a-different-browser',
+          recipient_client_id: 'me',
+        }),
+      )
+
+      await user.click(await screen.findByText('💬 Someone ทักคุณมา'))
+
+      expect(await screen.findByText('สวัสดีครับ')).toBeInTheDocument()
+      expect(screen.queryByText('💬 Someone ทักคุณมา')).not.toBeInTheDocument()
+    })
+
+    it('the × button dismisses the toast without opening the panel', async () => {
+      const user = userEvent.setup()
+      renderWidget()
+      await openWidget(user)
+      await setupProfile(user)
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.open())
+      await user.click(screen.getByRole('button', { name: 'ปิดกล่องเครือข่ายผู้ชม' }))
+
+      act(() =>
+        ws.emit({
+          type: 'message',
+          id: 5,
+          username: 'someone',
+          role: 'viewer',
+          text: 'สวัสดีครับ',
+          created_at: '2026-01-01T00:00:00Z',
+          display_name: 'Someone',
+          avatar: 'dog',
+          client_id: 'a-different-browser',
+          recipient_client_id: 'me',
+        }),
+      )
+      await screen.findByText('💬 Someone ทักคุณมา')
+
+      await user.click(screen.getByRole('button', { name: 'ปิดการแจ้งเตือน' }))
+
+      expect(screen.queryByText('💬 Someone ทักคุณมา')).not.toBeInTheDocument()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('does not show a toast for a message in the thread already open on screen', async () => {
+      const user = userEvent.setup()
+      renderWidget()
+      await openWidget(user)
+      await setupProfile(user)
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.open())
+      await openThreadWith(user, ws, 'alice-client', 'Alice')
+
+      act(() =>
+        ws.emit({
+          type: 'message',
+          id: 5,
+          username: 'alice',
+          role: 'viewer',
+          text: 'ข้อความในห้องที่เปิดอยู่',
+          created_at: '2026-01-01T00:00:00Z',
+          display_name: 'Alice',
+          avatar: 'fox',
+          client_id: 'alice-client',
+          recipient_client_id: 'me',
+        }),
+      )
+
+      await screen.findByText('ข้อความในห้องที่เปิดอยู่') // the bubble itself did arrive
+      expect(screen.queryByText(/ทักคุณมา/)).not.toBeInTheDocument()
+    })
+
+    it('shows a sticker-specific preview, not the raw encoded text', async () => {
+      const user = userEvent.setup()
+      renderWidget()
+      await openWidget(user)
+      await setupProfile(user)
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.open())
+      await user.click(screen.getByRole('button', { name: 'ปิดกล่องเครือข่ายผู้ชม' }))
+
+      act(() =>
+        ws.emit({
+          type: 'message',
+          id: 5,
+          username: 'someone',
+          role: 'viewer',
+          text: '::sticker::love',
+          created_at: '2026-01-01T00:00:00Z',
+          display_name: 'Someone',
+          avatar: 'dog',
+          client_id: 'a-different-browser',
+          recipient_client_id: 'me',
+        }),
+      )
+
+      expect(await screen.findByText(/ส่งสติกเกอร์.*รักนะ/)).toBeInTheDocument()
+      expect(screen.queryByText('::sticker::love')).not.toBeInTheDocument()
+    })
   })
 
   it('sending a sticker goes out as an encoded text payload, not a plain message', async () => {
