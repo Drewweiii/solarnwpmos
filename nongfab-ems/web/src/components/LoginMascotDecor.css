@@ -10,24 +10,64 @@
   width: 230px;
   height: 230px;
   transform: translateY(-50%);
+  /* The whole cluster glides toward/away from the login card on focus (see
+     the -watching/-shy rules below) - same weightless spring as the
+     characters' own transforms. */
+  transition: transform 0.9s cubic-bezier(0.22, 1.28, 0.34, 1);
+  will-change: transform;
   /* Container ignores pointer events; only the character shapes below opt back
      in, so the 230px box doesn't swallow clicks meant for anything behind it. */
   pointer-events: none;
   opacity: 0.85;
 }
 
+/* Username focused: fly the WHOLE cluster right up to the login card's left
+   edge, wherever it is. The card (.login-form) is max-width 460px and
+   centered, so its left edge sits at 50vw - 230px; this travel closes the gap
+   from the decor's home (3% + ~275px of character span) with a ~10px cheeky
+   overlap, clamped so narrow screens don't over-shoot and ultrawide ones
+   still arrive. THIS container-level travel is what makes them genuinely
+   come over to peek - the per-character transforms below only add the small
+   huddle shaping on top. */
+.login-mascot-decor-watching {
+  transform: translateY(-50%) translateX(clamp(0px, 47vw - 478px, 720px));
+}
+
+/* Password focused: the cluster backs politely away instead. */
+.login-mascot-decor-shy {
+  transform: translateY(-50%) translateX(-18px);
+}
+
 .login-mascot-character {
   position: absolute;
-  animation: login-mascot-wobble var(--wobble-duration, 6s) ease-in-out infinite;
-  animation-delay: var(--wobble-delay, 0s);
   /* Ultra-smooth focus glide: a long spring curve with a gentle overshoot so
-     the float-in/out feels weightless, never snappy. */
+     the float-in/out feels weightless, never snappy. NOTE: the idle wobble
+     animation deliberately does NOT live here - a CSS animation (even one
+     that's paused) overrides the element's own `transform`, which is exactly
+     the bug that used to swallow this glide entirely. The wobble lives on
+     the inner .login-mascot-wobble-layer instead, so the two compose. */
   transition: transform 0.9s cubic-bezier(0.22, 1.28, 0.34, 1);
   transform-origin: center bottom;
   will-change: transform;
   /* Poke-able easter egg - see LoginMascotDecor.tsx's poke(). */
   pointer-events: auto;
   cursor: pointer;
+}
+
+/* Inner layer that carries the ambient idle wobble (randomized per character
+   via the --wobble-* custom props, which inherit from the character div). */
+.login-mascot-wobble-layer {
+  animation: login-mascot-wobble var(--wobble-duration, 6s) ease-in-out infinite;
+  animation-delay: var(--wobble-delay, 0s);
+  will-change: transform;
+}
+
+/* While leaning in (or away) the ambient wobble pauses so the directional
+   pose reads clearly - pausing the INNER layer freezes only its tiny +-3px
+   offset, which composes harmlessly with the outer glide. */
+.login-mascot-decor-watching .login-mascot-wobble-layer,
+.login-mascot-decor-shy .login-mascot-wobble-layer {
+  animation-play-state: paused;
 }
 
 /* Staggered glide: the three don't move as one rigid block - the cloud drifts
@@ -88,13 +128,10 @@
    LoginMascotDecor.tsx) this reads as the characters paying attention to
    what's being typed. Idle wobble pauses while watching/shy so the
    directional lean reads clearly instead of fighting the ambient sway. */
-.login-mascot-decor-watching .login-mascot-character {
-  animation-play-state: paused;
-}
-
-/* Float IN right up close to the form, each character by a slightly different
-   amount/tilt so the huddle looks organic (paired with wide 'surprised'
-   eyes) - the sun pushes in furthest, cheekily peeking over the card edge. */
+/* On top of the container's big travel, each character shifts by a slightly
+   different amount/tilt so the huddle looks organic (paired with wide
+   'surprised' eyes) - the sun pushes in furthest, cheekily peeking over the
+   card edge. */
 .login-mascot-decor-watching .login-mascot-cloud {
   transform: translateX(46px) translateY(-2px) scale(1.16) rotate(3deg);
 }
@@ -129,7 +166,6 @@
 /* Password focused - "not peeking": lean away instead, paired with the
    closed-eyes 'blush' mood. */
 .login-mascot-decor-shy .login-mascot-character {
-  animation-play-state: paused;
   transform: translateX(-8px) rotate(-3deg) scale(0.97);
 }
 
@@ -236,8 +272,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .login-mascot-decor,
   .login-mascot-character,
   .login-mascot-character.login-mascot-fleeing,
+  .login-mascot-wobble-layer,
   .login-mascot-character .mascot-svg,
   .login-mascot-decor-watching .login-mascot-character .mascot-svg,
   .login-mascot-emote {

@@ -103,12 +103,20 @@ export function LoginMascotDecor({ focusedField }: LoginMascotDecorProps) {
         style={style}
         onClick={() => poke(character)}
       >
-        {faceFor(mood)}
-        {fleeing[character] && (
-          <span className="login-mascot-emote" aria-hidden="true">
-            {POKE_EMOTES[character]}
-          </span>
-        )}
+        {/* The idle wobble lives on this INNER layer, never on the outer
+            character div - a CSS animation (even paused) overrides the
+            element's own `transform`, which silently swallowed the watching/
+            shy glide transforms when both lived on one element (the "they
+            never actually move closer" bug, root-caused 2026-07-20). Nested
+            layers compose instead of fighting. */}
+        <div className="login-mascot-wobble-layer">
+          {faceFor(mood)}
+          {fleeing[character] && (
+            <span className="login-mascot-emote" aria-hidden="true">
+              {POKE_EMOTES[character]}
+            </span>
+          )}
+        </div>
       </div>
     )
   }
