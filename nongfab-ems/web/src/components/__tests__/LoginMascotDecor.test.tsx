@@ -69,11 +69,14 @@ describe('LoginMascotDecor', () => {
       expect(container.querySelector('.login-mascot-sun.login-mascot-fleeing')).toBeInTheDocument()
       // Only the poked one flees - the others keep watching.
       expect(container.querySelector('.login-mascot-moon.login-mascot-fleeing')).not.toBeInTheDocument()
+      // A reaction emoji pops above the poked character while it flees.
+      expect(container.querySelector('.login-mascot-emote')).toBeInTheDocument()
 
       act(() => {
         vi.advanceTimersByTime(1400)
       })
       expect(container.querySelector('.login-mascot-fleeing')).not.toBeInTheDocument()
+      expect(container.querySelector('.login-mascot-emote')).not.toBeInTheDocument()
     })
   })
 })

@@ -12,7 +12,12 @@ type CharacterKey = 'sun' | 'moon' | 'cloud'
 // How long a poked character stays in its shy "dart away then come back"
 // animation - must match the login-mascot-flee keyframe duration in the CSS so
 // the class is removed exactly when the character has settled back.
-const FLEE_DURATION_MS = 1250
+const FLEE_DURATION_MS = 1300
+
+// Per-character reaction emoji that pops above a poked character while it
+// flees - a small playful touch (each has its own personality: the sun gets
+// flustered, the moon sees stars, the cloud squeezes out a droplet).
+const POKE_EMOTES: Record<CharacterKey, string> = { sun: '😳', moon: '💫', cloud: '💦' }
 
 interface LoginMascotDecorProps {
   focusedField: LoginFocusedField
@@ -58,6 +63,10 @@ export function LoginMascotDecor({ focusedField }: LoginMascotDecorProps) {
   // one doesn't reset another's, and a burst of pokes on the same one just
   // restarts its own clock (never stacks).
   const [fleeing, setFleeing] = useState<Record<CharacterKey, boolean>>({ sun: false, moon: false, cloud: false })
+  // Bumped on every poke and used as the character's React key, so poking the
+  // same character again mid-flee remounts it and replays the whole flee
+  // animation + emote from the start (repeat-play is half the fun).
+  const [pokeSeq, setPokeSeq] = useState<Record<CharacterKey, number>>({ sun: 0, moon: 0, cloud: 0 })
   const timersRef = useRef<Record<CharacterKey, ReturnType<typeof setTimeout> | undefined>>({
     sun: undefined,
     moon: undefined,
@@ -71,6 +80,7 @@ export function LoginMascotDecor({ focusedField }: LoginMascotDecorProps) {
   function poke(character: CharacterKey) {
     clearTimeout(timersRef.current[character])
     setFleeing((prev) => ({ ...prev, [character]: true }))
+    setPokeSeq((prev) => ({ ...prev, [character]: prev[character] + 1 }))
     timersRef.current[character] = setTimeout(
       () => setFleeing((prev) => ({ ...prev, [character]: false })),
       FLEE_DURATION_MS,
@@ -88,11 +98,17 @@ export function LoginMascotDecor({ focusedField }: LoginMascotDecorProps) {
     const mood = fleeing[character] ? 'blush' : baseMood
     return (
       <div
+        key={`${character}-${pokeSeq[character]}`}
         className={`login-mascot-character login-mascot-${character}${fleeing[character] ? ' login-mascot-fleeing' : ''}`}
         style={style}
         onClick={() => poke(character)}
       >
         {faceFor(mood)}
+        {fleeing[character] && (
+          <span className="login-mascot-emote" aria-hidden="true">
+            {POKE_EMOTES[character]}
+          </span>
+        )}
       </div>
     )
   }

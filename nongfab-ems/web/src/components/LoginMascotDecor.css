@@ -20,14 +20,37 @@
   position: absolute;
   animation: login-mascot-wobble var(--wobble-duration, 6s) ease-in-out infinite;
   animation-delay: var(--wobble-delay, 0s);
-  /* Ultra-smooth focus lean: a long, softly-decelerating spring curve so the
-     float-in/out glides instead of snapping. */
-  transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  /* Ultra-smooth focus glide: a long spring curve with a gentle overshoot so
+     the float-in/out feels weightless, never snappy. */
+  transition: transform 0.9s cubic-bezier(0.22, 1.28, 0.34, 1);
   transform-origin: center bottom;
   will-change: transform;
   /* Poke-able easter egg - see LoginMascotDecor.tsx's poke(). */
   pointer-events: auto;
   cursor: pointer;
+}
+
+/* Staggered glide: the three don't move as one rigid block - the cloud drifts
+   first, then the sun, then the moon trails in, like a little crowd gathering
+   to peek one after another. */
+.login-mascot-cloud {
+  transition-delay: 0s;
+}
+.login-mascot-sun {
+  transition-delay: 0.07s;
+}
+.login-mascot-moon {
+  transition-delay: 0.14s;
+}
+
+/* Hover perk-up: the character you're pointing at lifts and grows a touch,
+   inviting the click (inner-SVG transform so it composes with the outer
+   glide instead of fighting it). */
+.login-mascot-character .mascot-svg {
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.login-mascot-character:hover .mascot-svg {
+  transform: translateY(-3px) scale(1.08);
 }
 
 /* Loosely mirrors the reference clip's composition (a cluster of 3
@@ -67,10 +90,40 @@
    directional lean reads clearly instead of fighting the ambient sway. */
 .login-mascot-decor-watching .login-mascot-character {
   animation-play-state: paused;
-  /* Float IN noticeably closer to the form and grow, so it clearly reads as
-     the trio crowding in to peek at what's being typed (paired with wide
-     'surprised' eyes). */
-  transform: translateX(38px) translateY(-4px) scale(1.18) rotate(2deg);
+}
+
+/* Float IN right up close to the form, each character by a slightly different
+   amount/tilt so the huddle looks organic (paired with wide 'surprised'
+   eyes) - the sun pushes in furthest, cheekily peeking over the card edge. */
+.login-mascot-decor-watching .login-mascot-cloud {
+  transform: translateX(46px) translateY(-2px) scale(1.16) rotate(3deg);
+}
+.login-mascot-decor-watching .login-mascot-sun {
+  transform: translateX(54px) translateY(-6px) scale(1.24) rotate(2deg);
+}
+.login-mascot-decor-watching .login-mascot-moon {
+  transform: translateX(48px) translateY(-3px) scale(1.2) rotate(-3deg);
+}
+
+/* While peeking, the face itself keeps gently bobbing/tilting (inner-SVG
+   animation composes on top of the outer glide) - reads as the characters
+   craning their necks to follow the typing instead of freezing stiff. */
+.login-mascot-decor-watching .login-mascot-character .mascot-svg {
+  animation: login-mascot-peek 2.4s ease-in-out infinite;
+  animation-delay: var(--wobble-delay, 0s);
+}
+
+@keyframes login-mascot-peek {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  35% {
+    transform: translateY(-3px) rotate(2deg);
+  }
+  70% {
+    transform: translateY(-1px) rotate(-1.5deg);
+  }
 }
 
 /* Password focused - "not peeking": lean away instead, paired with the
@@ -85,37 +138,81 @@
    specificity and its animation overrides both the idle wobble and the
    watching/shy static lean while it runs. */
 .login-mascot-character.login-mascot-fleeing {
-  /* A gentle custom cubic-bezier (soft anticipation + eased settle) makes the
-     dart-away-and-return read as a smooth shy recoil, not a mechanical jerk. */
-  animation: login-mascot-flee 1.25s cubic-bezier(0.34, 1.2, 0.4, 1);
+  /* Custom easing (soft anticipation + eased settle) so the recoil reads as a
+     smooth shy flinch, not a mechanical jerk. */
+  animation: login-mascot-flee 1.3s cubic-bezier(0.36, 1.2, 0.4, 1);
   animation-play-state: running;
+  transition: none; /* the keyframes own the transform for this moment */
 }
 
+/* Cartoon squash-and-stretch flee: crouch (squash) -> spring away stretched ->
+   shy hover-sway while retreated -> float back with a small overshoot. The
+   scale(x, y) pairs are what sell the "soft body" realism. */
 @keyframes login-mascot-flee {
   0% {
-    transform: translateX(0) scale(1) rotate(0deg);
+    transform: translate(0, 0) scale(1, 1) rotate(0deg);
   }
-  /* tiny anticipation - lean IN a hair before recoiling, like a real flinch */
-  10% {
-    transform: translateX(4px) translateY(-1px) scale(1.04) rotate(2deg);
+  /* startled flinch IN + crouch down (anticipation squash) */
+  9% {
+    transform: translate(5px, 3px) scale(1.12, 0.84) rotate(3deg);
   }
-  /* dart away, shrink, turn its back */
-  32% {
-    transform: translateX(-34px) translateY(8px) scale(0.74) rotate(-14deg);
+  /* spring away - body stretches along the escape direction */
+  28% {
+    transform: translate(-38px, -10px) scale(0.72, 0.9) rotate(-16deg);
   }
-  /* a soft shy sway while retreated */
-  50% {
-    transform: translateX(-36px) translateY(5px) scale(0.76) rotate(7deg);
+  /* land in the retreat spot with a tiny rebound squash */
+  40% {
+    transform: translate(-42px, 4px) scale(0.82, 0.72) rotate(-6deg);
   }
-  66% {
-    transform: translateX(-30px) translateY(6px) scale(0.8) rotate(-3deg);
+  /* shy hover-sway while hiding, peeking back at you */
+  55% {
+    transform: translate(-40px, -1px) scale(0.76, 0.8) rotate(8deg);
   }
-  /* float back, overshooting a touch closer before settling */
-  88% {
-    transform: translateX(6px) translateY(-2px) scale(1.05) rotate(1deg);
+  68% {
+    transform: translate(-34px, 3px) scale(0.8, 0.78) rotate(-4deg);
+  }
+  /* drift back in, overshooting slightly closer than home */
+  87% {
+    transform: translate(7px, -3px) scale(1.07, 1.04) rotate(2deg);
+  }
+  94% {
+    transform: translate(-2px, 1px) scale(0.98, 1.01) rotate(-1deg);
   }
   100% {
-    transform: translateX(0) scale(1) rotate(0deg);
+    transform: translate(0, 0) scale(1, 1) rotate(0deg);
+  }
+}
+
+/* Reaction emoji popping above a poked character (😳 / 💫 / 💦) - blooms in,
+   floats up, fades out over the same beat as the flee. */
+.login-mascot-emote {
+  position: absolute;
+  top: -16px;
+  right: -4px;
+  font-size: 22px;
+  pointer-events: none;
+  animation: login-mascot-emote-pop 1.3s ease-out both;
+}
+
+@keyframes login-mascot-emote-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.3);
+  }
+  16% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.25);
+  }
+  30% {
+    transform: translateY(-4px) scale(1);
+  }
+  75% {
+    opacity: 1;
+    transform: translateY(-10px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-18px) scale(0.9);
   }
 }
 
@@ -140,7 +237,10 @@
 
 @media (prefers-reduced-motion: reduce) {
   .login-mascot-character,
-  .login-mascot-character.login-mascot-fleeing {
+  .login-mascot-character.login-mascot-fleeing,
+  .login-mascot-character .mascot-svg,
+  .login-mascot-decor-watching .login-mascot-character .mascot-svg,
+  .login-mascot-emote {
     animation: none;
     transition: none;
   }
