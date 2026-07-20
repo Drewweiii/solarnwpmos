@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { avatarById, getOrCreateClientId, loadChatProfile, type ChatProfile } from '../lib/chatProfile'
+import { playNotificationDing } from '../lib/notificationSound'
 import { useSubmitFeedback } from '../lib/queries'
 import { decodeSticker, encodeSticker, speakSticker, STICKER_OPTIONS } from '../lib/stickers'
 import { useChatSocket, type ChatSocketState, type Contact, type LocalChatMessage } from '../lib/useChatSocket'
@@ -123,6 +124,9 @@ export function VisitorNetwork() {
       clearTimeout(notificationTimerRef.current)
       setNotification({ messageId: message.id, peerClientId, displayName: message.display_name, avatar: message.avatar, preview: notificationPreview(message) })
       notificationTimerRef.current = setTimeout(() => setNotification(null), NOTIFICATION_AUTO_DISMISS_MS)
+      // Audible ping alongside the toast, so a visitor reading elsewhere on
+      // the page (or in another tab) notices the incoming message.
+      playNotificationDing()
     },
   )
   const { totalUnreadCount, contacts } = chat
@@ -130,6 +134,14 @@ export function VisitorNetwork() {
   const titleId = useId()
 
   useEffect(() => () => clearTimeout(notificationTimerRef.current), [])
+
+  // Unread count mirrored into the browser-tab title ("(2) PTT LNG ...") so a
+  // backgrounded tab shows there are waiting messages - the closest a plain
+  // web page gets to a passive OS-level notification without permissions.
+  useEffect(() => {
+    const base = document.title.replace(/^\(\d+\) /, '')
+    document.title = totalUnreadCount > 0 ? `(${totalUnreadCount}) ${base}` : base
+  }, [totalUnreadCount])
 
   function closePanel() {
     setIsOpen(false)

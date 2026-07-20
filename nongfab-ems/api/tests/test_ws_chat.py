@@ -1,6 +1,11 @@
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 from starlette.websockets import WebSocketDisconnect
+
+from nongfab_api.auth import create_access_token
+from nongfab_api.main import create_app
 
 
 def test_ws_chat_rejects_missing_token(app):
@@ -307,7 +312,11 @@ def test_rest_presence_heartbeat_lists_online_users_and_forces_admin_prefix(app,
     viewer = token_factory("viewer", username="alice")
     admin = token_factory("admin", username="boss")
     with TestClient(app) as client:
-        client.post("/chat/presence", json={"client_id": "A", "display_name": "Alice", "avatar": "cat"}, headers={"Authorization": f"Bearer {viewer}"})
+        client.post(
+            "/chat/presence",
+            json={"client_id": "A", "display_name": "Alice", "avatar": "cat"},
+            headers={"Authorization": f"Bearer {viewer}"},
+        )
         resp = client.post("/chat/presence", json={"client_id": "ADM", "display_name": "สมชาย"}, headers={"Authorization": f"Bearer {admin}"})
     users = {u["client_id"]: u for u in resp.json()["users"]}
     assert "A" in users and "ADM" in users
@@ -318,6 +327,46 @@ def test_rest_send_requires_login(app):
     with TestClient(app) as client:
         resp = client.post("/chat/send", json={"client_id": "A", "recipient_client_id": "B", "text": "hi"})
     assert resp.status_code == 401
+
+
+@pytest.fixture
+async def old_schema_engine():
+    """An engine whose chat_messages table has the ORIGINAL v1 columns only -
+    exactly what the production Railway volume turned out to still hold on
+    2026-07-20 (probed live: /chat/send and /chat/inbox both 500ing because
+    display_name/avatar/client_id were never added; only recipient_client_id
+    had ever been patched). Startup must heal ALL missing columns."""
+    eng = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with eng.begin() as conn:
+        await conn.execute(
+            text(
+                "CREATE TABLE chat_messages ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, role TEXT NOT NULL, "
+                "text TEXT NOT NULL, created_at TIMESTAMP NOT NULL)"
+            )
+        )
+    yield eng
+    await eng.dispose()
+
+
+def test_startup_heals_a_v1_chat_messages_table_so_rest_chat_works(old_schema_engine, settings):
+    """Regression for the production 'chat never delivers' root cause: boot
+    the app on a v1-schema chat_messages table and the full REST send->inbox
+    round trip must work (startup adds every missing column, not just one)."""
+    app = create_app(settings=settings, engine=old_schema_engine)
+    token = create_access_token("alice", "viewer", settings, app.state.deploy_id)
+    headers = {"Authorization": f"Bearer {token}"}
+    with TestClient(app) as client:
+        sent = client.post(
+            "/chat/send",
+            json={"client_id": "A", "recipient_client_id": "B", "text": "healed!", "display_name": "Alice", "avatar": "cat"},
+            headers=headers,
+        )
+        assert sent.status_code == 200, sent.text
+        inbox = client.get("/chat/inbox?my_client_id=B&after_id=0", headers=headers)
+    assert inbox.status_code == 200, inbox.text
+    assert [m["text"] for m in inbox.json()["messages"]] == ["healed!"]
+    assert inbox.json()["messages"][0]["display_name"] == "Alice"
 
 
 def test_message_created_at_carries_a_utc_offset_not_a_naive_timestamp(app, token_factory):

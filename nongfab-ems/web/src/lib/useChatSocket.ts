@@ -10,7 +10,7 @@ import type { ChatProfile } from './chatProfile'
 // same request/response shape as the feedback flow that provably works: POST a
 // heartbeat for presence, POST to send, GET to poll for new messages.
 const PRESENCE_POLL_MS = 8000 // heartbeat + who's-online refresh
-const INBOX_POLL_MS = 2500 // new-message poll (feels near-instant without hammering)
+const INBOX_POLL_MS = 2000 // new-message poll (feels near-instant without hammering)
 const MAX_MESSAGES_KEPT = 200
 const LAST_READ_ID_KEY_PREFIX = 'nongfab_chat_last_read_id_'
 const KNOWN_PEERS_KEY = 'nongfab_chat_known_peers'

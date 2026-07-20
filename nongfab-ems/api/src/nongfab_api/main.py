@@ -47,48 +47,54 @@ from .ws_chat import ChatStore, ConnectionManager, PresenceRegistry
 logger = logging.getLogger(__name__)
 
 
-async def _ensure_recipient_client_id_column(conn: AsyncConnection) -> None:
-    """`Base.metadata.create_all` (below) only creates brand-new tables - it
-    never alters one that already exists, so a `chat_messages` table
-    created before `recipient_client_id` was added to the model (2026-07-18's
-    private-messaging rework) never picks up the new column just from a
-    redeploy. This was meant to be a one-off manual `psql` migration (see
-    db/migrations/0007_chat_direct_messages.sql), but discovered live the
-    same day that this deployment's `API_TIMESCALE_DSN` is a plain SQLite
-    file on a Railway volume, not Postgres - Railway has no SQL console for
-    that the way it does for its own Postgres plugin, so "run this SQL by
-    hand" had no actual UI to do it in. Patching it in automatically here
-    instead removes the manual step entirely. Uses SQLAlchemy's
-    dialect-agnostic inspector (not raw `PRAGMA`/`information_schema`), so
-    this keeps working unchanged if a deployment ever does move to Postgres.
+# Every column the current ORM maps that `Base.metadata.create_all` cannot
+# retrofit onto a table that already exists on the production volume (it only
+# creates brand-new tables, never ALTERs). This started as two one-off patch
+# functions (recipient_client_id 2026-07-18, feedback display_name
+# 2026-07-19) - then on 2026-07-20 a live probe showed /chat/send and
+# /chat/inbox both 500ing in production because the deployed chat_messages
+# table STILL predated `display_name`/`avatar`/`client_id` (only
+# recipient_client_id had ever been patched), so every INSERT and full-row
+# SELECT failed. That was the true root cause of "chat never delivers" across
+# both the WebSocket and REST transports. Lesson learned: heal the FULL
+# required-column set, not whichever single column last broke.
+_REQUIRED_COLUMNS: dict[str, dict[str, str]] = {
+    "chat_messages": {
+        "display_name": "TEXT",
+        "avatar": "TEXT",
+        "client_id": "TEXT",
+        "recipient_client_id": "TEXT",
+    },
+    "feedback_messages": {
+        "display_name": "TEXT",
+    },
+}
+
+
+async def _ensure_required_columns(conn: AsyncConnection) -> None:
+    """Self-healing startup schema patch: add any `_REQUIRED_COLUMNS` entry
+    missing from an existing table. Needed because this deployment's store is
+    a SQLite file on a Railway volume with no SQL console to run manual
+    migrations in (see the note above). Uses SQLAlchemy's dialect-agnostic
+    inspector (not raw `PRAGMA`/`information_schema`), so it keeps working
+    unchanged if a deployment ever moves to Postgres. Tables that don't exist
+    yet are skipped - `create_all` just made them with every current column.
     """
 
-    def _needs_column(sync_conn) -> bool:
+    def _missing(sync_conn) -> list[tuple[str, str, str]]:
         insp = inspect(sync_conn)
-        if "chat_messages" not in insp.get_table_names():
-            return False  # brand new - create_all above already made it with every current column
-        return "recipient_client_id" not in {c["name"] for c in insp.get_columns("chat_messages")}
+        existing_tables = set(insp.get_table_names())
+        out: list[tuple[str, str, str]] = []
+        for table, cols in _REQUIRED_COLUMNS.items():
+            if table not in existing_tables:
+                continue
+            have = {c["name"] for c in insp.get_columns(table)}
+            out.extend((table, name, ddl) for name, ddl in cols.items() if name not in have)
+        return out
 
-    if await conn.run_sync(_needs_column):
-        await conn.execute(text("ALTER TABLE chat_messages ADD COLUMN recipient_client_id TEXT"))
-        logger.info("startup schema patch: added chat_messages.recipient_client_id")
-
-
-async def _ensure_feedback_display_name_column(conn: AsyncConnection) -> None:
-    """Same self-healing pattern as `_ensure_recipient_client_id_column` above,
-    for `feedback_messages.display_name` (2026-07-19): `create_all` never alters
-    an existing table, and this deployment's store is a SQLite file on a Railway
-    volume with no SQL console to run a manual migration in, so patch it here."""
-
-    def _needs_column(sync_conn) -> bool:
-        insp = inspect(sync_conn)
-        if "feedback_messages" not in insp.get_table_names():
-            return False
-        return "display_name" not in {c["name"] for c in insp.get_columns("feedback_messages")}
-
-    if await conn.run_sync(_needs_column):
-        await conn.execute(text("ALTER TABLE feedback_messages ADD COLUMN display_name TEXT"))
-        logger.info("startup schema patch: added feedback_messages.display_name")
+    for table, name, ddl in await conn.run_sync(_missing):
+        await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+        logger.info("startup schema patch: added %s.%s", table, name)
 
 
 def create_app(settings: Settings | None = None, engine: AsyncEngine | None = None) -> FastAPI:
@@ -106,8 +112,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
         if settings.create_tables_on_startup:
             async with eng.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
-                await _ensure_recipient_client_id_column(conn)
-                await _ensure_feedback_display_name_column(conn)
+                await _ensure_required_columns(conn)
         user_store = UserStore(eng)
         if settings.seed_demo_users:
             await user_store.seed_demo_users()
