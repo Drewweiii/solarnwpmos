@@ -12,7 +12,7 @@ type CharacterKey = 'sun' | 'moon' | 'cloud'
 // How long a poked character stays in its shy "dart away then come back"
 // animation - must match the login-mascot-flee keyframe duration in the CSS so
 // the class is removed exactly when the character has settled back.
-const FLEE_DURATION_MS = 1100
+const FLEE_DURATION_MS = 1250
 
 interface LoginMascotDecorProps {
   focusedField: LoginFocusedField

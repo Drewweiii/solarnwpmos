@@ -71,7 +71,7 @@ describe('LoginMascotDecor', () => {
       expect(container.querySelector('.login-mascot-moon.login-mascot-fleeing')).not.toBeInTheDocument()
 
       act(() => {
-        vi.advanceTimersByTime(1200)
+        vi.advanceTimersByTime(1400)
       })
       expect(container.querySelector('.login-mascot-fleeing')).not.toBeInTheDocument()
     })

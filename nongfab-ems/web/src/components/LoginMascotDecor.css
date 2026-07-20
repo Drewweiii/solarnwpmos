@@ -20,7 +20,11 @@
   position: absolute;
   animation: login-mascot-wobble var(--wobble-duration, 6s) ease-in-out infinite;
   animation-delay: var(--wobble-delay, 0s);
-  transition: transform 0.35s ease;
+  /* Ultra-smooth focus lean: a long, softly-decelerating spring curve so the
+     float-in/out glides instead of snapping. */
+  transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  transform-origin: center bottom;
+  will-change: transform;
   /* Poke-able easter egg - see LoginMascotDecor.tsx's poke(). */
   pointer-events: auto;
   cursor: pointer;
@@ -63,10 +67,10 @@
    directional lean reads clearly instead of fighting the ambient sway. */
 .login-mascot-decor-watching .login-mascot-character {
   animation-play-state: paused;
-  /* Float IN closer to the form and grow a touch, so it reads as the trio
-     leaning in to peek at what's being typed (paired with wide 'surprised'
-     eyes). */
-  transform: translateX(22px) scale(1.09) rotate(2deg);
+  /* Float IN noticeably closer to the form and grow, so it clearly reads as
+     the trio crowding in to peek at what's being typed (paired with wide
+     'surprised' eyes). */
+  transform: translateX(38px) translateY(-4px) scale(1.18) rotate(2deg);
 }
 
 /* Password focused - "not peeking": lean away instead, paired with the
@@ -81,7 +85,9 @@
    specificity and its animation overrides both the idle wobble and the
    watching/shy static lean while it runs. */
 .login-mascot-character.login-mascot-fleeing {
-  animation: login-mascot-flee 1.1s ease-in-out;
+  /* A gentle custom cubic-bezier (soft anticipation + eased settle) makes the
+     dart-away-and-return read as a smooth shy recoil, not a mechanical jerk. */
+  animation: login-mascot-flee 1.25s cubic-bezier(0.34, 1.2, 0.4, 1);
   animation-play-state: running;
 }
 
@@ -89,14 +95,24 @@
   0% {
     transform: translateX(0) scale(1) rotate(0deg);
   }
-  22% {
-    transform: translateX(-28px) translateY(6px) scale(0.78) rotate(-13deg);
+  /* tiny anticipation - lean IN a hair before recoiling, like a real flinch */
+  10% {
+    transform: translateX(4px) translateY(-1px) scale(1.04) rotate(2deg);
   }
-  46% {
-    transform: translateX(-32px) translateY(3px) scale(0.8) rotate(9deg);
+  /* dart away, shrink, turn its back */
+  32% {
+    transform: translateX(-34px) translateY(8px) scale(0.74) rotate(-14deg);
   }
-  72% {
-    transform: translateX(-12px) scale(0.93) rotate(-4deg);
+  /* a soft shy sway while retreated */
+  50% {
+    transform: translateX(-36px) translateY(5px) scale(0.76) rotate(7deg);
+  }
+  66% {
+    transform: translateX(-30px) translateY(6px) scale(0.8) rotate(-3deg);
+  }
+  /* float back, overshooting a touch closer before settling */
+  88% {
+    transform: translateX(6px) translateY(-2px) scale(1.05) rotate(1deg);
   }
   100% {
     transform: translateX(0) scale(1) rotate(0deg);
