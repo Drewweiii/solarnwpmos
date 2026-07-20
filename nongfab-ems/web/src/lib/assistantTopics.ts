@@ -249,17 +249,18 @@ export const TOPIC_CATEGORIES: AssistantTopicCategory[] = [
       {
         id: 'page_energy_report',
         title: 'หน้า Energy Report',
-        keywords: [],
+        keywords: ['ประหยัดค่าไฟ', 'คาร์บอนเครดิต', 'carbon credit', 'ลด co2', 'ugt'],
         subQuestions: [
           { id: 'page_energy_report', label: 'หน้า Energy Report ใช้ดูอะไร', question: 'หน้า Energy Report ในเว็บนี้ใช้ดูอะไรได้บ้าง' },
+          { id: 'energy_savings', label: 'ดูค่าไฟที่ประหยัด/คาร์บอนได้ไหม', question: 'โซลาร์ช่วยประหยัดค่าไฟและลดคาร์บอนได้เท่าไหร่ ดูตรงไหน' },
         ],
       },
       {
         id: 'page_irradiance',
-        title: 'หน้า Irradiance Map',
+        title: 'แผนที่ความเข้มแสง (ในหน้า 3D View)',
         keywords: [],
         subQuestions: [
-          { id: 'page_irradiance', label: 'หน้า Irradiance Map ใช้ดูอะไร', question: 'หน้า Irradiance Map ในเว็บนี้ใช้ดูอะไรได้บ้าง' },
+          { id: 'page_irradiance', label: 'แผนที่ความเข้มแสงอยู่ตรงไหน', question: 'แผนที่ความเข้มแสง (irradiance map) ในเว็บนี้อยู่ตรงไหน ใช้ดูอะไรได้บ้าง' },
         ],
       },
       {
