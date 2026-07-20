@@ -258,6 +258,68 @@ def test_get_chat_history_requires_login(app):
     assert resp.status_code == 401
 
 
+# --- REST transport (2026-07-20) ---
+
+
+def test_rest_send_then_inbox_delivers_to_recipient(app, token_factory):
+    token = token_factory("viewer", username="alice")
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {token}"}
+        sent = client.post(
+            "/chat/send",
+            json={"client_id": "A", "recipient_client_id": "B", "text": "hi bob", "display_name": "Alice", "avatar": "cat"},
+            headers=headers,
+        )
+        assert sent.status_code == 200
+        message = sent.json()["message"]
+        assert message["text"] == "hi bob"
+        assert message["client_id"] == "A"
+        assert message["recipient_client_id"] == "B"
+
+        inbox = client.get("/chat/inbox?my_client_id=B&after_id=0", headers=headers)
+    assert inbox.status_code == 200
+    assert [m["text"] for m in inbox.json()["messages"]] == ["hi bob"]
+
+
+def test_rest_inbox_only_returns_messages_newer_than_after_id(app, token_factory):
+    token = token_factory("viewer", username="alice")
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {token}"}
+        first = client.post("/chat/send", json={"client_id": "A", "recipient_client_id": "B", "text": "one"}, headers=headers).json()["message"]
+        client.post("/chat/send", json={"client_id": "A", "recipient_client_id": "B", "text": "two"}, headers=headers)
+
+        inbox = client.get(f"/chat/inbox?my_client_id=B&after_id={first['id']}", headers=headers)
+    assert [m["text"] for m in inbox.json()["messages"]] == ["two"]
+
+
+def test_rest_inbox_excludes_conversations_i_am_not_part_of(app, token_factory):
+    token = token_factory("viewer", username="alice")
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {token}"}
+        client.post("/chat/send", json={"client_id": "A", "recipient_client_id": "B", "text": "to bob"}, headers=headers)
+        client.post("/chat/send", json={"client_id": "A", "recipient_client_id": "C", "text": "to carol"}, headers=headers)
+
+        inbox_b = client.get("/chat/inbox?my_client_id=B&after_id=0", headers=headers)
+    assert [m["text"] for m in inbox_b.json()["messages"]] == ["to bob"]  # not "to carol"
+
+
+def test_rest_presence_heartbeat_lists_online_users_and_forces_admin_prefix(app, token_factory):
+    viewer = token_factory("viewer", username="alice")
+    admin = token_factory("admin", username="boss")
+    with TestClient(app) as client:
+        client.post("/chat/presence", json={"client_id": "A", "display_name": "Alice", "avatar": "cat"}, headers={"Authorization": f"Bearer {viewer}"})
+        resp = client.post("/chat/presence", json={"client_id": "ADM", "display_name": "สมชาย"}, headers={"Authorization": f"Bearer {admin}"})
+    users = {u["client_id"]: u for u in resp.json()["users"]}
+    assert "A" in users and "ADM" in users
+    assert users["ADM"]["display_name"] == "admin สมชาย"  # prefix forced server-side, never trusted from client
+
+
+def test_rest_send_requires_login(app):
+    with TestClient(app) as client:
+        resp = client.post("/chat/send", json={"client_id": "A", "recipient_client_id": "B", "text": "hi"})
+    assert resp.status_code == 401
+
+
 def test_message_created_at_carries_a_utc_offset_not_a_naive_timestamp(app, token_factory):
     """Regression test (2026-07-18) - see models.as_utc's docstring and
     test_routes_feedback.py's matching test: the SQLite-backed test `app`

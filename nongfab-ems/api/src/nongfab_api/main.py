@@ -42,7 +42,7 @@ from .auth import UserStore, create_access_token, verify_password
 from .config import Settings, get_settings
 from .models import Base
 from .routes_feedback import FeedbackStore
-from .ws_chat import ChatStore, ConnectionManager
+from .ws_chat import ChatStore, ConnectionManager, PresenceRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +115,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
         app.state.user_store = user_store
         app.state.chat_store = ChatStore(eng)
         app.state.chat_manager = ConnectionManager()
+        app.state.chat_presence = PresenceRegistry()
         app.state.feedback_store = FeedbackStore(eng)
 
         # Real-data ingestion (ingestion_scheduler.py) - one store for this

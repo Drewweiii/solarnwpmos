@@ -1,6 +1,7 @@
 import type {
   AssetRegistry,
   ChatMessage,
+  OnlineUser,
   CloudConditionsResponse,
   CurrentConditionsResponse,
   EnergyReportResponse,
@@ -143,6 +144,39 @@ export const getEnergyReport = (zone: string, token: string): Promise<EnergyRepo
 
 export const getSavingsSummary = (token: string): Promise<SavingsSummaryResponse> =>
   request(`/savings/summary`, token)
+
+// --- REST chat transport (2026-07-20, replaces the WebSocket) -------------
+export interface ChatProfileFields {
+  clientId: string
+  displayName: string
+  avatarId: string
+}
+
+export const chatPresence = (fields: ChatProfileFields, token: string): Promise<{ users: OnlineUser[] }> =>
+  request('/chat/presence', token, {
+    method: 'POST',
+    body: JSON.stringify({ client_id: fields.clientId, display_name: fields.displayName, avatar: fields.avatarId }),
+  })
+
+export const chatSend = (
+  fields: ChatProfileFields,
+  recipientClientId: string,
+  text: string,
+  token: string,
+): Promise<{ message: ChatMessage }> =>
+  request('/chat/send', token, {
+    method: 'POST',
+    body: JSON.stringify({
+      client_id: fields.clientId,
+      recipient_client_id: recipientClientId,
+      text,
+      display_name: fields.displayName,
+      avatar: fields.avatarId,
+    }),
+  })
+
+export const chatInbox = (myClientId: string, afterId: number, token: string): Promise<{ messages: ChatMessage[] }> =>
+  request(`/chat/inbox?my_client_id=${encodeURIComponent(myClientId)}&after_id=${afterId}`, token)
 
 export const getIrradianceMap = (at: string | undefined, token: string): Promise<IrradianceMapResponse> =>
   request(`/irradiance-map${at ? `?at=${encodeURIComponent(at)}` : ''}`, token)
