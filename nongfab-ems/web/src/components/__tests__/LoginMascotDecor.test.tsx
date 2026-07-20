@@ -1,5 +1,5 @@
-import { render } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { act, fireEvent, render } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LoginMascotDecor, moodFor } from '../LoginMascotDecor'
 
 describe('moodFor', () => {
@@ -53,5 +53,27 @@ describe('LoginMascotDecor', () => {
     const { container } = render(<LoginMascotDecor focusedField={null} />)
     expect(container.querySelector('.login-mascot-decor-watching')).not.toBeInTheDocument()
     expect(container.querySelector('.login-mascot-decor-shy')).not.toBeInTheDocument()
+  })
+
+  describe('poke-to-flee', () => {
+    afterEach(() => vi.useRealTimers())
+
+    it('marks a poked character as fleeing, then clears it after the flee duration', () => {
+      vi.useFakeTimers()
+      const { container } = render(<LoginMascotDecor focusedField={null} />)
+      const sun = container.querySelector('.login-mascot-sun') as HTMLElement
+
+      act(() => {
+        fireEvent.click(sun)
+      })
+      expect(container.querySelector('.login-mascot-sun.login-mascot-fleeing')).toBeInTheDocument()
+      // Only the poked one flees - the others keep watching.
+      expect(container.querySelector('.login-mascot-moon.login-mascot-fleeing')).not.toBeInTheDocument()
+
+      act(() => {
+        vi.advanceTimersByTime(1200)
+      })
+      expect(container.querySelector('.login-mascot-fleeing')).not.toBeInTheDocument()
+    })
   })
 })

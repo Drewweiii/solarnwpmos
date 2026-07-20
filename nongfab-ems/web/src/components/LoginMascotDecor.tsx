@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react'
 import { CloudFace } from './CloudFace'
 import type { MascotMood } from './MascotFace'
 import { MascotFace } from './MascotFace'
@@ -6,6 +6,13 @@ import { MoonFace } from './MoonFace'
 import './LoginMascotDecor.css'
 
 export type LoginFocusedField = 'username' | 'password' | null
+
+type CharacterKey = 'sun' | 'moon' | 'cloud'
+
+// How long a poked character stays in its shy "dart away then come back"
+// animation - must match the login-mascot-flee keyframe duration in the CSS so
+// the class is removed exactly when the character has settled back.
+const FLEE_DURATION_MS = 1100
 
 interface LoginMascotDecorProps {
   focusedField: LoginFocusedField
@@ -44,21 +51,57 @@ export function LoginMascotDecor({ focusedField }: LoginMascotDecorProps) {
     cloud: randomWobble(),
   }))
 
-  const mood = moodFor(focusedField)
+  // Which characters are mid-"poked, darting away shyly" right now. Poking one
+  // (a click/tap - they're a playful easter egg, so they stay decorative/
+  // aria-hidden rather than becoming real controls) makes it act embarrassed
+  // and flee, then float back to keep watching. Per-character timers so poking
+  // one doesn't reset another's, and a burst of pokes on the same one just
+  // restarts its own clock (never stacks).
+  const [fleeing, setFleeing] = useState<Record<CharacterKey, boolean>>({ sun: false, moon: false, cloud: false })
+  const timersRef = useRef<Record<CharacterKey, ReturnType<typeof setTimeout> | undefined>>({
+    sun: undefined,
+    moon: undefined,
+    cloud: undefined,
+  })
+  useEffect(() => {
+    const timers = timersRef.current
+    return () => Object.values(timers).forEach((t) => t && clearTimeout(t))
+  }, [])
+
+  function poke(character: CharacterKey) {
+    clearTimeout(timersRef.current[character])
+    setFleeing((prev) => ({ ...prev, [character]: true }))
+    timersRef.current[character] = setTimeout(
+      () => setFleeing((prev) => ({ ...prev, [character]: false })),
+      FLEE_DURATION_MS,
+    )
+  }
+
+  const baseMood = moodFor(focusedField)
   const stateClass =
     focusedField === 'username' ? 'login-mascot-decor-watching' : focusedField === 'password' ? 'login-mascot-decor-shy' : ''
 
+  // A poked character overrides the focus-driven mood with a shy blush; its
+  // key forces the SVG to remount so the blush re-triggers even on a repeat
+  // poke of the character already blushing.
+  const renderCharacter = (character: CharacterKey, faceFor: (mood: MascotMood) => ReactElement, style: CSSProperties) => {
+    const mood = fleeing[character] ? 'blush' : baseMood
+    return (
+      <div
+        className={`login-mascot-character login-mascot-${character}${fleeing[character] ? ' login-mascot-fleeing' : ''}`}
+        style={style}
+        onClick={() => poke(character)}
+      >
+        {faceFor(mood)}
+      </div>
+    )
+  }
+
   return (
     <div className={`login-mascot-decor ${stateClass}`.trim()} aria-hidden="true">
-      <div className="login-mascot-character login-mascot-cloud" style={wobble.cloud}>
-        <CloudFace mood={mood} />
-      </div>
-      <div className="login-mascot-character login-mascot-sun" style={wobble.sun}>
-        <MascotFace mood={mood} />
-      </div>
-      <div className="login-mascot-character login-mascot-moon" style={wobble.moon}>
-        <MoonFace mood={mood} />
-      </div>
+      {renderCharacter('cloud', (mood) => <CloudFace mood={mood} />, wobble.cloud)}
+      {renderCharacter('sun', (mood) => <MascotFace mood={mood} />, wobble.sun)}
+      {renderCharacter('moon', (mood) => <MoonFace mood={mood} />, wobble.moon)}
     </div>
   )
 }

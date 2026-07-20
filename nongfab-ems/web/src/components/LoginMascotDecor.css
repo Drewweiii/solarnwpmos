@@ -2,10 +2,16 @@
   position: fixed;
   top: 50%;
   left: 3%;
-  z-index: -1;
+  /* z-index 0 (not -1) so the characters sit in the normal stacking flow and
+     can actually receive clicks - they live in the empty left margin, well
+     clear of the centered login card (and are hidden entirely below 1020px),
+     so raising this never covers the form. */
+  z-index: 0;
   width: 230px;
   height: 230px;
   transform: translateY(-50%);
+  /* Container ignores pointer events; only the character shapes below opt back
+     in, so the 230px box doesn't swallow clicks meant for anything behind it. */
   pointer-events: none;
   opacity: 0.85;
 }
@@ -15,6 +21,9 @@
   animation: login-mascot-wobble var(--wobble-duration, 6s) ease-in-out infinite;
   animation-delay: var(--wobble-delay, 0s);
   transition: transform 0.35s ease;
+  /* Poke-able easter egg - see LoginMascotDecor.tsx's poke(). */
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 /* Loosely mirrors the reference clip's composition (a cluster of 3
@@ -54,7 +63,10 @@
    directional lean reads clearly instead of fighting the ambient sway. */
 .login-mascot-decor-watching .login-mascot-character {
   animation-play-state: paused;
-  transform: translateX(10px) rotate(2deg);
+  /* Float IN closer to the form and grow a touch, so it reads as the trio
+     leaning in to peek at what's being typed (paired with wide 'surprised'
+     eyes). */
+  transform: translateX(22px) scale(1.09) rotate(2deg);
 }
 
 /* Password focused - "not peeking": lean away instead, paired with the
@@ -62,6 +74,33 @@
 .login-mascot-decor-shy .login-mascot-character {
   animation-play-state: paused;
   transform: translateX(-8px) rotate(-3deg) scale(0.97);
+}
+
+/* Poked: dart away shyly, wobble, then float back to keep watching. Compound
+   selector (same element, placed after the focus rules) so it wins at equal
+   specificity and its animation overrides both the idle wobble and the
+   watching/shy static lean while it runs. */
+.login-mascot-character.login-mascot-fleeing {
+  animation: login-mascot-flee 1.1s ease-in-out;
+  animation-play-state: running;
+}
+
+@keyframes login-mascot-flee {
+  0% {
+    transform: translateX(0) scale(1) rotate(0deg);
+  }
+  22% {
+    transform: translateX(-28px) translateY(6px) scale(0.78) rotate(-13deg);
+  }
+  46% {
+    transform: translateX(-32px) translateY(3px) scale(0.8) rotate(9deg);
+  }
+  72% {
+    transform: translateX(-12px) scale(0.93) rotate(-4deg);
+  }
+  100% {
+    transform: translateX(0) scale(1) rotate(0deg);
+  }
 }
 
 @keyframes login-mascot-wobble {
@@ -84,7 +123,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .login-mascot-character {
+  .login-mascot-character,
+  .login-mascot-character.login-mascot-fleeing {
     animation: none;
     transition: none;
   }
