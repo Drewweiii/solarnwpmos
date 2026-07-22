@@ -8,14 +8,24 @@ that distance (the same assumption `/sun-path/{zone}` already documents and
 relies on - see routes_solar3d.py). What actually varies point-to-point
 across a grid this size is cloud cover, not solar geometry.
 
-No live cloud-tile store exists in this dev environment yet (Module 1's own
-"Known gaps" - MinIO/TimescaleDB rasters aren't accumulated/queryable here),
-so `cloud_factor` below is a deterministic seeded synthetic value driven by
-(grid position, timestamp) - NOT a real Himawari sample - documented the
-same way as `nongfab_simulation.dev_data.synthetic_day_irradiance_temp()`.
-Swapping in a real `himawari_ingestion.sampling.sample_cloud_at()` call per
-grid point is a follow-up once Module 1 has a live raster store, not a
-redesign of this module's shape.
+No per-point live cloud *raster* store exists in this dev environment (Module
+1's own "Known gaps" - MinIO/TimescaleDB rasters aren't accumulated/queryable
+on Railway; `himawari_ingestion.sampling.sample_cloud_at_time()` needs raw
+tile storage that isn't here). What *does* exist is a real plant-wide Himawari
+cloud time-series (`local_store.cloud_history`, one value at Nong Fab's own
+pixel per timestamp).
+
+So (2026-07-22, roadmap item 4) `cloud_factor_at` now takes an optional
+`base_cloud_factor`: when the caller passes the real plant-wide cloud GHI
+factor (from `nongfab_forecast.real_data.cloud_factor_for_time`), the overlay
+is *anchored to real cloud conditions* and the sine field degrades to a small
+labelled spatial texture (`_SPATIAL_TEXTURE_AMPLITUDE`) around that real level
+- honest about what's real (the plant-wide cloudiness) vs. interpolated (the
+sub-2km spatial variation, which no per-point data exists for). With
+`base_cloud_factor=None` it falls back to the original fully-synthetic field
+(deterministic seeded (position, timestamp) waves, same convention as
+`nongfab_simulation.dev_data.synthetic_day_irradiance_temp()`), used only when
+no real cloud observation is available.
 """
 
 from __future__ import annotations
@@ -36,6 +46,16 @@ DEFAULT_GRID_SIZE = 10
 _CLOUD_FACTOR_MIN = 0.35
 _CLOUD_FACTOR_MAX = 1.0
 
+# When anchored to a real plant-wide cloud level (`base_cloud_factor`), the
+# sine field no longer sets the absolute cloudiness - it only adds a small
+# +/- spatial ripple around the real level so the sub-2km overlay still reads
+# as a field rather than a flat wash. Deliberately small: it's labelled
+# interpolated texture, not real per-point data (none exists). The real base
+# can itself go well below _CLOUD_FACTOR_MIN under genuine heavy overcast, so
+# the anchored result is clipped to a wider [_REAL_ANCHORED_FLOOR, 1.0].
+_SPATIAL_TEXTURE_AMPLITUDE = 0.12
+_REAL_ANCHORED_FLOOR = 0.05
+
 MAX_DISPLAY_GHI_W_M2 = 1000.0  # the map overlay's own documented display range
 
 
@@ -47,37 +67,52 @@ class GridPoint:
     cloud_factor: float  # 0 (fully overcast) .. 1 (clear sky), multiplies clear-sky GHI
 
 
-def cloud_factor_at(lat: float, lon: float, epoch_seconds: float) -> float:
-    """Deterministic pseudo-cloud field: three slow sine waves over (lat,
-    lon, time) so the overlay looks like drifting cloud cover rather than
-    per-pixel noise, and is reproducible for a given (position, time) rather
-    than actually random. See module docstring - a placeholder for a real
-    Himawari sample, not a forecast. Wavelengths/speeds are chosen only to
-    look like slowly-drifting fronts at plant scale over a day, not
-    calibrated to any real meteorological motion vector.
+def cloud_factor_at(
+    lat: float, lon: float, epoch_seconds: float, base_cloud_factor: float | None = None
+) -> float:
+    """Cloud GHI multiplier (0..1) at one point.
+
+    `base_cloud_factor` is the real plant-wide cloud level (from
+    `nongfab_forecast.real_data.cloud_factor_for_time`, itself derived from the
+    live Himawari `cloud_history`). When given, the result is that real level
+    plus a small deterministic spatial ripple (`_SPATIAL_TEXTURE_AMPLITUDE`),
+    clipped to `[_REAL_ANCHORED_FLOOR, 1.0]` - real cloudiness, interpolated
+    sub-2km texture (no per-point data exists; see module docstring).
+
+    With `base_cloud_factor=None` (no real observation available) it returns
+    the original fully-synthetic field: three slow sine waves over (lat, lon,
+    time) so the overlay looks like drifting cloud cover, reproducible for a
+    given (position, time). Wavelengths/speeds are chosen only to look like
+    slowly-drifting fronts at plant scale, not calibrated to any real motion.
 
     Public (not `irradiance_grid()`-only) since Feature A's per-zone "cloud
-    factor" readout and Feature E's zone-pin click panel both want this
-    same value evaluated at one specific point (a zone's own centroid)
-    rather than a whole grid - see `routes_performance.py`/
-    `routes_irradiance_map.py`.
+    factor" readout and Feature E's zone-pin click panel both want this same
+    value at one specific point (a zone's own centroid) rather than a whole
+    grid - see `routes_performance.py`/`routes_irradiance_map.py`.
     """
     t_hours = epoch_seconds / 3600.0
     wave1 = math.sin(lat * 40 + t_hours * 0.5)
     wave2 = math.sin(lon * 35 - t_hours * 0.3 + 1.7)
     wave3 = math.sin((lat + lon) * 22 + t_hours * 0.15)
     raw = (wave1 + wave2 + wave3) / 3  # in [-1, 1]
+    if base_cloud_factor is not None:
+        anchored = base_cloud_factor + _SPATIAL_TEXTURE_AMPLITUDE * raw
+        return max(_REAL_ANCHORED_FLOOR, min(_CLOUD_FACTOR_MAX, anchored))
     midpoint = (_CLOUD_FACTOR_MIN + _CLOUD_FACTOR_MAX) / 2
     half_range = (_CLOUD_FACTOR_MAX - _CLOUD_FACTOR_MIN) / 2
     return midpoint + half_range * raw
 
 
-def irradiance_at_point(lat: float, lon: float, clearsky_ghi_w_m2: float, epoch_seconds: float) -> GridPoint:
+def irradiance_at_point(
+    lat: float, lon: float, clearsky_ghi_w_m2: float, epoch_seconds: float,
+    base_cloud_factor: float | None = None,
+) -> GridPoint:
     """Same clear-sky x cloud-factor model as `irradiance_grid()`, evaluated
     at one arbitrary (lat, lon) instead of a whole grid - e.g. a zone's own
-    centroid, not the nearest generic grid cell.
+    centroid, not the nearest generic grid cell. `base_cloud_factor` anchors
+    the overlay to real cloud conditions - see `cloud_factor_at`.
     """
-    factor = cloud_factor_at(lat, lon, epoch_seconds)
+    factor = cloud_factor_at(lat, lon, epoch_seconds, base_cloud_factor)
     ghi = max(0.0, min(MAX_DISPLAY_GHI_W_M2, clearsky_ghi_w_m2 * factor))
     return GridPoint(lat=lat, lon=lon, ghi_w_m2=ghi, cloud_factor=factor)
 
@@ -97,12 +132,14 @@ def grid_points(registry: AssetRegistry | None = None, n: int = DEFAULT_GRID_SIZ
 
 
 def irradiance_grid(
-    clearsky_ghi_w_m2: float, epoch_seconds: float, registry: AssetRegistry | None = None, n: int = DEFAULT_GRID_SIZE,
+    clearsky_ghi_w_m2: float, epoch_seconds: float, registry: AssetRegistry | None = None,
+    n: int = DEFAULT_GRID_SIZE, base_cloud_factor: float | None = None,
 ) -> list[GridPoint]:
-    """Applies the synthetic cloud factor to one shared clear-sky GHI value
-    (the caller computes it once via `clearsky.compute_clearsky_and_position`
-    at the plant's nominal center - see module docstring) across every grid
-    point, clipped to `MAX_DISPLAY_GHI_W_M2`.
+    """Applies the cloud factor to one shared clear-sky GHI value (the caller
+    computes it once via `clearsky.compute_clearsky_and_position` at the
+    plant's nominal center - see module docstring) across every grid point,
+    clipped to `MAX_DISPLAY_GHI_W_M2`. `base_cloud_factor` anchors the overlay
+    to real plant-wide cloud conditions - see `cloud_factor_at`.
     """
     points = grid_points(registry, n)
-    return [irradiance_at_point(lat, lon, clearsky_ghi_w_m2, epoch_seconds) for lat, lon in points]
+    return [irradiance_at_point(lat, lon, clearsky_ghi_w_m2, epoch_seconds, base_cloud_factor) for lat, lon in points]

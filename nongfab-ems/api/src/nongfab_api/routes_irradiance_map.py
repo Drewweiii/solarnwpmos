@@ -5,10 +5,13 @@ for a MapLibre overlay with a time scrubber and layer toggles. Reuses
 Module 3's clear-sky/solar-position calculation (`nongfab_features.
 clearsky`), the `nongfab_features.irradiance_map` grid/cloud-factor model,
 and Module 5's `simulate_zone_baseline()` pipeline rather than duplicating
-any of them - see `irradiance_map.py`'s own docstring for why cloud_factor
-is a documented synthetic placeholder (no live Himawari raster store exists
-in this dev environment yet) and why solar position is computed once at the
-plant's nominal center rather than per grid point.
+any of them. The overlay's cloud level is anchored to real plant-wide Himawari
+cloud data (`cloud_history`, via `real_data.cloud_factor_for_time`) when a
+reading is available near the requested instant (`cloud_data_source="real"`),
+falling back to the synthetic sine field otherwise - see `irradiance_map.py`'s
+docstring for why the sub-2km spatial variation is still interpolated texture
+(no per-point raster store exists on Railway) and why solar position is
+computed once at the plant's nominal center rather than per grid point.
 """
 
 from __future__ import annotations
@@ -17,10 +20,11 @@ from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from nongfab_common.assets import load_assets
 from nongfab_features.clearsky import compute_clearsky_and_position, nong_fab_site_location
 from nongfab_features.irradiance_map import DEFAULT_GRID_SIZE, irradiance_at_point, irradiance_grid
+from nongfab_forecast.real_data import cloud_factor_for_time
 from nongfab_simulation.pipeline import simulate_zone_baseline
 from pydantic import BaseModel
 
@@ -82,6 +86,12 @@ class IrradianceMapResponse(BaseModel):
     clearsky_ghi_w_m2: float
     grid: list[GridPointOut]
     zones: list[ZonePinOut]
+    # "real" when the overlay's cloud level is anchored to a live Himawari
+    # observation (cloud_history) near `at`; "synthetic" when no real cloud
+    # reading was available and the deterministic sine field was used instead.
+    # The sub-2km spatial variation is interpolated texture in both cases (no
+    # per-point raster store exists) - see irradiance_map.py's docstring.
+    cloud_data_source: str
 
 
 def _zone_boundary(zone) -> list[LatLonOut]:
@@ -91,7 +101,9 @@ def _zone_boundary(zone) -> list[LatLonOut]:
 
 
 @router.get("/irradiance-map", response_model=IrradianceMapResponse)
-async def get_irradiance_map(at: datetime | None = None, _user=Depends(require_role("viewer"))) -> IrradianceMapResponse:
+async def get_irradiance_map(
+    request: Request, at: datetime | None = None, _user=Depends(require_role("viewer"))
+) -> IrradianceMapResponse:
     when = at or datetime.now(timezone.utc)
     if when.tzinfo is None:
         when = when.replace(tzinfo=timezone.utc)
@@ -104,11 +116,17 @@ async def get_irradiance_map(at: datetime | None = None, _user=Depends(require_r
     clearsky_ghi = float(solpos["ghi_clearsky"].iloc[0])
     epoch_seconds = when.timestamp()
 
-    grid = irradiance_grid(clearsky_ghi, epoch_seconds, registry, DEFAULT_GRID_SIZE)
+    # Anchor the overlay to real plant-wide Himawari cloud conditions near
+    # `when` when available; None -> the fully-synthetic sine field. See
+    # irradiance_map.py's docstring (2026-07-22 roadmap item 4).
+    base_cloud_factor = cloud_factor_for_time(request.app.state.real_data_store, when)
+    cloud_data_source = "real" if base_cloud_factor is not None else "synthetic"
+
+    grid = irradiance_grid(clearsky_ghi, epoch_seconds, registry, DEFAULT_GRID_SIZE, base_cloud_factor)
 
     zone_pins = []
     for z in registry.zones:
-        point = irradiance_at_point(z.centroid.lat, z.centroid.lon, clearsky_ghi, epoch_seconds)
+        point = irradiance_at_point(z.centroid.lat, z.centroid.lon, clearsky_ghi, epoch_seconds, base_cloud_factor)
         baseline = simulate_zone_baseline(
             z.id, np.array([point.ghi_w_m2]), np.array([NOMINAL_AMBIENT_TEMP_C]), pd.DatetimeIndex([when]),
         )
@@ -129,4 +147,5 @@ async def get_irradiance_map(at: datetime | None = None, _user=Depends(require_r
         clearsky_ghi_w_m2=clearsky_ghi,
         grid=[GridPointOut(lat=p.lat, lon=p.lon, ghi_w_m2=p.ghi_w_m2, cloud_factor=p.cloud_factor) for p in grid],
         zones=zone_pins,
+        cloud_data_source=cloud_data_source,
     )

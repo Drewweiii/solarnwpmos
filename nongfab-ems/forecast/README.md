@@ -1010,3 +1010,20 @@ generator, the same real-or-synthetic split `/weather/strip` already uses.
 values (with the correct 24-hour UTC index), an empty store and a
 3-rows-only store both raise `InsufficientHistoryError`, and a day with a
 single interpolable gap comes back with 24 finite values (no NaN hole).
+
+### 2026-07-22 - `cloud_factor_for_time()` (roadmap item 4)
+
+New `real_data.cloud_factor_for_time(store, when, tolerance=2h)`: the real
+plant-wide cloud GHI factor (0.05..1.0) nearest `when` from the live Himawari
+`cloud_history`, or `None` when no real observation exists within tolerance
+(empty store, or `when` outside coverage). Reuses the same
+opacity->attenuation approximation (`1 - 0.8*opacity/100`, floored 0.05) and
+nearest-match tolerance as the forecast physics baseline, so the irradiance
+map and the forecast agree on "how cloudy is it now".
+
+Unlike `_latest_cloud_attenuation` (returns a neutral 1.0 for both "clear" and
+"no data"), this returns `None` for no-data so the caller can honestly label
+real vs. synthetic - the signal `api/routes_irradiance_map.py` uses to set
+`cloud_data_source` and decide whether to anchor its overlay to real cloud
+conditions. Tested: `test_real_data.py` +4 (None without store/data, real
+factor near a reading, clear vs. cloudy differ, None outside tolerance).

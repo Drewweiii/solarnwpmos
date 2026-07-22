@@ -16,6 +16,11 @@ def test_get_irradiance_map_returns_grid_and_zone_pins(app, token_factory):
     assert len(body["grid"]) == 100  # DEFAULT_GRID_SIZE (10) squared
     zone_ids = {z["id"] for z in body["zones"]}
     assert zone_ids == {"GIS", "ISB", "Jetty"}
+    # 2026-07-22 roadmap item 4: the overlay reports whether its cloud level
+    # was anchored to a real Himawari reading or fell back to the synthetic
+    # field (no per-point raster store exists, so spatial texture is always
+    # interpolated - this flags only the plant-wide level's provenance).
+    assert body["cloud_data_source"] in ("real", "synthetic")
 
 
 def test_get_irradiance_map_grid_values_within_display_range(app, token_factory):

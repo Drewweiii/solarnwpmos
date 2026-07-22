@@ -260,3 +260,22 @@ This is the geometry-derived replacement for
 documented known gap. For well-pitched arrays this legitimately comes out below
 the old flat 3% - an honest statement about this array's own row geometry, which
 is why `loss_model` adds a separate external-shading allowance on top.
+
+### 2026-07-22 - irradiance-map cloud level anchored to real Himawari (roadmap item 4)
+
+`irradiance_map.cloud_factor_at` / `irradiance_at_point` / `irradiance_grid`
+now take an optional `base_cloud_factor`. When the caller passes the real
+plant-wide cloud GHI factor (from `nongfab_forecast.real_data.cloud_factor_for_time`,
+derived from the live Himawari `cloud_history`), the overlay is anchored to
+real cloud conditions: the value is that real level plus a small
+`_SPATIAL_TEXTURE_AMPLITUDE` (0.12) ripple, clipped to
+`[_REAL_ANCHORED_FLOOR (0.05), 1.0]`. With `base_cloud_factor=None` it keeps
+the original fully-synthetic sine field (used only when no real cloud reading
+is available).
+
+**Honest scope**: this makes the *plant-wide cloudiness* real; the sub-2km
+spatial variation is still interpolated texture, because no per-point cloud
+raster store exists on Railway (no MinIO/`RawObjectStorage` -
+`himawari_ingestion.sampling.sample_cloud_at_time` can't run here). A genuine
+per-point raster remains the follow-up once such a store exists. The API route
+reports which path was taken via `cloud_data_source` ("real"/"synthetic").

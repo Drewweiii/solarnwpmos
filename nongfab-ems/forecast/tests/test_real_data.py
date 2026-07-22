@@ -397,6 +397,43 @@ def test_physics_baseline_series_historical_cloud_differs_per_timestamp():
     assert result["pred"].iloc[0] < result["pred"].iloc[1]
 
 
+def test_cloud_factor_for_time_returns_none_without_store_or_data():
+    assert real_data.cloud_factor_for_time(None, datetime.now(timezone.utc)) is None
+    empty = RealDataStore()
+    assert real_data.cloud_factor_for_time(empty, datetime.now(timezone.utc)) is None
+
+
+def test_cloud_factor_for_time_returns_real_factor_near_a_reading():
+    store = RealDataStore()
+    when = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    store.insert_cloud_frames([
+        _FakeCloudFrame(observed_at=when, nong_fab_cloud_opacity_pct=90.0, nong_fab_cloud_index=0.9, source="test"),
+    ])
+    factor = real_data.cloud_factor_for_time(store, when)
+    # opacity->attenuation is 1 - 0.8*(opacity/100), floored at 0.05: 90% -> 0.28.
+    assert factor == pytest.approx(1 - 0.8 * 0.9)
+
+
+def test_cloud_factor_for_time_clear_reading_differs_from_cloudy_reading():
+    store = RealDataStore()
+    when = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    store.insert_cloud_frames([
+        _FakeCloudFrame(observed_at=when, nong_fab_cloud_opacity_pct=5.0, nong_fab_cloud_index=0.05, source="test"),
+    ])
+    clear = real_data.cloud_factor_for_time(store, when)
+    assert clear is not None and clear > (1 - 0.8 * 0.9)  # clear sky lets far more GHI through than 90% overcast
+
+
+def test_cloud_factor_for_time_returns_none_when_no_reading_within_tolerance():
+    store = RealDataStore()
+    when = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    # Only reading sits 10 hours away - well outside the 2h nearest-match window.
+    store.insert_cloud_frames([
+        _FakeCloudFrame(observed_at=when - timedelta(hours=10), nong_fab_cloud_opacity_pct=90.0, nong_fab_cloud_index=0.9, source="test"),
+    ])
+    assert real_data.cloud_factor_for_time(store, when) is None
+
+
 def _seed_full_day_nwp(store: RealDataStore, day_start: datetime) -> None:
     """24 hourly NWP rows covering `day_start` .. day_start+23h."""
     _seed_nwp_history(store, n=24, start=day_start, step=timedelta(hours=1))

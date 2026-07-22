@@ -365,6 +365,42 @@ def _cloud_opacity_to_attenuation(opacity_pct: float) -> float:
     return max(0.05, 1 - 0.8 * (opacity_pct / 100))
 
 
+def cloud_factor_for_time(
+    store: RealDataStore | None, when: datetime,
+    tolerance: pd.Timedelta = _HISTORICAL_CLOUD_MATCH_TOLERANCE,
+) -> float | None:
+    """Real plant-wide cloud GHI factor (0.05..1.0) nearest `when`, from the
+    live Himawari `cloud_history`, or None when no real observation exists
+    within `tolerance` of `when` (empty store, or `when` outside coverage).
+
+    Unlike `_latest_cloud_attenuation` (which returns a neutral 1.0 both for
+    "genuinely clear" and "no data"), this returns None for the no-data case so
+    the caller can honestly label the result real vs. synthetic - the signal
+    the irradiance-map overlay uses to decide `data_source` and whether to
+    anchor to real cloud conditions (2026-07-22 roadmap item 4). Uses the same
+    nearest-match tolerance and opacity->attenuation approximation as the
+    forecast physics baseline, so the map and the forecast agree on "how cloudy
+    is it right now".
+    """
+    if store is None:
+        return None
+    cloud = store.cloud_history_df()
+    if len(cloud) == 0:
+        return None
+    cloud = cloud[["observed_at", "cloud_opacity_pct"]].dropna()
+    if cloud.empty:
+        return None
+    observed = pd.to_datetime(cloud["observed_at"], utc=True).reset_index(drop=True)
+    opacity = cloud["cloud_opacity_pct"].reset_index(drop=True)
+    target = pd.Timestamp(when)
+    target = target.tz_localize("UTC") if target.tzinfo is None else target.tz_convert("UTC")
+    deltas = (observed - target).abs()
+    nearest = int(deltas.idxmin())
+    if deltas.iloc[nearest] > tolerance:
+        return None
+    return _cloud_opacity_to_attenuation(float(opacity.iloc[nearest]))
+
+
 def _latest_cloud_attenuation(store: RealDataStore | None, max_cloud_age_minutes: float) -> float:
     """The original single-reading attenuation: whatever `store`'s most recent
     cloud observation says right now, applied uniformly to every requested

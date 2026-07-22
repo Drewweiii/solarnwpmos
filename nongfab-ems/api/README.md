@@ -1129,3 +1129,23 @@ and `features` READMEs' matching entries. The external-obstacle shading gap
 noted in the 2026-07-15 recheck entry above remains a documented gap; the 2%
 figure is now an explicit labelled allowance for it, not silently folded into
 a flat 3%. All 13 `/energy-report` route tests pass unchanged.
+
+### 2026-07-22 - /irradiance-map cloud level anchored to real Himawari (roadmap item 4)
+
+`GET /irradiance-map` previously drew its cloud overlay entirely from the
+synthetic sine field (`irradiance_map.cloud_factor_at`), since no live cloud
+data was wired in. It now anchors the overlay's cloud *level* to the real
+plant-wide Himawari observation (`cloud_history`, via
+`nongfab_forecast.real_data.cloud_factor_for_time`) nearest the requested
+instant, falling back to the synthetic field only when no real reading exists
+within tolerance. A new response field `cloud_data_source` ("real"/"synthetic")
+reports which path was taken.
+
+**Honest scope**: only the plant-wide cloudiness is real. The sub-2km spatial
+variation across the grid is still interpolated texture - there is no per-point
+cloud raster store on Railway (no MinIO/`RawObjectStorage`), so
+`himawari_ingestion.sampling.sample_cloud_at_time` can't run here. A true
+per-point raster overlay remains a documented follow-up. Tested:
+`test_routes_irradiance_map.py` asserts `cloud_data_source` is present/valid;
+`features/test_irradiance_map.py` +4 and `forecast/test_real_data.py` +4 cover
+the anchoring math and the real-vs-none provenance signal.

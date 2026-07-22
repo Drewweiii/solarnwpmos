@@ -83,3 +83,30 @@ def test_irradiance_at_point_matches_the_formula_grid_points_use():
 def test_irradiance_at_point_is_zero_at_night_clearsky():
     point = irradiance_at_point(lat=12.68, lon=101.12, clearsky_ghi_w_m2=0.0, epoch_seconds=1_800_000_000)
     assert point.ghi_w_m2 == 0.0
+
+
+def test_cloud_factor_at_anchors_to_real_base_when_provided():
+    # With a real plant-wide base level, the point value stays close to that
+    # level (only the small spatial-texture ripple moves it), rather than being
+    # set by the synthetic sine field's own midpoint.
+    base = 0.5
+    factor = cloud_factor_at(lat=12.68, lon=101.12, epoch_seconds=1_800_000_000, base_cloud_factor=base)
+    assert abs(factor - base) <= 0.12 + 1e-9  # within one texture amplitude
+
+
+def test_cloud_factor_at_real_base_differs_from_pure_synthetic():
+    synthetic = cloud_factor_at(lat=12.68, lon=101.12, epoch_seconds=1_800_000_000)
+    anchored = cloud_factor_at(lat=12.68, lon=101.12, epoch_seconds=1_800_000_000, base_cloud_factor=0.4)
+    assert synthetic != anchored
+
+
+def test_cloud_factor_at_heavy_overcast_base_allowed_below_synthetic_floor():
+    # A genuine heavy-overcast real reading can drive the overlay below the
+    # synthetic field's 0.35 floor, down to the wider real-anchored floor.
+    factor = cloud_factor_at(lat=12.68, lon=101.12, epoch_seconds=1_800_000_000, base_cloud_factor=0.08)
+    assert 0.05 <= factor < 0.35
+
+
+def test_irradiance_grid_anchored_to_real_base_stays_near_that_level():
+    grid = irradiance_grid(clearsky_ghi_w_m2=900.0, epoch_seconds=1_800_000_000, n=6, base_cloud_factor=0.5)
+    assert all(0.5 - 0.12 - 1e-9 <= p.cloud_factor <= 0.5 + 0.12 + 1e-9 for p in grid)
