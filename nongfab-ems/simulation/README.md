@@ -293,3 +293,36 @@ the sum of the monthly estimates, is positive, and genuinely differs from
 the flat x365 of one clear-sky day); `test_routes_energy_report.py` +1 (the
 annual headline now equals the sum of the monthly chart values). Full
 `simulation` (24) and `api` route suites pass, `ruff` clean.
+
+### 2026-07-22 - Shading loss is now geometry-derived, not a flat literature default (roadmap item 3)
+
+`default_loss_factors(zone_id)`'s `shading_pct` was the flat
+`DEFAULT_SHADING_PCT = 3.0` PVWatts literature default for every zone. It is
+now:
+
+    shading_pct = annual_shading_loss_pct(zone_id)   # real array geometry
+                + DEFAULT_EXTERNAL_SHADING_PCT        # 2.0% external allowance
+
+`nongfab_features.shading.annual_shading_loss_pct` integrates the zone's real
+modelled array geometry (`generate_zone_layout` -> `zone_solar_access`) over a
+full year's clear-sky sun path (12 mid-month days x 24 h), energy-weighted by
+each hour's clear-sky GHI so geometrically-severe but energetically-tiny
+low-sun hours don't dominate. It is `@lru_cache`d (a fixed deterministic
+geometric property), so it's cheap on the hot `default_loss_factors` path.
+
+**Scope / honesty**: this models *inter-row self-shading only*. There is no
+site obstacle survey in `config/assets.yaml`, so external-obstacle shading
+(neighbouring structures, terrain, vegetation) is NOT modelled - it stays a
+documented known gap. `DEFAULT_EXTERNAL_SHADING_PCT = 2.0` is an explicit
+literature *allowance* for it, added on top so a well-pitched array (whose
+real inter-row loss can be well under 1%) still carries a realistic total.
+Replace it with a surveyed figure once a real obstacle survey exists.
+`DEFAULT_SHADING_PCT = 3.0` is kept only as the `LossFactors` dataclass
+fallback for zone-less direct construction (tests).
+
+**Tested**: `test_loss_model.py` +2 (`shading_pct` equals
+`annual_shading_loss_pct(zone) + external allowance`, is >= the external
+allowance, and differs from the old flat 3% default); `features/test_shading.py`
++2 (`annual_shading_loss_pct` is a sane 0..100% and deterministic/cached).
+Full `simulation` (26) and `api` energy-report route (13) suites pass, `ruff`
+clean.

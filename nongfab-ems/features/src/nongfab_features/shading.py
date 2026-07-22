@@ -19,8 +19,17 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from dataclasses import dataclass
+from functools import lru_cache
 
-from .panel_geometry import Panel, ZoneLayout
+import pandas as pd
+
+from .clearsky import compute_clearsky_and_position, nong_fab_site_location
+from .panel_geometry import Panel, ZoneLayout, generate_zone_layout
+
+# Asia/Bangkok - the representative-day sampling below is built in local solar
+# time so each month's day-length/sun-arc is genuine, matching how
+# nongfab_simulation.pipeline.monthly_ac_energy_estimates already samples.
+_NONG_FAB_TZ = "Asia/Bangkok"
 
 
 def row_shaded_fraction(
@@ -108,6 +117,66 @@ def average_solar_access_pct(panel_access: list[PanelSolarAccess]) -> float:
     if not panel_access:
         return 100.0
     return sum(p.solar_access_pct for p in panel_access) / len(panel_access)
+
+
+# Representative-day sampling for the annual shading integral below: one
+# mid-month day per calendar month, hourly - the same 12-representative-days
+# granularity nongfab_simulation.pipeline.monthly_ac_energy_estimates already
+# uses for its own annual energy swing, so the shading loss and the energy it
+# derates are sampled over the same sun geometry.
+_SHADING_SAMPLE_DAY_OF_MONTH = 15
+_SHADING_SAMPLE_YEAR = 2025  # any non-leap year - shading is a fixed geometric property, the exact year is irrelevant
+
+
+@lru_cache(maxsize=None)
+def annual_shading_loss_pct(zone_id: str) -> float:
+    """A zone's annual, clear-sky-energy-weighted inter-row self-shading loss
+    (percent), computed from its real modelled array geometry
+    (`generate_zone_layout` -> `zone_solar_access`) integrated over a full
+    year's sun path - the geometry-derived replacement for the flat
+    `nongfab_simulation.loss_model.DEFAULT_SHADING_PCT` literature default
+    (2026-07-22, roadmap item 3 option A).
+
+    Energy-weighted, not time-averaged: each sample's mean shaded fraction is
+    weighted by that instant's clear-sky GHI, so the geometrically-severe but
+    energetically-tiny low-sun hours near sunrise/sunset (and night, GHI~=0)
+    don't dominate the figure - what matters is shading loss on the energy the
+    array actually collects. Formula: `100 * sum(ghi * shaded_frac) /
+    sum(ghi)` over 12 mid-month days x 24 hours.
+
+    Scope (unchanged from `row_shaded_fraction`'s own docstring): inter-row
+    *self*-shading only. External-obstacle shading (a neighbouring structure,
+    terrain) is NOT modelled here and remains a documented known gap - it needs
+    a real site obstacle survey this project doesn't have, exactly the reason
+    the fuller ray-cast approach wasn't taken. So this can legitimately come
+    out *below* the old 3% flat default for a well-pitched array: that's an
+    honest statement about this array's own row geometry, not a claim that
+    zero external shading exists.
+
+    `@lru_cache`d: this is a fixed, deterministic geometric property of the
+    array (no weather, no request state), so it's computed once per zone per
+    process and reused - safe to call from the hot `default_loss_factors`
+    path.
+    """
+    layout = generate_zone_layout(zone_id)
+    lat, lon = nong_fab_site_location()
+
+    weighted_shaded = 0.0
+    total_ghi = 0.0
+    for month in range(1, 13):
+        start = pd.Timestamp(year=_SHADING_SAMPLE_YEAR, month=month, day=_SHADING_SAMPLE_DAY_OF_MONTH, tz=_NONG_FAB_TZ)
+        idx = pd.date_range(start, periods=24, freq="h", tz=_NONG_FAB_TZ)
+        solpos = compute_clearsky_and_position(idx, lat, lon, tz=_NONG_FAB_TZ)
+        for elev, azim, ghi in zip(solpos["elevation_deg"], solpos["azimuth_deg"], solpos["ghi_clearsky"]):
+            if elev <= 0 or ghi <= 0:
+                continue  # night / no collectable energy - carries zero weight anyway
+            mean_shaded_frac = 1 - average_solar_access_pct(zone_solar_access(layout, float(elev), float(azim))) / 100
+            weighted_shaded += ghi * mean_shaded_frac
+            total_ghi += ghi
+
+    if total_ghi <= 0:
+        return 0.0
+    return 100 * weighted_shaded / total_ghi
 
 
 @dataclass(frozen=True)

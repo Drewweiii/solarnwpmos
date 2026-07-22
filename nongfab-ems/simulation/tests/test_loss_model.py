@@ -1,7 +1,10 @@
 import pandas as pd
 import pytest
+from nongfab_features.shading import annual_shading_loss_pct
 
 from nongfab_simulation.loss_model import (
+    DEFAULT_EXTERNAL_SHADING_PCT,
+    DEFAULT_SHADING_PCT,
     DEFAULT_SOILING_PCT_LAND,
     DEFAULT_SOILING_PCT_MARINE,
     LossFactors,
@@ -24,6 +27,25 @@ def test_default_loss_factors_gives_jetty_higher_soiling_than_land_zones():
     assert gis.soiling_pct == DEFAULT_SOILING_PCT_LAND
     assert isb.soiling_pct == DEFAULT_SOILING_PCT_LAND
     assert jetty.soiling_pct > gis.soiling_pct
+
+
+def test_default_loss_factors_shading_is_geometry_derived_plus_external_allowance():
+    # The 2026-07-22 roadmap item 3 change: shading_pct is no longer the flat
+    # DEFAULT_SHADING_PCT literature default but the array's real inter-row
+    # self-shading loss plus the external-obstacle allowance.
+    for zone_id in ("GIS", "ISB", "Jetty"):
+        factors = default_loss_factors(zone_id)
+        expected = annual_shading_loss_pct(zone_id) + DEFAULT_EXTERNAL_SHADING_PCT
+        assert factors.shading_pct == pytest.approx(expected)
+        # Always carries at least the external allowance, even for a
+        # well-pitched array whose inter-row loss is near zero.
+        assert factors.shading_pct >= DEFAULT_EXTERNAL_SHADING_PCT
+
+
+def test_default_loss_factors_shading_differs_from_flat_literature_default():
+    # If it came out exactly equal to the old flat 3% default, the geometry
+    # wouldn't be doing anything.
+    assert default_loss_factors("GIS").shading_pct != pytest.approx(DEFAULT_SHADING_PCT)
 
 
 def test_combined_derate_multiplies_not_adds():

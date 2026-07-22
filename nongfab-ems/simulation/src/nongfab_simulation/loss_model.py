@@ -47,6 +47,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pandas as pd
+from nongfab_features.shading import annual_shading_loss_pct
 
 # NREL PVWatts default is 2% annual soiling for a "moderate" (non-desert,
 # non-coastal) climate; literature on coastal/marine PV commonly cites
@@ -59,7 +60,23 @@ DEFAULT_SOILING_PCT_MARINE = 6.0
 
 # Typical PVWatts-style default derates for the remaining loss categories -
 # generic industry defaults (NREL PVWatts documentation), not site-specific.
+#
+# DEFAULT_SHADING_PCT is only the fallback for a LossFactors built without a
+# zone (direct construction / tests). The zone-aware path
+# (default_loss_factors) instead computes the *inter-row self-shading* part
+# from the array's real modelled geometry
+# (nongfab_features.shading.annual_shading_loss_pct, 2026-07-22 roadmap item
+# 3) and adds DEFAULT_EXTERNAL_SHADING_PCT on top of it - see
+# default_loss_factors.
 DEFAULT_SHADING_PCT = 3.0
+# Allowance for external-obstacle shading (neighbouring structures, terrain,
+# vegetation) that the geometric inter-row model does NOT capture - there is no
+# site obstacle survey in config/assets.yaml, so this stays a documented
+# literature allowance, not a measured figure. Added on top of the
+# geometry-derived inter-row loss so a well-pitched array (whose real inter-row
+# loss can be well under 1%) still carries a realistic total shading derate.
+# Replace with a surveyed figure once a real obstacle survey exists.
+DEFAULT_EXTERNAL_SHADING_PCT = 2.0
 DEFAULT_MISMATCH_PCT = 2.0
 DEFAULT_DC_WIRING_PCT = 2.0
 DEFAULT_CONNECTIONS_PCT = 0.5
@@ -86,9 +103,16 @@ def default_loss_factors(zone_id: str) -> LossFactors:
     """Zone-aware defaults - Jetty (marine trestle) gets the higher soiling
     figure per the architecture doc's own callout ("Jetty soiling/corrosion
     higher - ละอองเกลือ"); GIS/ISB (land) get the PVWatts land default.
+
+    Shading is no longer the flat DEFAULT_SHADING_PCT literature default: it is
+    the array's real geometry-derived inter-row self-shading loss
+    (annual_shading_loss_pct, energy-weighted over a full year's sun path) plus
+    DEFAULT_EXTERNAL_SHADING_PCT as an allowance for unmodelled external-obstacle
+    shading (no site obstacle survey exists). 2026-07-22 roadmap item 3.
     """
     soiling = DEFAULT_SOILING_PCT_MARINE if zone_id in MARINE_ZONE_IDS else DEFAULT_SOILING_PCT_LAND
-    return LossFactors(soiling_pct=soiling)
+    shading = annual_shading_loss_pct(zone_id) + DEFAULT_EXTERNAL_SHADING_PCT
+    return LossFactors(soiling_pct=soiling, shading_pct=shading)
 
 
 def combined_derate(factors: LossFactors) -> float:

@@ -240,3 +240,23 @@ pytest -v
   exists). `panel_geometry.py`'s GIS/ISB block layout is a visualization
   approximation (near-square factorization of `module_count`), not a claim
   about real physical string boundaries - only Jetty's layout is real.
+
+### 2026-07-22 - `annual_shading_loss_pct(zone_id)` (roadmap item 3)
+
+New `shading.annual_shading_loss_pct(zone_id)`: the zone's annual, clear-sky-
+energy-weighted inter-row self-shading loss (percent), computed from its real
+modelled array geometry (`generate_zone_layout` -> `zone_solar_access`)
+integrated over a full year's sun path (12 mid-month days x 24 h, Asia/Bangkok
+local solar time, via `clearsky.compute_clearsky_and_position`). Each sample's
+mean shaded fraction is weighted by that instant's clear-sky GHI, so low-sun
+sunrise/sunset hours (geometrically severe, energetically tiny) don't dominate.
+`@lru_cache`d - a fixed deterministic geometric property, no weather/request
+state.
+
+This is the geometry-derived replacement for
+`nongfab_simulation.loss_model.DEFAULT_SHADING_PCT`'s flat literature default
+(see the simulation README's matching entry). Same scope caveat as the rest of
+`shading.py`: inter-row *self*-shading only; external-obstacle shading remains a
+documented known gap. For well-pitched arrays this legitimately comes out below
+the old flat 3% - an honest statement about this array's own row geometry, which
+is why `loss_model` adds a separate external-shading allowance on top.

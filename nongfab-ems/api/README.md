@@ -1114,3 +1114,18 @@ assertions added to the `/performance` and `/simulate` route tests;
 conditions signature. Full `api` and `forecast` suites pass, `ruff` clean.
 See `forecast/README.md`'s matching 2026-07-22 entry for the
 `real_day_conditions` half.
+
+### 2026-07-22 - Loss-breakdown shading is now geometry-derived (roadmap item 3)
+
+Every route that surfaces a loss breakdown (`/energy-report/{zone}`,
+`/geometry/{zone}`, `/simulate`, `/performance`) previously showed the flat
+`DEFAULT_SHADING_PCT = 3.0` PVWatts literature default for `shading_pct`,
+identically for all three zones. It now shows the array's real
+geometry-derived inter-row self-shading loss
+(`nongfab_features.shading.annual_shading_loss_pct`, energy-weighted over a
+full year's sun path) plus a `DEFAULT_EXTERNAL_SHADING_PCT = 2.0` allowance
+for external-obstacle shading that has no site survey - see the `simulation`
+and `features` READMEs' matching entries. The external-obstacle shading gap
+noted in the 2026-07-15 recheck entry above remains a documented gap; the 2%
+figure is now an explicit labelled allowance for it, not silently folded into
+a flat 3%. All 13 `/energy-report` route tests pass unchanged.

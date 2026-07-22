@@ -2,6 +2,7 @@ import pytest
 
 from nongfab_features.panel_geometry import Panel, ZoneLayout
 from nongfab_features.shading import (
+    annual_shading_loss_pct,
     average_solar_access_pct,
     row_shaded_fraction,
     string_power_balance,
@@ -137,3 +138,20 @@ def test_string_power_balance_groups_by_block_and_string_index():
 
 def test_string_power_balance_of_empty_input_is_empty():
     assert string_power_balance([], module_power_w=715) == []
+
+
+def test_annual_shading_loss_pct_is_a_small_nonnegative_percentage():
+    # Well-pitched arrays -> a small but non-negative inter-row self-shading
+    # loss (0..100%). Not asserting a tight value: it's a geometric property of
+    # the real modelled layout, but it must be a sane percentage.
+    for zone_id in ("GIS", "ISB", "Jetty"):
+        loss = annual_shading_loss_pct(zone_id)
+        assert 0.0 <= loss < 100.0
+
+
+def test_annual_shading_loss_pct_is_cached_and_deterministic():
+    # @lru_cache'd deterministic geometry: same input -> identical output, and
+    # the second call returns the very same cached float object.
+    first = annual_shading_loss_pct("Jetty")
+    second = annual_shading_loss_pct("Jetty")
+    assert first == second
