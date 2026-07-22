@@ -1,0 +1,288 @@
+/* น้อง Moon + น้อง Cloud launcher - a normal in-page row (not a floating
+   fixed dock: an earlier fixed-position version didn't reliably paint over the
+   WebGL canvas, so the characters "didn't show", reported 2026-07-19). Sits at
+   the top of the 3D View page as an obvious labelled control; the two knowledge
+   panels it opens are the things that float (KnowledgeAssistantPanel.css). */
+
+.solar3d-assistant-dock {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.solar3d-assistant-dock-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  margin-right: 2px;
+}
+
+.solar3d-assistant-launcher {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.solar3d-assistant-button {
+  width: 52px;
+  height: 52px;
+  padding: 3px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #e0e7ff, #f1f5f9);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.solar3d-assistant-button:hover {
+  transform: scale(1.08);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+}
+
+.solar3d-assistant-launcher-moon .solar3d-assistant-button {
+  background: linear-gradient(135deg, #c7d2fe, #ede9fe);
+}
+.solar3d-assistant-launcher-cloud .solar3d-assistant-button {
+  background: linear-gradient(135deg, #bae6fd, #e0f2fe);
+}
+
+.solar3d-assistant-button[aria-expanded='true'] {
+  border-color: #38bdf8;
+}
+
+.solar3d-assistant-button:focus-visible {
+  outline: 3px solid #38bdf8;
+  outline-offset: 2px;
+}
+
+.solar3d-assistant-button .mascot-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.solar3d-assistant-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text, #1e293b);
+  white-space: nowrap;
+}
+
+/* Play-interaction speech bubble, floating above the character button. */
+.solar3d-assistant-speech {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: max-content;
+  max-width: 240px;
+  background: var(--card-bg, #fff);
+  color: var(--text, #1e293b);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  z-index: 2;
+}
+
+@media (max-width: 640px) {
+  .solar3d-assistant-name {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .solar3d-assistant-button {
+    transition: none;
+  }
+}
+
+/* Buddy floating next to น้อง Solar (bottom-right, z-40) while a Moon/Cloud
+   panel is open - sits just to its LEFT so the two characters stand side by
+   side; swaps between Moon and Cloud with the active panel (2026-07-19). */
+.solar3d-assistant-buddy {
+  position: fixed;
+  right: 138px; /* sits clearly to the LEFT of น้อง Solar (right:20, ~108px wide) */
+  bottom: 18px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none; /* purely decorative; interaction is via the panel */
+  /* Springy "pop up beside น้อง Solar" entrance - overshoots then settles, so
+     summoning (and swapping Moon<->Cloud, which remounts via a React key) feels
+     like the character bounces into place rather than just fading in. */
+  animation: solar3d-buddy-pop 0.52s cubic-bezier(0.18, 0.9, 0.32, 1.35) both;
+  transform-origin: bottom center;
+}
+
+@keyframes solar3d-buddy-pop {
+  0% {
+    transform: translateY(30px) scale(0.3);
+    opacity: 0;
+  }
+  55% {
+    transform: translateY(-7px) scale(1.16);
+    opacity: 1;
+  }
+  75% {
+    transform: translateY(2px) scale(0.95);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.solar3d-assistant-buddy-face {
+  width: 88px;
+  height: 88px;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.35));
+  /* Gentle "alive" idle once popped in - each persona gets its own feel
+     (moon rocks/sways, cloud floats) so the two read as distinct characters
+     standing next to น้อง Solar, whose own SVG has a similar subtle idle. */
+  animation: solar3d-buddy-float 3s ease-in-out infinite;
+  transform-origin: center bottom;
+}
+
+.solar3d-assistant-buddy-moon .solar3d-assistant-buddy-face {
+  animation-name: solar3d-buddy-sway;
+  animation-duration: 4.2s;
+}
+
+.solar3d-assistant-buddy-cloud .solar3d-assistant-buddy-face {
+  animation-name: solar3d-buddy-float;
+  animation-duration: 3s;
+}
+
+/* Cloud: soft vertical float. */
+@keyframes solar3d-buddy-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-5px) rotate(-2deg);
+  }
+}
+
+/* Moon: slow rocking sway, like it's hanging in the sky. */
+@keyframes solar3d-buddy-sway {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-6deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(6deg);
+  }
+}
+
+/* Teased! While a play interaction is active (mood !== 'idle') the buddy does
+   an excited bouncy jiggle, overriding the calm idle. Extra-specific selector
+   (.buddy.buddy-reacting ...) so it always wins over the persona idle rules
+   above regardless of source order. Requested 2026-07-19. */
+.solar3d-assistant-buddy.solar3d-assistant-buddy-reacting .solar3d-assistant-buddy-face {
+  animation: solar3d-buddy-jiggle 0.55s ease-in-out infinite;
+}
+
+@keyframes solar3d-buddy-jiggle {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+  20% {
+    transform: translateY(-8px) rotate(-9deg) scale(1.14);
+  }
+  45% {
+    transform: translateY(0) rotate(8deg) scale(1.06);
+  }
+  70% {
+    transform: translateY(-4px) rotate(-5deg) scale(1.1);
+  }
+}
+
+/* Name tag + speech bubble catch up a beat after the character lands. */
+.solar3d-assistant-buddy-name,
+.solar3d-assistant-buddy-speech {
+  animation: solar3d-buddy-tag-in 0.32s ease-out 0.22s both;
+}
+
+@keyframes solar3d-buddy-tag-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.solar3d-assistant-buddy-face .mascot-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.solar3d-assistant-buddy-name {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text, #1e293b);
+  background: var(--card-bg, #fff);
+  padding: 1px 7px;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  white-space: nowrap;
+}
+
+.solar3d-assistant-buddy-speech {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  width: max-content;
+  max-width: 200px;
+  background: var(--card-bg, #fff);
+  color: var(--text, #1e293b);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  padding: 7px 11px;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+}
+
+@media (max-width: 640px) {
+  .solar3d-assistant-buddy {
+    right: 116px;
+    bottom: 14px;
+  }
+  .solar3d-assistant-buddy-face {
+    width: 70px;
+    height: 70px;
+  }
+  .solar3d-assistant-buddy-name {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .solar3d-assistant-buddy,
+  .solar3d-assistant-buddy-face,
+  .solar3d-assistant-buddy-moon .solar3d-assistant-buddy-face,
+  .solar3d-assistant-buddy-cloud .solar3d-assistant-buddy-face,
+  .solar3d-assistant-buddy.solar3d-assistant-buddy-reacting .solar3d-assistant-buddy-face,
+  .solar3d-assistant-buddy-name,
+  .solar3d-assistant-buddy-speech {
+    animation: none;
+  }
+}

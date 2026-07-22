@@ -1,28 +1,50 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { chatSocketUrl, getChatHistory } from './api'
+import { chatInbox, chatPresence, chatSend, getChatHistory } from './api'
 import { useAuth } from './auth'
-import type { ChatEvent, ChatMessage, OnlineUser } from './types'
+import type { ChatMessage, OnlineUser } from './types'
 import type { ChatProfile } from './chatProfile'
 
-const RECONNECT_DELAY_MS = 3000
+// REST polling cadences (2026-07-20). The chat used to be a WebSocket, but in
+// production its sends kept silently going nowhere (no delivery, no error) -
+// reported repeatedly. This hook now drives everything over plain REST, the
+// same request/response shape as the feedback flow that provably works: POST a
+// heartbeat for presence, POST to send, GET to poll for new messages.
+const PRESENCE_POLL_MS = 8000 // heartbeat + who's-online refresh
+const INBOX_POLL_MS = 2000 // new-message poll (feels near-instant without hammering)
 const MAX_MESSAGES_KEPT = 200
 const LAST_READ_ID_KEY_PREFIX = 'nongfab_chat_last_read_id_'
 const KNOWN_PEERS_KEY = 'nongfab_chat_known_peers'
-// Matches ws_chat.py's HISTORY_LIMIT - both the `GET /chat/history` initial
-// load and "load older" page return at most this many rows, so getting back
-// fewer than this is how we know there's nothing older left for that pair.
+// Matches ws_chat.py's HISTORY_LIMIT - both /chat/history and /chat/inbox
+// return at most this many rows, so getting back fewer than this is how we
+// know there's nothing older left for that pair.
 const PAGE_SIZE = 50
+// Optimistic messages need an id that sorts *after* every real DB id (small
+// autoincrements) so they show at the bottom, yet is obviously not a real id
+// (so markRead/unread math can skip them). A value near the top of the safe
+// integer range does both.
+const OPTIMISTIC_ID_BASE = Number.MAX_SAFE_INTEGER - 1_000_000
+let optimisticSeq = 0
+
+/** A message as held in local state: the server `ChatMessage` shape plus the
+ * optimistic-send bookkeeping the UI needs. `pending` = shown instantly on
+ * send, still waiting for the server's confirmation; `failed` = the send did
+ * not go through and can be retried; `clientTempId` = ties an optimistic
+ * bubble to its confirmed server copy. Confirmed/history messages carry none
+ * of these. */
+export interface LocalChatMessage extends ChatMessage {
+  pending?: boolean
+  failed?: boolean
+  clientTempId?: string
+}
+
+function isOptimisticId(id: number): boolean {
+  return id >= OPTIMISTIC_ID_BASE
+}
 
 /** A visitor this browser can start (or resume) a private conversation with
- * - either currently online (`online: true`, sourced live from the server's
- * online-users list) or someone previously chatted with who has since gone
- * offline (`online: false`, sourced from this browser's own local memory of
- * who it has talked to - the server has no "everyone I've ever messaged"
- * endpoint, only per-pair history once both ids are already known). This is
- * what the contact list (VisitorNetwork.tsx) picks a chat partner from -
- * "who's online" is only half of it, since a conversation shouldn't vanish
- * from the list the moment the other person closes their tab.
- */
+ * - either currently online (sourced from the presence poll) or someone
+ * previously chatted with who has since gone offline (from this browser's own
+ * local memory of who it has talked to). */
 export interface Contact {
   clientId: string
   displayName: string
@@ -32,7 +54,7 @@ export interface Contact {
 }
 
 export interface ConversationState {
-  messages: ChatMessage[]
+  messages: LocalChatMessage[]
   loaded: boolean
   hasMoreOlder: boolean
   loadingOlder: boolean
@@ -46,6 +68,7 @@ export interface ChatSocketState {
   conversations: Record<string, ConversationState>
   openConversation: (peerClientId: string) => void
   sendMessage: (peerClientId: string, text: string) => void
+  retrySend: (peerClientId: string, clientTempId: string) => void
   loadOlder: (peerClientId: string) => void
   updateProfile: (displayName: string, avatarId: string) => void
 }
@@ -74,55 +97,24 @@ function saveKnownPeers(peers: KnownPeerRecord): void {
 
 const emptyConversation = (): ConversationState => ({ messages: [], loaded: false, hasMoreOlder: true, loadingOlder: false, unreadCount: 0 })
 
-/** De-duplicated union of two message lists, sorted by id (the DB's own
- * autoincrement, globally monotonic across every conversation - safe to sort
- * on directly). Root-caused 2026-07-18 from a screen recording showing a
- * message that visibly got sent (input cleared) but never appeared: opening
- * a thread fires `GET /chat/history` and, in parallel, the visitor's own
- * send gets WS-echoed back almost immediately (same open connection, no
- * HTTP/auth/DB round trip) - if the still-in-flight history fetch resolves
- * *after* that echo already appended the new message to state, its plain
- * `messages: [...history]` overwrite used to wipe the just-sent message
- * straight back out. Merging instead of overwriting keeps whichever source
- * saw a given message first. */
-function mergeMessagesById(a: ChatMessage[], b: ChatMessage[]): ChatMessage[] {
-  const byId = new Map<number, ChatMessage>()
+/** De-duplicated union of two message lists, sorted by id. */
+function mergeMessagesById(a: LocalChatMessage[], b: LocalChatMessage[]): LocalChatMessage[] {
+  const byId = new Map<number, LocalChatMessage>()
   for (const m of a) byId.set(m.id, m)
   for (const m of b) byId.set(m.id, m)
   return Array.from(byId.values()).sort((x, y) => x.id - y.id)
 }
 
-/** Owns the single site-wide `/ws/chat` connection plus every open private
- * conversation derived from it. This used to be one shared public room
- * (`onlineCount`/`messages` flat arrays) - reworked 2026-07-18 into private
- * 1:1 messaging (see ws_chat.py's module docstring for why: broadcasting
- * every message to every visitor was a real privacy problem, not just a UX
- * one). The server now only ever pushes two event types: `online_users`
- * (who's connected right now) and `message` (addressed to exactly one
- * `recipient_client_id`) - there is no more bulk `history` push on connect,
- * since history only makes sense once a specific conversation pair is known
- * (`openConversation` fetches it via `GET /chat/history`).
+/** Owns the visitor's private-chat state, driven entirely by REST polling
+ * (see the cadence constants above for why this replaced the WebSocket). The
+ * returned interface is unchanged from the WebSocket version, so
+ * VisitorNetwork.tsx doesn't care which transport is underneath.
  *
- * `profile` (display name/avatar/client id - see chatProfile.ts) is sent as
- * WS query params at connect time and again via `type: "update_profile"` on
- * a live edit - the server still forces the admin identity itself
- * regardless of what's sent (ws_chat.py), so this is safe to pass even
- * before a viewer/operator has set up a profile (falls back to their raw
- * username).
- *
- * `activePeerClientId`/`isActiveView` together tell this hook which
- * conversation (if any) is actually being looked at right now - unread
- * counting and "mark read" both key off that pair, LINE/Messenger-style: a
- * message that arrives while its thread is open on screen is never
- * "unread". `activePeerClientId` is `null` while the contact-list view
- * itself is showing (no thread open yet).
- *
- * `onLiveMessage` (optional) fires only for messages that arrive via a live
- * `message` WebSocket event - never for `GET /chat/history` replay. This is
- * what lets VisitorNetwork.tsx play a sticker's voice line exactly once,
- * right when it actually arrives, instead of replaying every old sticker's
- * sound whenever a thread is (re)opened.
- */
+ * `activePeerClientId`/`isActiveView` tell this hook which conversation is
+ * actually on screen - unread counting and "mark read" key off that pair,
+ * LINE/Messenger-style. `onLiveMessage` fires only for genuinely new incoming
+ * messages picked up by the poll (never history replay, never own sends), so
+ * VisitorNetwork can play a sticker's voice / show a toast exactly once. */
 export function useChatSocket(
   profile: ChatProfile,
   activePeerClientId: string | null,
@@ -134,7 +126,7 @@ export function useChatSocket(
   const [connected, setConnected] = useState(false)
   const [conversations, setConversations] = useState<Record<string, ConversationState>>({})
   const [knownPeers, setKnownPeers] = useState<KnownPeerRecord>(() => loadKnownPeers())
-  const socketRef = useRef<WebSocket | null>(null)
+
   const profileRef = useRef(profile)
   profileRef.current = profile
   const activePeerRef = useRef(activePeerClientId)
@@ -147,6 +139,11 @@ export function useChatSocket(
   onlineUsersRef.current = onlineUsers
   const conversationsRef = useRef(conversations)
   conversationsRef.current = conversations
+  // Highest inbox id already ingested, and whether the first "catch-up" poll
+  // has run - the first poll seeds this without firing notifications for
+  // messages that arrived while the browser was closed.
+  const lastInboxIdRef = useRef(0)
+  const primedRef = useRef(false)
 
   const rememberPeer = useCallback((clientId: string, info: KnownPeerInfo) => {
     setKnownPeers((prev) => {
@@ -169,69 +166,116 @@ export function useChatSocket(
     })
   }, [])
 
-  // Looking straight at an open thread clears its unread badge immediately,
-  // and keeps clearing it as further messages arrive while still open (the
-  // `message` handler below covers that ongoing case for new arrivals).
+  /** Flip the still-pending optimistic bubble with this temp id to "failed"
+   * (searches every conversation). No-op if already confirmed. */
+  const markSendFailed = useCallback((clientTempId: string) => {
+    setConversations((prev) => {
+      let changed = false
+      const next: Record<string, ConversationState> = {}
+      for (const [peer, conv] of Object.entries(prev)) {
+        const idx = conv.messages.findIndex((m) => m.clientTempId === clientTempId && m.pending)
+        if (idx < 0) {
+          next[peer] = conv
+          continue
+        }
+        const messages = conv.messages.slice()
+        messages[idx] = { ...messages[idx], pending: false, failed: true }
+        next[peer] = { ...conv, messages }
+        changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [])
+
+  // Looking at an open thread clears its unread badge (up to the newest real
+  // message - never an optimistic id, which would poison later unread math).
   useEffect(() => {
     if (!isActiveView || !activePeerClientId) return
     const conv = conversations[activePeerClientId]
-    if (conv && conv.messages.length > 0) markRead(activePeerClientId, conv.messages[conv.messages.length - 1].id)
+    if (!conv) return
+    const lastReal = [...conv.messages].reverse().find((m) => !isOptimisticId(m.id))
+    if (lastReal) markRead(activePeerClientId, lastReal.id)
   }, [isActiveView, activePeerClientId, conversations, markRead])
 
+  // --- Polling loops (presence + inbox) -----------------------------------
   useEffect(() => {
     if (!token) return undefined
     let cancelled = false
-    let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+    // Fresh session: re-catch-up from the start without notifying for old rows.
+    primedRef.current = false
+    lastInboxIdRef.current = 0
 
-    function connect() {
-      if (cancelled) return
+    async function pollPresence() {
       const p = profileRef.current
-      const ws = new WebSocket(chatSocketUrl(token!, p.clientId, p.displayName, p.avatarId))
-      socketRef.current = ws
-
-      ws.onopen = () => setConnected(true)
-      ws.onclose = () => {
-        setConnected(false)
-        if (!cancelled) reconnectTimer = setTimeout(connect, RECONNECT_DELAY_MS)
-      }
-      ws.onerror = () => ws.close()
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data as string) as ChatEvent
-        if (data.type === 'online_users') {
-          setOnlineUsers(data.users)
-          return
-        }
-        // data.type === 'message'
-        const myClientId = profileRef.current.clientId
-        const isOwn = data.client_id === myClientId
-        const peerClientId = isOwn ? data.recipient_client_id : data.client_id
-        if (!peerClientId) return
-        if (!isOwn) rememberPeer(peerClientId, { displayName: data.display_name, avatar: data.avatar, role: data.role })
-
-        const isActiveThread = isActiveViewRef.current && activePeerRef.current === peerClientId
-        setConversations((prev) => {
-          const conv = prev[peerClientId] ?? emptyConversation()
-          return {
-            ...prev,
-            [peerClientId]: {
-              ...conv,
-              messages: [...conv.messages, data].slice(-MAX_MESSAGES_KEPT),
-              loaded: true,
-              unreadCount: isActiveThread || isOwn ? 0 : conv.unreadCount + 1,
-            },
-          }
-        })
-        if (isActiveThread || isOwn) saveLastReadId(peerClientId, data.id)
-        onLiveMessageRef.current?.(data)
+      if (cancelled || !p.clientId) return
+      try {
+        const { users } = await chatPresence({ clientId: p.clientId, displayName: p.displayName, avatarId: p.avatarId }, token!)
+        if (cancelled) return
+        setOnlineUsers(users)
+        setConnected(true)
+      } catch {
+        // request() already routes a 401 through the logout handler; a transient
+        // network error just means we retry on the next tick, so leave
+        // `connected` as-is (never disable the composer over a blip).
       }
     }
 
-    connect()
+    async function pollInbox() {
+      const p = profileRef.current
+      if (cancelled || !p.clientId) return
+      let messages: ChatMessage[]
+      try {
+        const res = await chatInbox(p.clientId, lastInboxIdRef.current, token!)
+        messages = res.messages
+      } catch {
+        return
+      }
+      if (cancelled) return
+      const wasPrimed = primedRef.current
+      primedRef.current = true
+      if (messages.length === 0) return
+      lastInboxIdRef.current = Math.max(lastInboxIdRef.current, ...messages.map((m) => m.id))
+
+      const myClientId = p.clientId
+      setConversations((prev) => {
+        const next = { ...prev }
+        for (const m of messages) {
+          const isOwn = m.client_id === myClientId
+          const peer = isOwn ? m.recipient_client_id : m.client_id
+          if (!peer) continue
+          const conv = next[peer] ?? emptyConversation()
+          if (conv.messages.some((x) => x.id === m.id)) continue // already have it
+          const isActiveThread = isActiveViewRef.current && activePeerRef.current === peer
+          // On the first catch-up poll (wasPrimed=false) never bump unread -
+          // those are pre-existing messages, not "new since you looked".
+          const bumpUnread = wasPrimed && !isActiveThread && !isOwn
+          next[peer] = {
+            ...conv,
+            messages: [...conv.messages, m].slice(-MAX_MESSAGES_KEPT),
+            loaded: true,
+            unreadCount: bumpUnread ? conv.unreadCount + 1 : conv.unreadCount,
+          }
+        }
+        return next
+      })
+
+      for (const m of messages) {
+        const isOwn = m.client_id === myClientId
+        const peer = isOwn ? m.recipient_client_id : m.client_id
+        if (!peer || isOwn) continue
+        rememberPeer(peer, { displayName: m.display_name, avatar: m.avatar, role: m.role })
+        if (wasPrimed) onLiveMessageRef.current?.(m)
+      }
+    }
+
+    pollPresence()
+    pollInbox()
+    const presenceTimer = setInterval(pollPresence, PRESENCE_POLL_MS)
+    const inboxTimer = setInterval(pollInbox, INBOX_POLL_MS)
     return () => {
       cancelled = true
-      clearTimeout(reconnectTimer)
-      socketRef.current?.close()
-      socketRef.current = null
+      clearInterval(presenceTimer)
+      clearInterval(inboxTimer)
     }
   }, [token, rememberPeer])
 
@@ -247,10 +291,8 @@ export function useChatSocket(
         const lastRead = loadLastReadId(peerClientId)
         const unreadCount = messages.filter((m) => m.id > lastRead && m.client_id !== profileRef.current.clientId).length
         setConversations((prev) => {
-          // Merge, don't overwrite: a live WS echo of the visitor's own just-
-          // sent message can land in state *while this fetch is still in
-          // flight* (see mergeMessagesById's own comment) - blindly
-          // replacing `messages` here would silently erase it again.
+          // Merge, don't overwrite: an optimistic send or an inbox poll can land
+          // in state while this fetch is in flight.
           const merged = mergeMessagesById(messages, prev[peerClientId]?.messages ?? [])
           return {
             ...prev,
@@ -262,21 +304,77 @@ export function useChatSocket(
     [token, rememberPeer],
   )
 
-  const sendMessage = useCallback((peerClientId: string, text: string) => {
-    const trimmed = text.trim()
-    if (!trimmed || !peerClientId || socketRef.current?.readyState !== WebSocket.OPEN) return
-    const p = profileRef.current
-    socketRef.current.send(
-      JSON.stringify({ text: trimmed, recipient_client_id: peerClientId, display_name: p.displayName, avatar: p.avatarId }),
-    )
-  }, [])
+  const sendMessage = useCallback(
+    (peerClientId: string, text: string) => {
+      const trimmed = text.trim()
+      if (!trimmed || !peerClientId) return
+      const p = profileRef.current
+      const clientTempId = `tmp-${Date.now()}-${optimisticSeq++}`
+
+      // Optimistic bubble shown instantly (LINE/Messenger-style), never waiting
+      // on the round-trip to reveal your own message.
+      const optimistic: LocalChatMessage = {
+        type: 'message',
+        id: OPTIMISTIC_ID_BASE + optimisticSeq,
+        username: '',
+        role: '',
+        text: trimmed,
+        created_at: new Date().toISOString(),
+        display_name: p.displayName,
+        avatar: p.avatarId,
+        client_id: p.clientId,
+        recipient_client_id: peerClientId,
+        pending: true,
+        clientTempId,
+      }
+      setConversations((prev) => {
+        const conv = prev[peerClientId] ?? emptyConversation()
+        return { ...prev, [peerClientId]: { ...conv, messages: [...conv.messages, optimistic].slice(-MAX_MESSAGES_KEPT), loaded: true } }
+      })
+
+      if (!token) {
+        markSendFailed(clientTempId)
+        return
+      }
+      chatSend({ clientId: p.clientId, displayName: p.displayName, avatarId: p.avatarId }, peerClientId, trimmed, token)
+        .then(({ message }) => {
+          // Reconcile: swap the optimistic bubble for the confirmed server copy.
+          setConversations((prev) => {
+            const conv = prev[peerClientId]
+            if (!conv) return prev
+            let messages = conv.messages.filter((m) => m.clientTempId !== clientTempId)
+            if (!messages.some((m) => m.id === message.id)) messages = [...messages, message]
+            return { ...prev, [peerClientId]: { ...conv, messages: messages.slice(-MAX_MESSAGES_KEPT) } }
+          })
+        })
+        .catch(() => markSendFailed(clientTempId))
+    },
+    [token, markSendFailed],
+  )
+
+  /** Retry a failed send: drop the failed bubble and send its text afresh. */
+  const retrySend = useCallback(
+    (peerClientId: string, clientTempId: string) => {
+      const conv = conversationsRef.current[peerClientId]
+      const failed = conv?.messages.find((m) => m.clientTempId === clientTempId)
+      if (!failed) return
+      setConversations((prev) => {
+        const c = prev[peerClientId]
+        if (!c) return prev
+        return { ...prev, [peerClientId]: { ...c, messages: c.messages.filter((m) => m.clientTempId !== clientTempId) } }
+      })
+      sendMessage(peerClientId, failed.text)
+    },
+    [sendMessage],
+  )
 
   const loadOlder = useCallback(
     (peerClientId: string) => {
       const conv = conversationsRef.current[peerClientId]
       if (!token || !conv || conv.loadingOlder || !conv.hasMoreOlder || conv.messages.length === 0) return
       setConversations((prev) => ({ ...prev, [peerClientId]: { ...prev[peerClientId], loadingOlder: true } }))
-      const oldestId = conv.messages[0].id
+      const oldestReal = conv.messages.find((m) => !isOptimisticId(m.id))
+      const oldestId = oldestReal ? oldestReal.id : conv.messages[0].id
       getChatHistory(profileRef.current.clientId, peerClientId, token, oldestId, PAGE_SIZE)
         .then(({ messages: older }) => {
           setConversations((prev) => {
@@ -286,7 +384,7 @@ export function useChatSocket(
               ...prev,
               [peerClientId]: {
                 ...current,
-                messages: [...older, ...current.messages],
+                messages: mergeMessagesById(older, current.messages),
                 hasMoreOlder: older.length >= PAGE_SIZE,
                 loadingOlder: false,
               },
@@ -300,10 +398,18 @@ export function useChatSocket(
     [token],
   )
 
-  const updateProfile = useCallback((displayName: string, avatarId: string) => {
-    if (socketRef.current?.readyState !== WebSocket.OPEN) return
-    socketRef.current.send(JSON.stringify({ type: 'update_profile', display_name: displayName, avatar: avatarId }))
-  }, [])
+  // A live name/avatar edit heartbeats immediately so the rest of the room sees
+  // it without waiting for the next presence tick.
+  const updateProfile = useCallback(
+    (displayName: string, avatarId: string) => {
+      if (!token) return
+      const p = profileRef.current
+      chatPresence({ clientId: p.clientId, displayName, avatarId }, token)
+        .then(({ users }) => setOnlineUsers(users))
+        .catch(() => {})
+    },
+    [token],
+  )
 
   const contacts = useMemo<Contact[]>(() => {
     const myClientId = profile.clientId
@@ -327,5 +433,5 @@ export function useChatSocket(
     [conversations],
   )
 
-  return { contacts, connected, totalUnreadCount, conversations, openConversation, sendMessage, loadOlder, updateProfile }
+  return { contacts, connected, totalUnreadCount, conversations, openConversation, sendMessage, retrySend, loadOlder, updateProfile }
 }

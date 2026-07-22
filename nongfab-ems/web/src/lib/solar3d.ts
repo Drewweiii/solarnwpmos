@@ -112,6 +112,21 @@ export function interpolateSunPosition(points: TimedAngle[], atIso: string): { a
   return { azimuthDeg: last.azimuth_deg, elevationDeg: last.elevation_deg }
 }
 
+/** Thai name for a lunar phase from its lit fraction (0..1) and waxing flag -
+ * labels the 3D view's moon marker so a daytime/early crescent reads as an
+ * intended phase, not a rendering glitch (the "why is a half-moon up in the
+ * afternoon" confusion, 2026-07-19). Thresholds are the conventional phase
+ * bands; `waxing` only distinguishes the growing vs shrinking quarter/crescent/
+ * gibbous names, and is irrelevant at the new/full extremes. */
+export function moonPhaseName(illumination: number, waxing: boolean): string {
+  const k = Math.max(0, Math.min(1, illumination))
+  if (k < 0.04) return 'จันทร์ดับ (New Moon)'
+  if (k > 0.96) return 'จันทร์เต็มดวง (Full Moon)'
+  if (k < 0.46) return waxing ? 'จันทร์เสี้ยวข้างขึ้น (Waxing Crescent)' : 'จันทร์เสี้ยวข้างแรม (Waning Crescent)'
+  if (k <= 0.54) return waxing ? 'จันทร์ครึ่งดวงข้างขึ้น (First Quarter)' : 'จันทร์ครึ่งดวงข้างแรม (Last Quarter)'
+  return waxing ? 'จันทร์ค่อนดวงข้างขึ้น (Waxing Gibbous)' : 'จันทร์ค่อนดวงข้างแรม (Waning Gibbous)'
+}
+
 /** 90 - elevation: the angle from directly overhead (zenith), the
  * complementary way solar position is often quoted alongside elevation/
  * altitude (see e.g. any standard sun-position diagram) - shown on

@@ -1491,13 +1491,13 @@ function SolarVariablesGraphs({ points, dataSource, isLoading, uvPoints, uvLoadi
                   </BarChart>
                 </ResponsiveContainer>
                 <p className="forecast-status forecast-status-caption">
-                  1 แท่ง = 1 วันจริงที่ระบบดึงข้อมูล UV จาก NASA POWER ได้ (อัปเดตวันละครั้ง ไม่ใช่รายชั่วโมง) - ยิ่งระบบทำงานนานยิ่งมีข้อมูลสะสมมากขึ้น
+                  1 แท่ง = 1 วันจริงที่ระบบดึงข้อมูล UV จาก Open-Meteo (พิกัดจริงของ Nong Fab, อัปเดตวันละครั้ง ไม่ใช่รายชั่วโมง) - ยิ่งระบบทำงานนานยิ่งมีข้อมูลสะสมมากขึ้น
                   ไม่ประมาณค่าเป็นกราฟรายชั่วโมงเพราะไม่มีข้อมูลจริงระดับนั้น
                 </p>
               </>
             ) : (
               <p className="forecast-status forecast-status-caption">
-                ยังไม่มีข้อมูล UV สะสม (อัปเดตวันละครั้งจาก NASA POWER ดู forecast/README.md) - รอสะสมข้อมูลจริงเพิ่มอีกสักพัก ไม่ฝืนสุ่ม/ประมาณค่าเพื่อทำเป็นกราฟ
+                ยังไม่มีข้อมูล UV สะสม (อัปเดตวันละครั้งจาก Open-Meteo ที่พิกัดจริงของ Nong Fab) - รอสะสมข้อมูลจริงเพิ่มอีกสักพัก ไม่ฝืนสุ่ม/ประมาณค่าเพื่อทำเป็นกราฟ
               </p>
             )}
           </div>

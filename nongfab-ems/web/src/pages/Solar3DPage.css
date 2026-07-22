@@ -356,3 +356,25 @@
   background: rgba(15, 23, 42, 0.75);
   pointer-events: none;
 }
+
+/* Moon-phase readout (2026-07-19) - same compact card look as the irradiance
+   card, with a cool night tint to read as "moon" at a glance. */
+.solar3d-moon-phase-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  width: fit-content;
+}
+.solar3d-moon-phase-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+}
+.solar3d-moon-phase-value {
+  font-weight: 600;
+  color: #818cf8;
+}

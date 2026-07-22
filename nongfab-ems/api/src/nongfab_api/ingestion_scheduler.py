@@ -24,6 +24,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import httpx
+from nongfab_features.clearsky import nong_fab_site_location
 from nongfab_forecast import training
 from nongfab_forecast.local_store import RealDataStore
 
@@ -164,29 +165,26 @@ async def _backfill_himawari(store: RealDataStore, lookback_days: int) -> None:
 
 
 async def _backfill_uv(store: RealDataStore, lookback_days: int) -> None:
-    """Best-effort: NASA POWER's real endpoint has never been reached from any
-    environment this repo was built in (see ingestion/nasa_power/README's "Data
-    source & ToS") - a failure here is expected in some deployments and must
-    never take down the rest of ingestion.
+    """Best-effort daily UV backfill from Open-Meteo (user-approved 2026-07-19,
+    replacing NASA POWER whose real endpoint has never been reachable from this
+    deployment - see openmeteo_uv.py's own docstring). A failure here is
+    non-fatal and must never take down the rest of ingestion.
     """
-    from nasa_power_ingestion.backfill import backfill_range
-    from nasa_power_ingestion.compliance import RateLimiter
-    from nasa_power_ingestion.config import Settings
+    from .openmeteo_uv import fetch_uv_observations
 
-    settings = Settings(source_mode="http")
-    logger.info("startup backfill: nasa_power UV starting (%d days)", lookback_days)
+    lat, lon = nong_fab_site_location()
+    logger.info("startup backfill: open-meteo UV starting (%d days)", lookback_days)
     try:
         async with httpx.AsyncClient() as client:
-            result = await backfill_range(settings, client, RateLimiter(settings.min_seconds_between_requests), lookback_days=lookback_days)
+            observations = await fetch_uv_observations(client, lat, lon, past_days=lookback_days)
     except Exception:
-        logger.warning("startup backfill: nasa_power UV unreachable from this deployment, skipping (non-fatal)", exc_info=True)
+        logger.warning("startup backfill: open-meteo UV unreachable from this deployment, skipping (non-fatal)", exc_info=True)
         return
-    if result is None:
-        logger.info("startup backfill: nasa_power UV returned no usable data")
+    if not observations:
+        logger.info("startup backfill: open-meteo UV returned no usable data")
         return
-    _, observations = result
     store.insert_uv_observations(observations)
-    logger.info("startup backfill: nasa_power UV done, %d days ingested", len(observations))
+    logger.info("startup backfill: open-meteo UV done, %d days ingested", len(observations))
 
 
 async def _backfill_pvgis(store: RealDataStore) -> None:
@@ -412,6 +410,29 @@ async def _poll_nwp_forever(store: RealDataStore, interval_seconds: float, forec
             await asyncio.sleep(interval_seconds)
 
 
+# UV is a once-a-day figure (Open-Meteo publishes a daily uv_index_max), so a
+# frequent poll would just re-fetch the same numbers - refreshing a few times a
+# day is plenty to pick up today's value and any late revision. Insert-or-
+# replace on (observation_date, source) keeps re-fetching idempotent.
+UV_POLL_INTERVAL_SECONDS = 6 * 3600.0
+
+
+async def _poll_uv_forever(store: RealDataStore, interval_seconds: float = UV_POLL_INTERVAL_SECONDS) -> None:
+    from .openmeteo_uv import fetch_uv_observations
+
+    lat, lon = nong_fab_site_location()
+    async with httpx.AsyncClient() as client:
+        while True:
+            try:
+                observations = await fetch_uv_observations(client, lat, lon, past_days=7)
+                if observations:
+                    store.insert_uv_observations(observations)
+                    logger.debug("uv live poll: refreshed %d days of open-meteo UV", len(observations))
+            except Exception:
+                logger.warning("uv live poll failed, retrying next tick", exc_info=True)
+            await asyncio.sleep(interval_seconds)
+
+
 async def _retrain_forever(store: RealDataStore, cold_interval_seconds: float, warm_interval_seconds: float, warm_threshold_rows: int) -> None:
     """Retrains every (zone, horizon), then sleeps `cold_interval_seconds` if
     real history is still thin or `warm_interval_seconds` once it isn't - see
@@ -464,8 +485,9 @@ def start_background_ingestion(store: RealDataStore, settings) -> list[asyncio.T
         asyncio.create_task(
             _poll_nwp_forever(store, settings.nwp_poll_interval_seconds, settings.nwp_poll_forecast_hours), name="ingestion-poll-nwp"
         ),
+        asyncio.create_task(_poll_uv_forever(store), name="ingestion-poll-uv"),
     ]
-    if getattr(settings, "enable_background_retraining", True):
+    if getattr(settings, "enable_background_retraining", False):
         tasks.append(
             asyncio.create_task(
                 _retrain_forever(

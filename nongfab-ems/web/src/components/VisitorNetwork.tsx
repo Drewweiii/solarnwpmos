@@ -1,8 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { avatarById, getOrCreateClientId, loadChatProfile, type ChatProfile } from '../lib/chatProfile'
+import { playNotificationDing } from '../lib/notificationSound'
 import { useSubmitFeedback } from '../lib/queries'
 import { decodeSticker, encodeSticker, speakSticker, STICKER_OPTIONS } from '../lib/stickers'
-import { useChatSocket, type ChatSocketState, type Contact } from '../lib/useChatSocket'
+import { useChatSocket, type ChatSocketState, type Contact, type LocalChatMessage } from '../lib/useChatSocket'
 import type { ChatMessage } from '../lib/types'
 import { ChatProfileSetup } from './ChatProfileSetup'
 import './VisitorNetwork.css'
@@ -123,6 +124,9 @@ export function VisitorNetwork() {
       clearTimeout(notificationTimerRef.current)
       setNotification({ messageId: message.id, peerClientId, displayName: message.display_name, avatar: message.avatar, preview: notificationPreview(message) })
       notificationTimerRef.current = setTimeout(() => setNotification(null), NOTIFICATION_AUTO_DISMISS_MS)
+      // Audible ping alongside the toast, so a visitor reading elsewhere on
+      // the page (or in another tab) notices the incoming message.
+      playNotificationDing()
     },
   )
   const { totalUnreadCount, contacts } = chat
@@ -130,6 +134,14 @@ export function VisitorNetwork() {
   const titleId = useId()
 
   useEffect(() => () => clearTimeout(notificationTimerRef.current), [])
+
+  // Unread count mirrored into the browser-tab title ("(2) PTT LNG ...") so a
+  // backgrounded tab shows there are waiting messages - the closest a plain
+  // web page gets to a passive OS-level notification without permissions.
+  useEffect(() => {
+    const base = document.title.replace(/^\(\d+\) /, '')
+    document.title = totalUnreadCount > 0 ? `(${totalUnreadCount}) ${base}` : base
+  }, [totalUnreadCount])
 
   function closePanel() {
     setIsOpen(false)
@@ -351,7 +363,7 @@ function ThreadView({
   peerOnline: boolean
   onBack: () => void
 }) {
-  const { conversations, sendMessage, connected, openConversation, loadOlder } = chat
+  const { conversations, sendMessage, retrySend, connected, openConversation, loadOlder } = chat
   const conv = conversations[peerClientId]
   const messages = conv?.messages ?? []
   const hasMoreOlder = conv?.hasMoreOlder ?? true
@@ -407,7 +419,12 @@ function ThreadView({
         {loadingOlder && <p className="visitor-loading-older">กำลังโหลดข้อความเก่า...</p>}
         {messages.length === 0 && <p className="visitor-empty">ยังไม่มีข้อความ - ทักทายผู้ชมคนนี้ได้เลยค่ะ</p>}
         {messages.map((m) => (
-          <ChatBubble key={m.id} message={m} isOwn={m.client_id != null && m.client_id === profile.clientId} />
+          <ChatBubble
+            key={m.clientTempId ?? m.id}
+            message={m}
+            isOwn={m.client_id != null && m.client_id === profile.clientId}
+            onRetry={m.failed && m.clientTempId ? () => retrySend(peerClientId, m.clientTempId!) : undefined}
+          />
         ))}
       </div>
       {showStickers && (
@@ -462,31 +479,51 @@ function ThreadView({
   )
 }
 
-function ChatBubble({ message, isOwn }: { message: ChatMessage; isOwn: boolean }) {
+function ChatBubble({ message, isOwn, onRetry }: { message: LocalChatMessage; isOwn: boolean; onRetry?: () => void }) {
   const avatar = avatarById(message.avatar)
   const sticker = decodeSticker(message.text)
 
+  const rowClass = [
+    'visitor-bubble-row',
+    isOwn ? 'own' : '',
+    message.pending ? 'pending' : '',
+    message.failed ? 'failed' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
-    <div className={isOwn ? 'visitor-bubble-row own' : 'visitor-bubble-row'}>
+    <div className={rowClass}>
       {!isOwn && (
         <span className="visitor-avatar-circle" style={{ background: avatar.color }} aria-hidden="true">
           {avatar.emoji}
         </span>
       )}
-      {sticker ? (
-        <div className="visitor-sticker-bubble" aria-label={`สติกเกอร์: ${sticker.label}`}>
-          {!isOwn && <span className="visitor-bubble-author">{message.display_name}</span>}
-          <span className="visitor-sticker-bubble-emoji" style={{ background: sticker.color }}>
-            {sticker.emoji}
-          </span>
-          <span className="visitor-sticker-bubble-caption">{sticker.label}</span>
-        </div>
-      ) : (
-        <div className={isOwn ? 'visitor-bubble visitor-bubble-own' : 'visitor-bubble'}>
-          {!isOwn && <span className="visitor-bubble-author">{message.display_name}</span>}
-          <span className="visitor-bubble-text">{message.text}</span>
-        </div>
-      )}
+      <div className="visitor-bubble-col">
+        {sticker ? (
+          <div className="visitor-sticker-bubble" aria-label={`สติกเกอร์: ${sticker.label}`}>
+            {!isOwn && <span className="visitor-bubble-author">{message.display_name}</span>}
+            <span className="visitor-sticker-bubble-emoji" style={{ background: sticker.color }}>
+              {sticker.emoji}
+            </span>
+            <span className="visitor-sticker-bubble-caption">{sticker.label}</span>
+          </div>
+        ) : (
+          <div className={isOwn ? 'visitor-bubble visitor-bubble-own' : 'visitor-bubble'}>
+            {!isOwn && <span className="visitor-bubble-author">{message.display_name}</span>}
+            <span className="visitor-bubble-text">{message.text}</span>
+          </div>
+        )}
+        {/* Delivery status for the visitor's own outgoing messages, so a send
+            that didn't go through is never silent (the whole point of the
+            optimistic-send rework - see useChatSocket.ts). */}
+        {isOwn && message.pending && <span className="visitor-bubble-status">กำลังส่ง…</span>}
+        {isOwn && message.failed && (
+          <button type="button" className="visitor-bubble-status visitor-bubble-retry" onClick={onRetry}>
+            ⚠️ ส่งไม่สำเร็จ · แตะเพื่อลองใหม่
+          </button>
+        )}
+      </div>
     </div>
   )
 }

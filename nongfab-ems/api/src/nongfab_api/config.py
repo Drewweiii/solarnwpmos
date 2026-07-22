@@ -62,13 +62,20 @@ class Settings(BaseSettings):
     # read from - so they went blank. This flag lets a memory-constrained
     # deploy keep ingestion ON (light: a network fetch + a SQLite insert) while
     # turning only the heavy retraining OFF: set API_ENABLE_BACKGROUND_INGESTION=true
-    # and API_ENABLE_BACKGROUND_RETRAINING=false. Forecasts then serve from
-    # whatever model version was last trained (persisted on the volume) instead
-    # of retraining live, which is an acceptable trade for a site whose data
-    # barely moves the model between GFS cycles anyway (see retrain cadence
-    # docstring below). Defaults ON to preserve prior behavior where memory
-    # isn't the binding constraint.
-    enable_background_retraining: bool = True
+    # and (optionally) API_ENABLE_BACKGROUND_RETRAINING=true to opt retraining
+    # back in. Forecasts serve from whatever model version was last trained
+    # (persisted on the volume) instead of retraining live, which is an
+    # acceptable trade for a site whose data barely moves the model between GFS
+    # cycles anyway (see retrain cadence docstring below).
+    #
+    # Defaults OFF (2026-07-19): this single-container Railway deploy is memory-
+    # constrained, and live retraining is exactly what was OOM-killing the
+    # process and dropping WebSocket chat. Keeping it off by default means the
+    # common case (ingestion on so the live readouts stay fed, retraining off
+    # so chat stays up) needs only API_ENABLE_BACKGROUND_INGESTION=true and no
+    # second, easy-to-miss variable. Set this true explicitly only on a deploy
+    # with memory headroom to spare.
+    enable_background_retraining: bool = False
     real_data_db_path: str = ""  # empty -> forecast.local_store.RealDataStore's own default (:memory:, single app-lifetime instance)
     backfill_lookback_days: int = 30
     himawari_poll_interval_seconds: float = 600.0  # 10 min, matches Himawari's native product cadence

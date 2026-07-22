@@ -1,6 +1,11 @@
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 from starlette.websockets import WebSocketDisconnect
+
+from nongfab_api.auth import create_access_token
+from nongfab_api.main import create_app
 
 
 def test_ws_chat_rejects_missing_token(app):
@@ -78,6 +83,27 @@ def test_ws_chat_a_message_is_only_delivered_to_sender_and_recipient_not_broadca
     # wasn't just broken), but her identity/traffic never touched bob's
     # conversation with alice above.
     assert carol_probe["text"] == "are you there?"
+
+
+def test_ws_chat_echoes_client_temp_id_to_the_sender_only_not_the_recipient(app, token_factory):
+    """The sender's own copy carries back the client_temp_id it minted (so its
+    optimistic bubble can be reconciled); the recipient's copy must not - it's
+    meaningless to them and could collide with their own outgoing temp ids."""
+    token_a = token_factory("viewer", username="alice")
+    token_b = token_factory("viewer", username="bob")
+    with TestClient(app) as client:
+        with client.websocket_connect(f"/ws/chat?token={token_a}&client_id=a") as ws_a:
+            ws_a.receive_json()
+            with client.websocket_connect(f"/ws/chat?token={token_b}&client_id=b") as ws_b:
+                ws_b.receive_json()
+                ws_a.receive_json()
+
+                ws_a.send_json({"text": "hi bob", "recipient_client_id": "b", "client_temp_id": "tmp-123"})
+                seen_by_a = ws_a.receive_json()
+                seen_by_b = ws_b.receive_json()
+    assert seen_by_a["client_temp_id"] == "tmp-123"
+    assert seen_by_b.get("client_temp_id") is None
+    assert seen_by_a["text"] == seen_by_b["text"] == "hi bob"
 
 
 def test_ws_chat_delivers_to_every_tab_of_the_same_browser(app, token_factory):
@@ -235,6 +261,112 @@ def test_get_chat_history_requires_login(app):
     with TestClient(app) as client:
         resp = client.get("/chat/history?my_client_id=a&peer_client_id=b")
     assert resp.status_code == 401
+
+
+# --- REST transport (2026-07-20) ---
+
+
+def test_rest_send_then_inbox_delivers_to_recipient(app, token_factory):
+    token = token_factory("viewer", username="alice")
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {token}"}
+        sent = client.post(
+            "/chat/send",
+            json={"client_id": "A", "recipient_client_id": "B", "text": "hi bob", "display_name": "Alice", "avatar": "cat"},
+            headers=headers,
+        )
+        assert sent.status_code == 200
+        message = sent.json()["message"]
+        assert message["text"] == "hi bob"
+        assert message["client_id"] == "A"
+        assert message["recipient_client_id"] == "B"
+
+        inbox = client.get("/chat/inbox?my_client_id=B&after_id=0", headers=headers)
+    assert inbox.status_code == 200
+    assert [m["text"] for m in inbox.json()["messages"]] == ["hi bob"]
+
+
+def test_rest_inbox_only_returns_messages_newer_than_after_id(app, token_factory):
+    token = token_factory("viewer", username="alice")
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {token}"}
+        first = client.post("/chat/send", json={"client_id": "A", "recipient_client_id": "B", "text": "one"}, headers=headers).json()["message"]
+        client.post("/chat/send", json={"client_id": "A", "recipient_client_id": "B", "text": "two"}, headers=headers)
+
+        inbox = client.get(f"/chat/inbox?my_client_id=B&after_id={first['id']}", headers=headers)
+    assert [m["text"] for m in inbox.json()["messages"]] == ["two"]
+
+
+def test_rest_inbox_excludes_conversations_i_am_not_part_of(app, token_factory):
+    token = token_factory("viewer", username="alice")
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {token}"}
+        client.post("/chat/send", json={"client_id": "A", "recipient_client_id": "B", "text": "to bob"}, headers=headers)
+        client.post("/chat/send", json={"client_id": "A", "recipient_client_id": "C", "text": "to carol"}, headers=headers)
+
+        inbox_b = client.get("/chat/inbox?my_client_id=B&after_id=0", headers=headers)
+    assert [m["text"] for m in inbox_b.json()["messages"]] == ["to bob"]  # not "to carol"
+
+
+def test_rest_presence_heartbeat_lists_online_users_and_forces_admin_prefix(app, token_factory):
+    viewer = token_factory("viewer", username="alice")
+    admin = token_factory("admin", username="boss")
+    with TestClient(app) as client:
+        client.post(
+            "/chat/presence",
+            json={"client_id": "A", "display_name": "Alice", "avatar": "cat"},
+            headers={"Authorization": f"Bearer {viewer}"},
+        )
+        resp = client.post("/chat/presence", json={"client_id": "ADM", "display_name": "สมชาย"}, headers={"Authorization": f"Bearer {admin}"})
+    users = {u["client_id"]: u for u in resp.json()["users"]}
+    assert "A" in users and "ADM" in users
+    assert users["ADM"]["display_name"] == "admin สมชาย"  # prefix forced server-side, never trusted from client
+
+
+def test_rest_send_requires_login(app):
+    with TestClient(app) as client:
+        resp = client.post("/chat/send", json={"client_id": "A", "recipient_client_id": "B", "text": "hi"})
+    assert resp.status_code == 401
+
+
+@pytest.fixture
+async def old_schema_engine():
+    """An engine whose chat_messages table has the ORIGINAL v1 columns only -
+    exactly what the production Railway volume turned out to still hold on
+    2026-07-20 (probed live: /chat/send and /chat/inbox both 500ing because
+    display_name/avatar/client_id were never added; only recipient_client_id
+    had ever been patched). Startup must heal ALL missing columns."""
+    eng = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with eng.begin() as conn:
+        await conn.execute(
+            text(
+                "CREATE TABLE chat_messages ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, role TEXT NOT NULL, "
+                "text TEXT NOT NULL, created_at TIMESTAMP NOT NULL)"
+            )
+        )
+    yield eng
+    await eng.dispose()
+
+
+def test_startup_heals_a_v1_chat_messages_table_so_rest_chat_works(old_schema_engine, settings):
+    """Regression for the production 'chat never delivers' root cause: boot
+    the app on a v1-schema chat_messages table and the full REST send->inbox
+    round trip must work (startup adds every missing column, not just one)."""
+    app = create_app(settings=settings, engine=old_schema_engine)
+    token = create_access_token("alice", "viewer", settings, app.state.deploy_id)
+    headers = {"Authorization": f"Bearer {token}"}
+    with TestClient(app) as client:
+        sent = client.post(
+            "/chat/send",
+            json={"client_id": "A", "recipient_client_id": "B", "text": "healed!", "display_name": "Alice", "avatar": "cat"},
+            headers=headers,
+        )
+        assert sent.status_code == 200, sent.text
+        inbox = client.get("/chat/inbox?my_client_id=B&after_id=0", headers=headers)
+    assert inbox.status_code == 200, inbox.text
+    assert [m["text"] for m in inbox.json()["messages"]] == ["healed!"]
+    assert inbox.json()["messages"][0]["display_name"] == "Alice"
 
 
 def test_message_created_at_carries_a_utc_offset_not_a_naive_timestamp(app, token_factory):

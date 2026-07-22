@@ -27,7 +27,7 @@ export function AdminFeedbackPage() {
             <li key={item.id} className="admin-feedback-item">
               <div className="admin-feedback-item-header">
                 <span className="admin-feedback-item-author">
-                  {item.username} <span className="admin-feedback-item-role">({item.role})</span>
+                  {item.display_name || item.username} <span className="admin-feedback-item-role">({item.role})</span>
                 </span>
                 <span className="admin-feedback-item-time">{dateFormatter.format(new Date(item.created_at))}</span>
               </div>

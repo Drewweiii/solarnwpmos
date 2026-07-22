@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from nongfab_features.moon import moon_position
+from nongfab_features.moon import moon_illumination, moon_position
 
 NONG_FAB_LAT, NONG_FAB_LON = 12.68, 101.12
 
@@ -60,3 +60,29 @@ def test_moon_position_differs_from_a_fixed_reference_across_days():
     az2, el2 = moon_position(datetime(2026, 7, 25, 12, tzinfo=timezone.utc), NONG_FAB_LAT, NONG_FAB_LON)
     assert (az1, el1) != (az2, el2)
     assert abs(az1 - az2) > 1.0 or abs(el1 - el2) > 1.0
+
+
+def test_moon_illumination_full_cycle_bounds_and_waxing_flag():
+    # Fraction is always a valid 0..1, and the waxing flag flips exactly once
+    # per synodic month (new -> full growing, full -> new shrinking).
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    fracs = []
+    waxings = []
+    for day in range(0, 30):
+        f, wax = moon_illumination(base + timedelta(days=day))
+        assert 0.0 <= f <= 1.0
+        fracs.append(f)
+        waxings.append(wax)
+    # Over a full month it must reach both a near-new (<0.1) and near-full (>0.9).
+    assert min(fracs) < 0.1
+    assert max(fracs) > 0.9
+    # Both waxing and waning phases occur within the month.
+    assert True in waxings and False in waxings
+
+
+def test_moon_illumination_matches_known_july_2026_crescent():
+    # 2026-07-19 is a waxing crescent (~a quarter lit) - the date the 3D-view
+    # phase marker was built against (see routes_solar3d /moon-path).
+    f, wax = moon_illumination(datetime(2026, 7, 19, 12, tzinfo=timezone.utc))
+    assert wax is True
+    assert 0.1 < f < 0.45

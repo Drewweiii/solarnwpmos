@@ -118,6 +118,27 @@ export const TOPIC_CATEGORIES: AssistantTopicCategory[] = [
           { id: 'mount_what', label: 'ออกแบบ Mounting ต้องคำนึงถึงอะไร', question: 'การออกแบบโครงยึดแผงโซลาร์ (mounting) ต้องคำนึงถึงอะไรบ้าง' },
         ],
       },
+      {
+        id: 'panel_care',
+        title: 'ประสิทธิภาพ / การดูแลแผง',
+        keywords: ['ฝุ่นเกาะแผง', 'ล้างแผง', 'แผงเสื่อม', 'degradation', 'soiling', 'แผงร้อน', 'แผงสกปรก'],
+        subQuestions: [
+          { id: 'care_soiling', label: 'ฝุ่นเกาะแผงมีผลไหม', question: 'ฝุ่นหรือสิ่งสกปรกเกาะแผงโซลาร์มีผลกับการผลิตไฟไหม' },
+          { id: 'care_degradation', label: 'แผงเสื่อมสภาพยังไง', question: 'แผงโซลาร์เสื่อมสภาพยังไง ใช้งานได้นานแค่ไหน' },
+          { id: 'care_temp', label: 'ยิ่งร้อนยิ่งดีไหม', question: 'อากาศยิ่งร้อนยิ่งแดดแรง แผงโซลาร์ผลิตไฟได้ดีขึ้นไหม' },
+        ],
+      },
+      {
+        id: 'faq_practical',
+        title: 'คำถามที่พบบ่อย (โซลาร์ในชีวิตจริง)',
+        keywords: ['กลางคืน', 'ฝนตก', 'ไฟดับ', 'แบตเตอรี่', 'ลูกเห็บ', 'เก็บไฟ'],
+        subQuestions: [
+          { id: 'faq_night', label: 'กลางคืนผลิตไฟได้ไหม', question: 'ตอนกลางคืนแผงโซลาร์ยังผลิตไฟได้ไหม' },
+          { id: 'faq_rain', label: 'ฝนตก/หน้าฝนยังผลิตได้ไหม', question: 'ฝนตกหรือหน้าฝนแผงโซลาร์ยังผลิตไฟได้ไหม' },
+          { id: 'faq_blackout', label: 'ไฟดับใช้ไฟโซลาร์ได้ไหม', question: 'ตอนไฟฟ้าดับ ระบบโซลาร์ยังจ่ายไฟให้ใช้ได้ไหม' },
+          { id: 'faq_battery', label: 'มีแบตเตอรี่เก็บไฟไหม', question: 'โรงไฟฟ้าโซลาร์นี้มีแบตเตอรี่เก็บไฟไว้ใช้กลางคืนไหม' },
+        ],
+      },
     ],
   },
   {
@@ -161,6 +182,15 @@ export const TOPIC_CATEGORIES: AssistantTopicCategory[] = [
         title: 'Net Zero',
         keywords: ['net zero', 'เน็ตซีโร่'],
         subQuestions: [{ id: 'nz_what', label: 'Net Zero คืออะไร', question: 'Net Zero คืออะไร' }],
+      },
+      {
+        id: 'grid_sell',
+        title: 'การขายไฟ / เชื่อมสายส่ง',
+        keywords: ['ขายไฟ', 'ppa', 'ไฟเข้ากริด', 'on-grid', 'ออนกริด'],
+        subQuestions: [
+          { id: 'grid_ppa', label: 'ขายไฟให้การไฟฟ้ายังไง', question: 'โรงไฟฟ้าโซลาร์ขายไฟให้การไฟฟ้ายังไง' },
+          { id: 'grid_ongrid', label: 'On-grid ต่างจากมีแบตยังไง', question: 'ระบบ on-grid ไม่มีแบตเตอรี่ ต่างจากระบบที่มีแบตเตอรี่ยังไง' },
+        ],
       },
     ],
   },
@@ -230,17 +260,18 @@ export const TOPIC_CATEGORIES: AssistantTopicCategory[] = [
       {
         id: 'page_energy_report',
         title: 'หน้า Energy Report',
-        keywords: [],
+        keywords: ['ประหยัดค่าไฟ', 'คาร์บอนเครดิต', 'carbon credit', 'ลด co2', 'ugt'],
         subQuestions: [
           { id: 'page_energy_report', label: 'หน้า Energy Report ใช้ดูอะไร', question: 'หน้า Energy Report ในเว็บนี้ใช้ดูอะไรได้บ้าง' },
+          { id: 'energy_savings', label: 'ดูค่าไฟที่ประหยัด/คาร์บอนได้ไหม', question: 'โซลาร์ช่วยประหยัดค่าไฟและลดคาร์บอนได้เท่าไหร่ ดูตรงไหน' },
         ],
       },
       {
         id: 'page_irradiance',
-        title: 'หน้า Irradiance Map',
+        title: 'แผนที่ความเข้มแสง (ในหน้า 3D View)',
         keywords: [],
         subQuestions: [
-          { id: 'page_irradiance', label: 'หน้า Irradiance Map ใช้ดูอะไร', question: 'หน้า Irradiance Map ในเว็บนี้ใช้ดูอะไรได้บ้าง' },
+          { id: 'page_irradiance', label: 'แผนที่ความเข้มแสงอยู่ตรงไหน', question: 'แผนที่ความเข้มแสง (irradiance map) ในเว็บนี้อยู่ตรงไหน ใช้ดูอะไรได้บ้าง' },
         ],
       },
       {

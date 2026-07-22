@@ -3,15 +3,17 @@ import { MascotFace } from './MascotFace'
 import './LoginWelcome.css'
 
 // This popup hands out the public *viewer* login (pttlng/12345) in the same
-// breath, so the tour must only list what a viewer actually sees - Simulation
-// and Financial are operator/admin-only (Layout.tsx/App.tsx's RequireOperator,
-// 2026-07-18) and were removed from here for exactly that reason: advertising
-// a page a first-time visitor can't reach is worse than not mentioning it.
+// breath, so the tour must only list what a viewer actually sees - exactly the
+// 3 tabs a viewer gets: Forecast, 3D View, Energy Report. Simulation and
+// Financial are operator/admin-only (Layout.tsx/App.tsx's RequireOperator,
+// 2026-07-18) and were removed from here for exactly that reason. The old
+// standalone "Irradiance Map" tab is gone too (2026-07-18 - merged into 3D
+// View, App.tsx redirects /irradiance-map -> /3d), so it's folded into the 3D
+// line rather than listed as its own feature.
 const FEATURES = [
   'Forecast — กราฟพยากรณ์การผลิตไฟ เทียบกับของจริง',
-  '3D View — โรงงานจำลอง 3 มิติ พร้อมเงาและเส้นทางดวงอาทิตย์',
-  'Energy Report — รายงานสรุปพลังงานรายปี/รายเดือน',
-  'Irradiance Map — แผนที่ความเข้มแสงอาทิตย์ในพื้นที่',
+  '3D View — โรงงานจำลอง 3 มิติ พร้อมเงา เส้นทางดวงอาทิตย์ และแผนที่ความเข้มแสง',
+  'Energy Report — รายงานสรุปพลังงานรายวัน/รายเดือน/รายปี พร้อมค่าไฟที่ประหยัดและคาร์บอน',
 ]
 
 /** A big popup on the login screen - "น้อง Solar" greets a first-time (or

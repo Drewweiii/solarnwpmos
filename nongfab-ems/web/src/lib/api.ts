@@ -1,9 +1,11 @@
 import type {
   AssetRegistry,
   ChatMessage,
+  OnlineUser,
   CloudConditionsResponse,
   CurrentConditionsResponse,
   EnergyReportResponse,
+  SavingsSummaryResponse,
   FeedbackItem,
   FinancialRequest,
   FinancialResponse,
@@ -88,6 +90,17 @@ export async function login(username: string, password: string): Promise<TokenRe
 
 export const getAssets = (token: string): Promise<AssetRegistry> => request('/assets', token)
 
+/** Makes one authenticated REST call purely to find out whether `token` is
+ * still accepted by the API. On a 401 (expired, or minted before the API's
+ * most recent redeploy - see auth.py's deploy_id claim) `request()` fires the
+ * app-wide unauthorized handler -> logout, exactly as any other authenticated
+ * call would. Used by useChatSocket to turn a silently-rejected WebSocket
+ * handshake (a pre-accept 403 the browser can't read the status of) into the
+ * same re-login flow, instead of reconnecting forever on a dead token. Reuses
+ * `/assets` rather than adding a bespoke endpoint - it's a small, always-
+ * available authenticated GET. */
+export const verifyToken = (token: string): Promise<AssetRegistry> => request('/assets', token)
+
 export const getZone = (zoneId: string, token: string): Promise<Zone> => request(`/assets/${zoneId}`, token)
 
 export const getForecast = (zone: string, horizon: ForecastHorizon, token: string): Promise<ForecastResponse> =>
@@ -129,6 +142,42 @@ export const getMoonPath = (zone: string, date: string | undefined, token: strin
 export const getEnergyReport = (zone: string, token: string): Promise<EnergyReportResponse> =>
   request(`/energy-report/${zone}`, token)
 
+export const getSavingsSummary = (token: string): Promise<SavingsSummaryResponse> =>
+  request(`/savings/summary`, token)
+
+// --- REST chat transport (2026-07-20, replaces the WebSocket) -------------
+export interface ChatProfileFields {
+  clientId: string
+  displayName: string
+  avatarId: string
+}
+
+export const chatPresence = (fields: ChatProfileFields, token: string): Promise<{ users: OnlineUser[] }> =>
+  request('/chat/presence', token, {
+    method: 'POST',
+    body: JSON.stringify({ client_id: fields.clientId, display_name: fields.displayName, avatar: fields.avatarId }),
+  })
+
+export const chatSend = (
+  fields: ChatProfileFields,
+  recipientClientId: string,
+  text: string,
+  token: string,
+): Promise<{ message: ChatMessage }> =>
+  request('/chat/send', token, {
+    method: 'POST',
+    body: JSON.stringify({
+      client_id: fields.clientId,
+      recipient_client_id: recipientClientId,
+      text,
+      display_name: fields.displayName,
+      avatar: fields.avatarId,
+    }),
+  })
+
+export const chatInbox = (myClientId: string, afterId: number, token: string): Promise<{ messages: ChatMessage[] }> =>
+  request(`/chat/inbox?my_client_id=${encodeURIComponent(myClientId)}&after_id=${afterId}`, token)
+
 export const getIrradianceMap = (at: string | undefined, token: string): Promise<IrradianceMapResponse> =>
   request(`/irradiance-map${at ? `?at=${encodeURIComponent(at)}` : ''}`, token)
 
@@ -141,8 +190,8 @@ export interface VersionResponse {
 // so an idle tab still notices a backend redeploy.
 export const getVersion = (): Promise<VersionResponse> => request('/version', null)
 
-export const postFeedback = (text: string, token: string): Promise<FeedbackItem> =>
-  request('/feedback', token, { method: 'POST', body: JSON.stringify({ text }) })
+export const postFeedback = (text: string, token: string, displayName?: string | null): Promise<FeedbackItem> =>
+  request('/feedback', token, { method: 'POST', body: JSON.stringify({ text, display_name: displayName ?? null }) })
 
 export const getFeedback = (token: string): Promise<FeedbackItem[]> => request('/feedback', token)
 

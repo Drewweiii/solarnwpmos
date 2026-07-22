@@ -376,6 +376,12 @@ export interface MoonPathResponse {
   zone: string
   date: string
   points: MoonPathPoint[]
+  /** Lit fraction of the Moon's disc for that date, 0 (new) .. 1 (full) -
+   * drives the phase-correct crescent marker + "% lit" label in the 3D view. */
+  illumination: number
+  /** True while the lit fraction is growing (new -> full), False shrinking -
+   * decides which limb (east/west) the crescent's lit side faces. */
+  waxing: boolean
 }
 
 export interface SystemSummary {
@@ -445,6 +451,43 @@ export interface EnergyReportResponse {
   sld: SLDData
 }
 
+// --- Savings & carbon summary (Energy Report bottom table) ----------------
+// Per (zone, horizon) money/CO2/carbon figures. Mirrors the API's
+// SavingsMetricsOut - see api/src/nongfab_api/green_savings.py for how each is
+// derived and from which real reference document.
+export interface SavingsMetrics {
+  energy_kwh: number
+  bill_saving_thb: number
+  ugt1_units_kwh: number
+  ugt1_saving_thb: number
+  ugt2_units_kwh: number
+  ugt2_saving_thb: number
+  carbon_credit_units: number
+  carbon_credit_value_thb: number
+  trees_equivalent: number
+  scope2_co2_avoided_kg: number
+}
+
+export interface SavingsPeriods {
+  day: SavingsMetrics
+  month: SavingsMetrics
+  year: SavingsMetrics
+  lifetime: SavingsMetrics
+}
+
+export interface ZoneSavings {
+  zone: string
+  label: string
+  simulated: boolean
+  dc_capacity_kwp: number
+  periods: SavingsPeriods
+}
+
+export interface SavingsSummaryResponse {
+  zones: ZoneSavings[]
+  assumptions: Record<string, number | string>
+}
+
 export interface IrradianceGridPoint {
   lat: number
   lon: number
@@ -487,6 +530,20 @@ export interface ChatMessage {
   avatar: string | null
   client_id: string | null
   recipient_client_id: string | null
+  // Echoed back only to the sender's own socket so the client can reconcile
+  // the optimistic bubble it showed on send with this confirmed server copy
+  // (see useChatSocket.ts). Absent on the recipient's copy and on history.
+  client_temp_id?: string | null
+}
+
+// Sent by the server when handling a frame failed (e.g. the DB write raised).
+// Carries `client_temp_id` when the failure was for a specific outgoing
+// message, so the client can flip exactly that optimistic bubble to "failed"
+// instead of leaving the visitor staring at a silent, stuck "sending".
+export interface ChatErrorEvent {
+  type: 'error'
+  message?: string
+  client_temp_id?: string | null
 }
 
 // One entry per currently-connected visitor (deduped by client_id - a
@@ -505,7 +562,7 @@ export interface ChatOnlineUsers {
   users: OnlineUser[]
 }
 
-export type ChatEvent = ChatMessage | ChatOnlineUsers
+export type ChatEvent = ChatMessage | ChatOnlineUsers | ChatErrorEvent
 
 export interface FeedbackItem {
   id: number
@@ -513,4 +570,7 @@ export interface FeedbackItem {
   role: string
   text: string
   created_at: string
+  /** The sender's self-chosen display name; null for pre-2026-07-19 rows,
+   * where the admin view falls back to `username`. */
+  display_name: string | null
 }

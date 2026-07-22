@@ -4,6 +4,7 @@ import {
   getCloudConditions,
   getCurrentConditions,
   getEnergyReport,
+  getSavingsSummary,
   getFeedback,
   getForecast,
   getGeometry,
@@ -20,6 +21,7 @@ import {
 } from './api'
 import type { FinancialRequest, ForecastHorizon, SimulateRequest } from './types'
 import { useAuth } from './auth'
+import { loadChatProfile } from './chatProfile'
 
 export const ALL_ZONES_ID = 'ALL'
 export const REAL_ZONE_IDS = ['GIS', 'ISB', 'Jetty'] as const
@@ -216,6 +218,20 @@ export function useEnergyReport(zone: string) {
   })
 }
 
+/** Site-wide savings & carbon summary (ISB/GIS/Jetty + combined) for the
+ * Energy Report bottom table - a single call covers every zone, so it is not
+ * zone-scoped like `useEnergyReport`. Slow-moving (seasonal estimates), so the
+ * same 5-min staleTime as the energy report is plenty. */
+export function useSavingsSummary() {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['savings-summary'],
+    queryFn: () => getSavingsSummary(token!),
+    enabled: Boolean(token),
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
 /** `at`: ISO timestamp to evaluate the irradiance grid at - omit for "now",
  * same convention as `useGeometry`. `placeholderData: keepPreviousData` for
  * the same reason as `useGeometry`: without it, the irradiance ground
@@ -264,7 +280,9 @@ export function useSubmitFeedback() {
   const { token } = useAuth()
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (text: string) => postFeedback(text, token!),
+    // Attach the visitor's self-chosen display name (chatProfile.ts) so admin
+    // sees who actually wrote the note, not just the shared login username.
+    mutationFn: (text: string) => postFeedback(text, token!, loadChatProfile()?.displayName ?? null),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['feedback'] }),
   })
 }

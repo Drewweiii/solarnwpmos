@@ -9,7 +9,7 @@ import { Canvas, useFrame } from '@react-three/fiber'
 import { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { Ref } from 'react'
 import type { DirectionalLight, Group } from 'three'
-import { TextureLoader, type Texture } from 'three'
+import { CanvasTexture, TextureLoader, type Texture } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import {
   advanceSimClockMs,
@@ -361,17 +361,66 @@ function SunMarker({
 
 interface MoonMarkerProps {
   moonPathPoints: MoonPathPoint[]
-  sunPathPoints: SunPathPoint[]
   atIso: string
   isPlaying: boolean
   fallbackMoonAzimuthDeg: number
   fallbackMoonElevationDeg: number
-  fallbackSunElevationDeg: number
   orbitRadius: number
   moonRadius: number
   glowRadius: number
+  /** Lit fraction 0..1 and waxing flag (GET /moon-path) - drives the
+   * phase-correct crescent/gibbous the marker draws instead of a flat disc. */
+  illumination: number
+  waxing: boolean
   wrapStartMs: number | null
   wrapEndMs: number | null
+}
+
+// Paints a phase-correct Moon disc onto a canvas the marker uses as a
+// camera-facing sprite texture (2026-07-19, after the user asked for the Moon
+// to be drawn as its real crescent so a daytime crescent reads as intended,
+// not a bug). Pixel-by-pixel rather than canvas arc paths on purpose: the
+// lit/dark test is a single unambiguous inequality per pixel (a point at
+// normalized (nx, ny) inside the unit disc is lit when nx is on the sunlit
+// side of the terminator ellipse x = (1-2k)*sqrt(1-ny^2)), so there is no
+// arc-sweep-direction ambiguity to get subtly wrong for gibbous vs crescent.
+// Runs once per (illumination, waxing) change (memoized in MoonMarker), never
+// per frame. Lives outside the component so it isn't re-created each render.
+function makeMoonPhaseTexture(illumination: number, waxing: boolean): CanvasTexture {
+  const size = 128
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  const img = ctx.createImageData(size, size)
+  const cx = size / 2
+  const cy = size / 2
+  const r = size * 0.46
+  const k = Math.max(0, Math.min(1, illumination))
+  const lit = [243, 246, 255]
+  const dark = [56, 63, 84]
+  for (let py = 0; py < size; py++) {
+    for (let px = 0; px < size; px++) {
+      const nx = (px - cx) / r
+      const ny = (py - cy) / r
+      const idx = (py * size + px) * 4
+      if (nx * nx + ny * ny > 1) {
+        img.data[idx + 3] = 0 // outside the disc -> transparent
+        continue
+      }
+      const terminator = (1 - 2 * k) * Math.sqrt(Math.max(0, 1 - ny * ny))
+      const isLit = waxing ? nx > terminator : nx < -terminator
+      const c = isLit ? lit : dark
+      img.data[idx] = c[0]
+      img.data[idx + 1] = c[1]
+      img.data[idx + 2] = c[2]
+      img.data[idx + 3] = 255
+    }
+  }
+  ctx.putImageData(img, 0, 0)
+  const texture = new CanvasTexture(canvas)
+  texture.needsUpdate = true
+  return texture
 }
 
 // Mirrors SunMarker's own "own imperative clock, no React re-render per
@@ -389,29 +438,37 @@ interface MoonMarkerProps {
 // continuous 24h arc, so `interpolateSunPosition` (generic over any
 // {time, azimuth_deg, elevation_deg}[] - reused here rather than writing a
 // near-identical "interpolateMoonPosition") never returns null for it.
-// Visibility instead requires two real conditions at once: the Moon's own
-// elevation is genuinely above its horizon, AND the Sun is currently below
-// its own horizon (`interpolateSunPosition(sunPathPoints, ...)` returning
-// null - sunPathPoints only covers daylight, so null there already means
-// "sun is down"). This is a deliberate "one or the other, not both" scene
-// convention (the request was literally "replace the sun"), not a claim
-// that the real sun and moon are never in the sky at once.
+//
+// Visibility (2026-07-19): the Moon marker shows whenever the Moon itself is
+// above the horizon (`elevationDeg > 0`), matching the drawn moon-path arc's
+// own `elevation_deg > 0` filter so the marker traverses the *whole* arc it
+// sits on, rise (east) to set (west). The earlier "only while the Sun is
+// down" gate was removed after the user reported the Moon "doesn't move
+// across the full horizon": on any date where the Moon leads the Sun it has
+// already crossed to the western sky by the time the Sun sets, so gating on
+// sun-down clipped the marker to a short western setting arc even though the
+// full E->W arc line was drawn. Showing the Moon whenever it is up is also
+// astronomically honest - a daytime Moon is common - and lets Play sweep it
+// smoothly across the sky the way the Sun does.
 function MoonMarker({
   moonPathPoints,
-  sunPathPoints,
   atIso,
   isPlaying,
   fallbackMoonAzimuthDeg,
   fallbackMoonElevationDeg,
-  fallbackSunElevationDeg,
   orbitRadius,
   moonRadius,
   glowRadius,
+  illumination,
+  waxing,
   wrapStartMs,
   wrapEndMs,
 }: MoonMarkerProps) {
   const groupRef = useRef<Group>(null)
   const animatedMsRef = useRef(new Date(atIso).getTime())
+
+  const phaseTexture = useMemo(() => makeMoonPhaseTexture(illumination, waxing), [illumination, waxing])
+  useEffect(() => () => phaseTexture.dispose(), [phaseTexture])
 
   useEffect(() => {
     animatedMsRef.current = new Date(atIso).getTime()
@@ -428,27 +485,25 @@ function MoonMarker({
     const elevationDeg = interpolatedMoon?.elevationDeg ?? fallbackMoonElevationDeg
     const [x, y, z] = sunPositionVector(azimuthDeg, elevationDeg, orbitRadius)
 
-    const interpolatedSun = interpolateSunPosition(sunPathPoints, atIsoNow)
-    const sunIsDown = interpolatedSun ? interpolatedSun.elevationDeg <= 0 : fallbackSunElevationDeg <= 0
-
     if (groupRef.current) {
       groupRef.current.position.set(x, y, z)
-      groupRef.current.visible = sunIsDown && elevationDeg > 0
+      groupRef.current.visible = elevationDeg > 0
     }
   })
 
   return (
     <group ref={groupRef}>
-      {/* Same soft-glow-plus-core convention as SunMarker's own mesh pair,
-          just pale blue-white instead of yellow. */}
+      {/* Soft pale halo for legibility (same soft-glow convention as
+          SunMarker), then the phase disc itself as a camera-facing sprite so
+          the drawn crescent/gibbous always presents its lit side to the
+          viewer regardless of orbit angle. */}
       <mesh>
         <sphereGeometry args={[glowRadius, 16, 16]} />
         <meshBasicMaterial color="#e2e8f0" transparent opacity={0.2} depthWrite={false} />
       </mesh>
-      <mesh>
-        <sphereGeometry args={[moonRadius, 24, 24]} />
-        <meshBasicMaterial color="#f1f5f9" />
-      </mesh>
+      <sprite scale={[moonRadius * 2.2, moonRadius * 2.2, 1]}>
+        <spriteMaterial map={phaseTexture} transparent depthWrite={false} />
+      </sprite>
     </group>
   )
 }
@@ -786,6 +841,8 @@ interface Solar3DSceneProps {
   moonAzimuthDeg: number
   moonElevationDeg: number
   moonPathPoints: MoonPathPoint[]
+  moonIllumination: number
+  moonWaxing: boolean
   // The instant currently being shown - the authoritative source SunMarker
   // re-anchors its own smooth animated clock to whenever it isn't actively
   // playing (paused, or a manual scrub). See SunMarker's own docstring.
@@ -858,6 +915,8 @@ export function Solar3DScene({
   moonAzimuthDeg,
   moonElevationDeg,
   moonPathPoints,
+  moonIllumination,
+  moonWaxing,
   atIso,
   isPlaying,
   onAnimatedTimeChange,
@@ -1075,15 +1134,15 @@ export function Solar3DScene({
       {moonPathLine.length > 1 && <Line points={moonPathLine} color="#94a3b8" lineWidth={1} />}
       <MoonMarker
         moonPathPoints={moonPathPoints}
-        sunPathPoints={sunPathPoints}
         atIso={atIso}
         isPlaying={isPlaying}
         fallbackMoonAzimuthDeg={moonAzimuthDeg}
         fallbackMoonElevationDeg={moonElevationDeg}
-        fallbackSunElevationDeg={sunElevationDeg}
         orbitRadius={sunOrbitRadius}
         moonRadius={moonRadius}
         glowRadius={moonGlowRadius}
+        illumination={moonIllumination}
+        waxing={moonWaxing}
         wrapStartMs={wrapStartMs}
         wrapEndMs={wrapEndMs}
       />

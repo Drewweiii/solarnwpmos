@@ -35,10 +35,12 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
@@ -162,6 +164,28 @@ class ChatStore:
             rows = (await session.execute(stmt)).scalars().all()
         return [_row_to_message(row) for row in reversed(rows)]
 
+    async def inbox_messages(self, my_client_id: str, after_id: int, limit: int = HISTORY_LIMIT) -> list[ChatMessage]:
+        """Every message involving `my_client_id` (sent by or addressed to it,
+        across all peers) with id strictly greater than `after_id`, oldest-
+        first. This is the REST-polling counterpart to the old WebSocket push:
+        a client polls this with the highest id it has already seen to pick up
+        both new incoming messages and echoes of its own sends from other tabs
+        (same "message delivery that provably works like /feedback" approach
+        the WebSocket version kept failing at in production)."""
+        async with self._session_factory() as session:
+            involves_me = or_(
+                ChatMessageORM.client_id == my_client_id,
+                ChatMessageORM.recipient_client_id == my_client_id,
+            )
+            stmt = (
+                select(ChatMessageORM)
+                .where(and_(involves_me, ChatMessageORM.id > after_id))
+                .order_by(ChatMessageORM.id.asc())
+                .limit(limit)
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+        return [_row_to_message(row) for row in rows]
+
 
 @dataclass
 class ClientInfo:
@@ -271,45 +295,105 @@ async def ws_chat(websocket: WebSocket) -> None:
             # untrusted-input boundary here - just gets skipped rather than
             # crashing the whole connection.
             raw = await websocket.receive_text()
+            # Everything from here down is wrapped so that a failure handling
+            # ONE message (a DB write that raises, an unexpected payload shape,
+            # etc.) is logged and reported back to the sender instead of
+            # silently killing the whole socket. Found live 2026-07-19: on
+            # production every send dropped the connection with "no close frame"
+            # and the message was neither delivered, persisted, nor
+            # acknowledged - the classic signature of an unhandled exception in
+            # `store.add_message` (e.g. a full volume / locked or read-only
+            # SQLite file) propagating past the `except WebSocketDisconnect`
+            # below, hitting `finally`, and disconnecting. A WebSocketDisconnect
+            # itself must still bubble up to end the loop, so it's re-raised.
             try:
-                data = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(data, dict):
-                continue
-
-            if data.get("type") == "update_profile":
-                new_display_name = _resolve_display_name(user, data.get("display_name"))
-                new_avatar = _clean_field(data.get("avatar"))
-                manager.update_identity(websocket, new_display_name, new_avatar)
-                await manager.broadcast_online_users()
-                continue
-
-            text = str(data.get("text", "")).strip()
-            if not text:
-                continue
-            recipient_client_id = _clean_field(data.get("recipient_client_id"))
-            if not recipient_client_id:
-                continue  # every message must be addressed to somebody - no public broadcast anymore
-
-            current = manager.get_identity(websocket)
-            msg_display_name = _resolve_display_name(user, data["display_name"]) if data.get("display_name") else display_name
-            if current is not None and not data.get("display_name"):
-                msg_display_name = current.display_name
-            msg_avatar = _clean_field(data.get("avatar")) if data.get("avatar") else (current.avatar if current else avatar)
-
-            message = await store.add_message(
-                user.username, user.role, text[:MAX_MESSAGE_LENGTH], msg_display_name, msg_avatar, client_id, recipient_client_id
-            )
-            payload = message.to_dict()
-            await manager.send_to_client(client_id, payload)
-            if recipient_client_id != client_id:
-                await manager.send_to_client(recipient_client_id, payload)
+                await _handle_chat_frame(raw, websocket, user, store, manager, client_id, display_name, avatar)
+            except WebSocketDisconnect:
+                raise
+            except Exception:  # noqa: BLE001 - one bad message must not tear down the socket
+                logger.exception("ws/chat: failed to handle a message frame; keeping socket open")
+                try:
+                    await websocket.send_json(
+                        {"type": "error", "message": "ส่งข้อความไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"}
+                    )
+                except Exception:  # noqa: BLE001 - if even the error notice can't be sent, just wait for the next frame
+                    pass
     except WebSocketDisconnect:
         logger.debug("ws/chat client disconnected")
     finally:
         manager.disconnect(websocket)
         await manager.broadcast_online_users()
+
+
+async def _handle_chat_frame(
+    raw: str,
+    websocket: WebSocket,
+    user: AuthenticatedUser,
+    store: "ChatStore",
+    manager: "ConnectionManager",
+    client_id: str,
+    display_name: str,
+    avatar: str | None,
+) -> None:
+    """Handle a single received /ws/chat text frame: a profile update, or a
+    private message (persist it, then push to the sender's own tabs and the
+    recipient's). Kept a separate function purely so `ws_chat`'s loop can wrap
+    exactly this in a per-frame try/except (see its call site) - any exception
+    here is caught there, logged, and surfaced to the sender rather than
+    killing the connection."""
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return
+    if not isinstance(data, dict):
+        return
+
+    if data.get("type") == "update_profile":
+        new_display_name = _resolve_display_name(user, data.get("display_name"))
+        new_avatar = _clean_field(data.get("avatar"))
+        manager.update_identity(websocket, new_display_name, new_avatar)
+        await manager.broadcast_online_users()
+        return
+
+    text = str(data.get("text", "")).strip()
+    if not text:
+        return
+    recipient_client_id = _clean_field(data.get("recipient_client_id"))
+    if not recipient_client_id:
+        return  # every message must be addressed to somebody - no public broadcast anymore
+
+    # Optional per-message token the client made up before sending, so it can
+    # match the confirmed server copy back to the optimistic bubble it already
+    # drew (LINE/Messenger-style send). Echoed straight back to the sender; the
+    # recipient never needs it. Also attached to an error frame below so a
+    # failed send flips exactly that one bubble to "failed" instead of leaving
+    # the visitor staring at a silent, stuck message.
+    client_temp_id = _clean_field(data.get("client_temp_id"))
+
+    current = manager.get_identity(websocket)
+    msg_display_name = _resolve_display_name(user, data["display_name"]) if data.get("display_name") else display_name
+    if current is not None and not data.get("display_name"):
+        msg_display_name = current.display_name
+    msg_avatar = _clean_field(data.get("avatar")) if data.get("avatar") else (current.avatar if current else avatar)
+
+    try:
+        message = await store.add_message(
+            user.username, user.role, text[:MAX_MESSAGE_LENGTH], msg_display_name, msg_avatar, client_id, recipient_client_id
+        )
+    except Exception:  # noqa: BLE001 - a failed persist must reach the sender as a precise, per-message error
+        logger.exception("ws/chat: failed to persist a message; telling the sender it did not send")
+        await websocket.send_json(
+            {"type": "error", "client_temp_id": client_temp_id, "message": "ส่งข้อความไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"}
+        )
+        return
+
+    payload = message.to_dict()
+    # Sender's own tabs get the client_temp_id so the originating tab can
+    # reconcile its optimistic bubble; the recipient gets the plain payload.
+    sender_payload = {**payload, "client_temp_id": client_temp_id} if client_temp_id else payload
+    await manager.send_to_client(client_id, sender_payload)
+    if recipient_client_id != client_id:
+        await manager.send_to_client(recipient_client_id, payload)
 
 
 @router.get("/chat/history")
@@ -324,4 +408,101 @@ async def get_chat_history(
     store: ChatStore = request.app.state.chat_store
     capped_limit = max(1, min(limit, HISTORY_LIMIT))
     messages = await store.conversation_messages(my_client_id, peer_client_id, before_id, capped_limit)
+    return {"messages": [m.to_dict() for m in messages]}
+
+
+# --- REST transport (2026-07-20) ------------------------------------------
+# The WebSocket path above kept failing in production (sends silently going
+# nowhere, no error, no delivery - reported repeatedly). These plain
+# request/response endpoints are the exact same shape as the feedback flow the
+# user pointed out *does* work reliably: POST to send, GET to poll for new
+# messages, POST a heartbeat for presence. The frontend (useChatSocket.ts) now
+# drives chat entirely through these, with no WebSocket.
+
+PRESENCE_WINDOW_SECONDS = 25.0  # a client is "online" if it heartbeated within this
+
+
+class PresenceRegistry:
+    """In-memory, single-process record of who has recently heartbeated -
+    the REST replacement for the WebSocket connection set's online list. Same
+    single-process caveat as everything else here (this deployment runs one
+    API process)."""
+
+    def __init__(self) -> None:
+        self._seen: dict[str, tuple[float, dict]] = {}
+
+    def heartbeat(self, client_id: str, display_name: str, avatar: str | None, role: str) -> None:
+        self._seen[client_id] = (time.monotonic(), {"client_id": client_id, "display_name": display_name, "avatar": avatar, "role": role})
+
+    def online_users(self) -> list[dict]:
+        now = time.monotonic()
+        fresh = [info for ts, info in self._seen.values() if now - ts < PRESENCE_WINDOW_SECONDS]
+        # Drop stale entries opportunistically so the dict can't grow forever.
+        self._seen = {cid: v for cid, v in self._seen.items() if now - v[0] < PRESENCE_WINDOW_SECONDS}
+        return sorted(fresh, key=lambda i: str(i["display_name"]).lower())
+
+
+class PresenceIn(BaseModel):
+    client_id: str
+    display_name: str | None = None
+    avatar: str | None = None
+
+
+class SendMessageIn(BaseModel):
+    client_id: str
+    recipient_client_id: str
+    text: str
+    display_name: str | None = None
+    avatar: str | None = None
+
+
+@router.post("/chat/presence")
+async def post_presence(
+    body: PresenceIn, request: Request, user: AuthenticatedUser = Depends(require_role("viewer"))
+) -> dict:
+    """Heartbeat 'I'm online' and get back who else is - the REST presence
+    poll. Admin identity/prefix is forced server-side, same as the chat/WS
+    paths, never trusted from the client."""
+    client_id = _clean_field(body.client_id)
+    if not client_id:
+        raise HTTPException(status_code=422, detail="missing client_id")
+    presence: PresenceRegistry = request.app.state.chat_presence
+    presence.heartbeat(client_id, _resolve_display_name(user, body.display_name), _clean_field(body.avatar), user.role)
+    return {"users": presence.online_users()}
+
+
+@router.post("/chat/send")
+async def post_send(
+    body: SendMessageIn, request: Request, user: AuthenticatedUser = Depends(require_role("viewer"))
+) -> dict:
+    """Send a private message over plain REST (persists it, returns the stored
+    row). Delivery to the recipient happens by their own `GET /chat/inbox`
+    poll - there is no server push. Mirrors POST /feedback, which works."""
+    text = body.text.strip()
+    client_id = _clean_field(body.client_id)
+    recipient_client_id = _clean_field(body.recipient_client_id)
+    if not text or not client_id or not recipient_client_id:
+        raise HTTPException(status_code=422, detail="text, client_id and recipient_client_id are required")
+    store: ChatStore = request.app.state.chat_store
+    display_name = _resolve_display_name(user, body.display_name)
+    message = await store.add_message(
+        user.username, user.role, text[:MAX_MESSAGE_LENGTH], display_name, _clean_field(body.avatar), client_id, recipient_client_id
+    )
+    return {"message": message.to_dict()}
+
+
+@router.get("/chat/inbox")
+async def get_inbox(
+    my_client_id: str,
+    request: Request,
+    after_id: int = 0,
+    limit: int = HISTORY_LIMIT,
+    _user: AuthenticatedUser = Depends(require_role("viewer")),
+) -> dict:
+    """Poll for any messages involving me newer than `after_id` (incoming from
+    any peer + echoes of my own sends). The REST replacement for the WebSocket
+    message push."""
+    store: ChatStore = request.app.state.chat_store
+    capped_limit = max(1, min(limit, HISTORY_LIMIT))
+    messages = await store.inbox_messages(my_client_id, after_id, capped_limit)
     return {"messages": [m.to_dict() for m in messages]}
