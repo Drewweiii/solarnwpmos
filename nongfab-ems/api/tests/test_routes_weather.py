@@ -361,6 +361,13 @@ class _FakeUVObservation:
     source: str
 
 
+@dataclass
+class _FakeHourlyUVObservation:
+    observed_at: datetime  # tz-aware UTC
+    uv_index: float
+    source: str
+
+
 def test_get_current_conditions_requires_auth(app):
     with TestClient(app) as client:
         resp = client.get("/weather/conditions")
@@ -512,3 +519,41 @@ def test_get_uv_history_returns_every_real_day_oldest_first(engine, tmp_path, mo
     ]
     assert points[0]["uv_index"] == pytest.approx(6.5)
     assert points[-1]["uv_index"] == pytest.approx(9.0)
+
+
+def test_get_uv_hourly_history_requires_auth(app):
+    with TestClient(app) as client:
+        resp = client.get("/weather/uv-hourly-history")
+    assert resp.status_code == 401
+
+
+def test_get_uv_hourly_history_empty_when_store_empty(app, token_factory):
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get("/weather/uv-hourly-history", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.json()["points"] == []
+
+
+def test_get_uv_hourly_history_returns_hours_oldest_first(engine, tmp_path):
+    from nongfab_api.auth import create_access_token
+
+    app, settings = _app_with_file_backed_store(engine, tmp_path)
+    base = datetime(2026, 7, 19, 0, 0, tzinfo=timezone.utc)
+
+    with TestClient(app) as client:
+        # Inserted out of order - the response must still come back sorted.
+        app.state.real_data_store.insert_hourly_uv_observations([
+            _FakeHourlyUVObservation(observed_at=base + timedelta(hours=12), uv_index=9.2, source="test-uv"),
+            _FakeHourlyUVObservation(observed_at=base + timedelta(hours=6), uv_index=3.1, source="test-uv"),
+            _FakeHourlyUVObservation(observed_at=base, uv_index=0.0, source="test-uv"),
+        ])
+        token = create_access_token("tester", "viewer", settings, app.state.deploy_id)
+        resp = client.get("/weather/uv-hourly-history", headers={"Authorization": f"Bearer {token}"})
+
+    points = resp.json()["points"]
+    assert len(points) == 3
+    assert [p["uv_index"] for p in points] == [0.0, 3.1, 9.2]
+    # observed_at is serialized as tz-aware UTC ISO, oldest first
+    assert points[0]["observed_at"].startswith("2026-07-19T00:00:00")
+    assert points[-1]["observed_at"].startswith("2026-07-19T12:00:00")

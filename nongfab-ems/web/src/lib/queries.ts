@@ -14,6 +14,7 @@ import {
   getPrecipitationConditions,
   getSunPath,
   getUvHistory,
+  getUvHourlyHistory,
   getWeatherStrip,
   postFeedback,
   postFinancial,
@@ -125,6 +126,19 @@ export function useUvHistory() {
   return useQuery({
     queryKey: ['uv-history'],
     queryFn: () => getUvHistory(token!),
+    enabled: Boolean(token),
+    staleTime: 30 * 60 * 1000,
+  })
+}
+
+// Hourly UV curve (Open-Meteo hourly=uv_index, 2026-07-22 roadmap item 5) -
+// the real intraday shape, unlike useUvHistory's one-bar-per-day list. Same
+// slow-moving-data staleTime: the backend only refreshes it a few times a day.
+export function useUvHourlyHistory() {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['uv-hourly-history'],
+    queryFn: () => getUvHourlyHistory(token!),
     enabled: Boolean(token),
     staleTime: 30 * 60 * 1000,
   })

@@ -20,6 +20,7 @@ import type {
   SimulateResponse,
   SunPathResponse,
   UvHistoryResponse,
+  UvHourlyHistoryResponse,
   WeatherStripResponse,
   Zone,
 } from './types'
@@ -123,6 +124,9 @@ export const getPrecipitationConditions = (token: string): Promise<Precipitation
 export const getCurrentConditions = (token: string): Promise<CurrentConditionsResponse> => request('/weather/conditions', token)
 
 export const getUvHistory = (token: string): Promise<UvHistoryResponse> => request('/weather/uv-history', token)
+
+export const getUvHourlyHistory = (token: string): Promise<UvHourlyHistoryResponse> =>
+  request('/weather/uv-hourly-history', token)
 
 export const postSimulate = (zone: string, body: SimulateRequest, token: string): Promise<SimulateResponse> =>
   request(`/simulate/${zone}`, token, { method: 'POST', body: JSON.stringify(body) })

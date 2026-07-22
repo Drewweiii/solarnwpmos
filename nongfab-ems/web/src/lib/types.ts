@@ -198,6 +198,22 @@ export interface UvHistoryResponse {
   points: UvHistoryPoint[]
 }
 
+// GET /weather/uv-hourly-history - every real hourly UV reading this deployment
+// has accumulated (Open-Meteo hourly=uv_index), oldest first (2026-07-22,
+// roadmap item 5). Unlike the daily list above, this IS a genuine intraday
+// curve (UV rising and falling with sun elevation). `observed_at` is tz-aware
+// UTC ISO; the frontend renders it in ICT (Thailand-first display). A
+// possibly-empty list, same honest-empty contract as every other real-history
+// endpoint.
+export interface UvHourlyHistoryPoint {
+  observed_at: string
+  uv_index: number
+}
+
+export interface UvHourlyHistoryResponse {
+  points: UvHourlyHistoryPoint[]
+}
+
 export interface HourlyPoint {
   timestamp: string
   ac_kw: number

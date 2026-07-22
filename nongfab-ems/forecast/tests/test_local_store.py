@@ -56,6 +56,13 @@ class _FakeUVObservation:
     source: str
 
 
+@dataclass
+class _FakeHourlyUVObservation:
+    observed_at: datetime
+    uv_index: float
+    source: str
+
+
 def test_default_db_path_is_in_memory_unless_env_var_set(monkeypatch):
     monkeypatch.delenv("NONGFAB_REAL_DATA_DB", raising=False)
     assert default_db_path() == ":memory:"
@@ -66,7 +73,9 @@ def test_default_db_path_is_in_memory_unless_env_var_set(monkeypatch):
 
 def test_store_starts_empty():
     store = RealDataStore()
-    assert store.counts() == {"nwp_history": 0, "cloud_history": 0, "uv_history": 0, "forecast_history": 0}
+    assert store.counts() == {
+        "nwp_history": 0, "cloud_history": 0, "uv_history": 0, "uv_hourly_history": 0, "forecast_history": 0,
+    }
 
 
 def test_insert_and_read_nwp_points_roundtrips():
@@ -273,6 +282,35 @@ def test_insert_and_read_uv_observations_roundtrips():
 
     df = store.uv_history_df()
     assert len(df) == 2
+
+
+def test_insert_and_read_hourly_uv_observations_roundtrips():
+    store = RealDataStore()
+    obs = [
+        _FakeHourlyUVObservation(
+            observed_at=datetime(2026, 7, 19, i, 0, tzinfo=timezone.utc), uv_index=float(i), source="test"
+        )
+        for i in range(3)
+    ]
+    inserted = store.insert_hourly_uv_observations(obs)
+    assert inserted == 3
+
+    df = store.uv_hourly_history_df()
+    assert len(df) == 3
+    # observed_at round-trips as tz-aware UTC, oldest first
+    assert df["observed_at"].iloc[0] == pd.Timestamp("2026-07-19T00:00:00Z")
+    assert df["observed_at"].iloc[-1] == pd.Timestamp("2026-07-19T02:00:00Z")
+    assert list(df["uv_index"]) == [0.0, 1.0, 2.0]
+
+
+def test_hourly_uv_upsert_replaces_same_timestamp():
+    store = RealDataStore()
+    when = datetime(2026, 7, 19, 12, 0, tzinfo=timezone.utc)
+    store.insert_hourly_uv_observations([_FakeHourlyUVObservation(observed_at=when, uv_index=8.0, source="open-meteo")])
+    store.insert_hourly_uv_observations([_FakeHourlyUVObservation(observed_at=when, uv_index=9.5, source="open-meteo")])
+    df = store.uv_hourly_history_df()
+    assert len(df) == 1  # same (observed_at, source) -> replaced, not duplicated
+    assert df["uv_index"].iloc[0] == 9.5
 
 
 def test_file_backed_store_persists_across_reconnects(tmp_path):

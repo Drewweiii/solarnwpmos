@@ -1027,3 +1027,13 @@ real vs. synthetic - the signal `api/routes_irradiance_map.py` uses to set
 `cloud_data_source` and decide whether to anchor its overlay to real cloud
 conditions. Tested: `test_real_data.py` +4 (None without store/data, real
 factor near a reading, clear vs. cloudy differ, None outside tolerance).
+
+### 2026-07-22 - `uv_hourly_history` store table (roadmap item 5)
+
+`local_store` gains an `uv_hourly_history` table (keyed by `(observed_at,
+source)`, UTC-aware) alongside the existing daily `uv_history`, with
+`insert_hourly_uv_observations`, `uv_hourly_history_df()`, and inclusion in
+`counts()`. This backs the real hourly UV curve the api layer ingests from
+Open-Meteo (`hourly=uv_index`) and serves via `GET /weather/uv-hourly-history` -
+see the api README's matching entry. Tested: `test_local_store.py` +2 (hourly
+roundtrip oldest-first + upsert-replaces-same-timestamp).

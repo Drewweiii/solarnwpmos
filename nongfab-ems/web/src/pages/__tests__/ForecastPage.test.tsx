@@ -166,6 +166,10 @@ describe('ForecastPage', () => {
     vi.spyOn(api, 'getWeatherStrip').mockResolvedValue(makeWeatherStrip('2026-07-14T12:00:00.000Z', 12))
     vi.spyOn(api, 'getCurrentConditions').mockResolvedValue(makeCurrentConditions())
     vi.spyOn(api, 'getUvHistory').mockResolvedValue(makeUvHistory())
+    // Default: no hourly UV accumulated yet, so the UV chart falls back to the
+    // daily bar (matching the pre-2026-07-22 behavior the daily-bar tests
+    // assert). Tests that exercise the hourly line override this per-case.
+    vi.spyOn(api, 'getUvHourlyHistory').mockResolvedValue({ points: [] })
   })
 
   afterEach(() => {
@@ -382,6 +386,21 @@ describe('ForecastPage', () => {
     renderPage()
     await screen.findByText('UV - ดัชนีรังสียูวี (รายวัน)')
     expect(await screen.findByText(/ยังไม่มีข้อมูล UV สะสม/)).toBeInTheDocument()
+  })
+
+  it('renders the real hourly UV line chart when hourly data has accumulated (2026-07-22)', async () => {
+    vi.spyOn(api, 'getUvHourlyHistory').mockResolvedValue({
+      points: [
+        { observed_at: '2026-07-14T00:00:00Z', uv_index: 0.0 },
+        { observed_at: '2026-07-14T06:00:00Z', uv_index: 3.2 },
+        { observed_at: '2026-07-14T12:00:00Z', uv_index: 9.1 },
+      ],
+    })
+    renderPage()
+    // Title switches to the hourly variant, and the daily-bar caption is gone -
+    // the real hourly curve takes over from the one-bar-per-day fallback.
+    await screen.findByText('UV - ดัชนีรังสียูวี (รายชั่วโมง)')
+    expect(await screen.findByText(/กราฟ UV รายชั่วโมงจริงจาก Open-Meteo/)).toBeInTheDocument()
   })
 
   it('does not render RH/WS charts when the weather strip has no real humidity/wind data (synthetic fallback)', async () => {

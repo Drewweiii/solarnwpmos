@@ -1,4 +1,4 @@
-"""Open-Meteo daily UV-index source.
+"""Open-Meteo UV-index source (daily max + hourly curve).
 
 User-approved 2026-07-19 as the UV data source, with the Thailand-first policy
 exception acknowledged explicitly: Open-Meteo is a non-Thai free service, but
@@ -9,9 +9,15 @@ has never been reachable from this deployment (see
 `ingestion_scheduler._backfill_uv`'s own note) - so the dashboard's UV cell and
 UV chart, which are already fully wired, simply had no data to show.
 
-Free, no API key, daily `uv_index_max`. Daily resolution is exactly what the
-dashboard's UV readouts already expect (see routes_weather / ForecastPage -
-"UV เป็นรายวัน"), so no per-hour plumbing is needed.
+Free, no API key. Two resolutions:
+- `fetch_uv_observations` -> daily `uv_index_max` (one value per local day),
+  what the dashboard's "UV รายวัน" cell and daily bar already expect.
+- `fetch_hourly_uv_observations` -> hourly `uv_index` (the intraday curve that
+  rises and falls with sun elevation), added 2026-07-22 (roadmap item 5) so the
+  UV chart can show a real intraday shape instead of one flat daily bar. Hourly
+  timestamps are requested in UTC and stored UTC-aware (same convention as
+  cloud_history), leaving the frontend to render them in ICT (Thailand-first
+  display, UTC store semantics).
 """
 
 from __future__ import annotations
@@ -19,6 +25,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date as date_type
+from datetime import datetime, timezone
 
 import httpx
 
@@ -68,4 +75,46 @@ async def fetch_uv_observations(
         if uv is None:
             continue
         observations.append(UVObservation(observation_date=date_type.fromisoformat(iso_day), uv_index=float(uv)))
+    return observations
+
+
+@dataclass(frozen=True)
+class HourlyUVObservation:
+    """Matches what `RealDataStore.insert_hourly_uv_observations` reads off each
+    item (observed_at / uv_index / source). `observed_at` is a tz-aware UTC
+    datetime, same convention as cloud_history."""
+
+    observed_at: datetime
+    uv_index: float
+    source: str = SOURCE_NAME
+
+
+async def fetch_hourly_uv_observations(
+    client: httpx.AsyncClient, latitude: float, longitude: float, past_days: int = MAX_PAST_DAYS
+) -> list[HourlyUVObservation]:
+    """Hourly UV index at (latitude, longitude) for the last `past_days` days
+    plus today and the next forecast day. Returns oldest-first; skips any hour
+    Open-Meteo reports a null UV for (never fabricates a value). Timestamps are
+    requested in UTC (`timezone=UTC`) and returned tz-aware UTC, matching every
+    other time-series in the store. Raises on an HTTP/transport error - the
+    caller wraps it so one failed refresh never crashes ingestion."""
+    params = {
+        "latitude": latitude,
+        "longitude": longitude,
+        "hourly": "uv_index",
+        "timezone": "UTC",
+        "past_days": max(0, min(past_days, MAX_PAST_DAYS)),
+        "forecast_days": 1,
+    }
+    resp = await client.get(OPEN_METEO_URL, params=params, timeout=30.0)
+    resp.raise_for_status()
+    hourly = resp.json().get("hourly", {})
+    times = hourly.get("time", []) or []
+    uvs = hourly.get("uv_index", []) or []
+    observations: list[HourlyUVObservation] = []
+    for iso_hour, uv in zip(times, uvs):
+        if uv is None:
+            continue
+        observed_at = datetime.fromisoformat(iso_hour).replace(tzinfo=timezone.utc)
+        observations.append(HourlyUVObservation(observed_at=observed_at, uv_index=float(uv)))
     return observations

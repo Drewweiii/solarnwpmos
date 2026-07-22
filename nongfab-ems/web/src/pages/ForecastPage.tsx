@@ -43,6 +43,7 @@ import {
   useForecast,
   usePerformance,
   useUvHistory,
+  useUvHourlyHistory,
   useWeatherStrip,
   useZones,
 } from '../lib/queries'
@@ -56,6 +57,7 @@ import type {
   GeneratedPowerPoint,
   HourlyPoint,
   UvHistoryPoint,
+  UvHourlyHistoryPoint,
   WeatherStripPoint,
 } from '../lib/types'
 import './ForecastPage.css'
@@ -192,6 +194,10 @@ export function ForecastPage() {
   // snapshot) and deliberately polled far less often - see useUvHistory's
   // own docstring.
   const uvHistory = useUvHistory()
+  // Real hourly UV curve (2026-07-22, roadmap item 5) - the intraday shape
+  // that upgrades the UV chart from one-bar-per-day to a real hourly line when
+  // it has accumulated. Same separate-query rationale as uvHistory above.
+  const uvHourlyHistory = useUvHourlyHistory()
 
   // Minute-ahead (CNN-LSTM) is a fixed near-real-time horizon, not part of
   // the Day-ahead/Intra-day toggle above - shown in its own always-visible
@@ -693,6 +699,8 @@ export function ForecastPage() {
         isLoading={weatherStrip.isLoading}
         uvPoints={uvHistory.data?.points ?? []}
         uvLoading={uvHistory.isLoading}
+        uvHourlyPoints={uvHourlyHistory.data?.points ?? []}
+        uvHourlyLoading={uvHourlyHistory.isLoading}
       />
     </div>
   )
@@ -1301,6 +1309,8 @@ interface SolarVariablesGraphsProps {
   isLoading: boolean
   uvPoints: UvHistoryPoint[]
   uvLoading: boolean
+  uvHourlyPoints: UvHourlyHistoryPoint[]
+  uvHourlyLoading: boolean
 }
 
 const VARIABLE_CHART_TOOLTIP_FORMATTER = (value: unknown) => (typeof value === 'number' ? value.toFixed(2) : String(value))
@@ -1319,15 +1329,15 @@ function formatUvDate(observationDate: string): string {
 // 2026-07-18 request/confirmed grouping ("เห็นด้วยตามที่เสนอ"): the
 // irradiance trio (I/I_clr/I_wrf) share one chart, k̂+cosθ share one chart
 // (both unitless, comparable 0-1-ish scale), and T/RH/WS each get their own
-// chart. UV gets its own daily bar chart (2026-07-19: one real bar per day
-// this deployment has actually polled NASA POWER, oldest first) rather than
-// sharing an hourly line chart with anything else - it has no hourly time
-// series anywhere in this system (NASA POWER is daily-cadence only, not
-// part of /weather/strip), and per the user's own explicit instruction, a
-// variable with no real sub-daily data should never have an hourly curve
-// faked for it just to fill a chart slot. A short/empty bar list on a fresh
-// deploy is the honest result, not an error - see the caption below the
-// chart.
+// chart. UV gets its own chart: a real hourly line when hourly UV data has
+// accumulated (2026-07-22, roadmap item 5 - Open-Meteo `hourly=uv_index`, a
+// genuine intraday curve rising and falling with sun elevation), falling back
+// to the daily bar chart (one real bar per day this deployment polled
+// Open-Meteo, oldest first) when only daily data exists. The hourly curve is
+// real data now, not a faked sub-daily interpolation - the earlier "UV has no
+// hourly series, never fake one" caveat is resolved by actually sourcing the
+// real hourly values. A short/empty result on a fresh deploy is the honest
+// state, not an error - see the captions below the chart.
 //
 // Data source: GET /weather/strip, the SAME already-time-series endpoint
 // the WeatherStrip component above already renders (not a second,
@@ -1335,7 +1345,7 @@ function formatUvDate(observationDate: string): string {
 // (see buildIrradianceRows's own docstring for how that plays out for the
 // irradiance chart specifically) rather than building a parallel windowed
 // endpoint.
-function SolarVariablesGraphs({ points, dataSource, isLoading, uvPoints, uvLoading }: SolarVariablesGraphsProps) {
+function SolarVariablesGraphs({ points, dataSource, isLoading, uvPoints, uvLoading, uvHourlyPoints, uvHourlyLoading }: SolarVariablesGraphsProps) {
   const isReal = dataSource === 'real'
   const irradianceRows = useMemo(() => buildIrradianceRows(points, isReal, Date.now()), [points, isReal])
   const hasRh = points.some((p) => p.relative_humidity_pct != null)
@@ -1473,9 +1483,26 @@ function SolarVariablesGraphs({ points, dataSource, isLoading, uvPoints, uvLoadi
           </div>
 
           <div className="solar-variable-chart">
-            <h4 className="solar-variable-chart-title">UV - ดัชนีรังสียูวี (รายวัน)</h4>
-            {uvLoading ? (
+            <h4 className="solar-variable-chart-title">
+              UV - ดัชนีรังสียูวี ({uvHourlyPoints.length > 0 ? 'รายชั่วโมง' : 'รายวัน'})
+            </h4>
+            {uvHourlyLoading || uvLoading ? (
               <p className="forecast-status">Loading…</p>
+            ) : uvHourlyPoints.length > 0 ? (
+              <>
+                <ResponsiveContainer width="100%" height={180}>
+                  <LineChart data={uvHourlyPoints} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis dataKey="observed_at" tickFormatter={formatDateHourIct} minTickGap={60} />
+                    <YAxis width={40} />
+                    <Tooltip labelFormatter={VARIABLE_CHART_LABEL_FORMATTER} formatter={VARIABLE_CHART_TOOLTIP_FORMATTER} />
+                    <Line dataKey="uv_index" name="UV index" stroke="var(--chart-uv)" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+                <p className="forecast-status forecast-status-caption">
+                  กราฟ UV รายชั่วโมงจริงจาก Open-Meteo (พิกัดจริงของ Nong Fab, เวลาไทย ICT) - ขึ้น-ลงตามมุมดวงอาทิตย์จริงในแต่ละวัน ยิ่งระบบทำงานนานยิ่งมีข้อมูลสะสมมากขึ้น
+                </p>
+              </>
             ) : uvPoints.length > 0 ? (
               <>
                 <ResponsiveContainer width="100%" height={180}>
@@ -1491,13 +1518,12 @@ function SolarVariablesGraphs({ points, dataSource, isLoading, uvPoints, uvLoadi
                   </BarChart>
                 </ResponsiveContainer>
                 <p className="forecast-status forecast-status-caption">
-                  1 แท่ง = 1 วันจริงที่ระบบดึงข้อมูล UV จาก Open-Meteo (พิกัดจริงของ Nong Fab, อัปเดตวันละครั้ง ไม่ใช่รายชั่วโมง) - ยิ่งระบบทำงานนานยิ่งมีข้อมูลสะสมมากขึ้น
-                  ไม่ประมาณค่าเป็นกราฟรายชั่วโมงเพราะไม่มีข้อมูลจริงระดับนั้น
+                  1 แท่ง = 1 วันจริงที่ระบบดึงข้อมูล UV จาก Open-Meteo (พิกัดจริงของ Nong Fab) - กำลังรอข้อมูล UV รายชั่วโมงสะสมเพื่อสลับเป็นกราฟรายชั่วโมงอัตโนมัติ
                 </p>
               </>
             ) : (
               <p className="forecast-status forecast-status-caption">
-                ยังไม่มีข้อมูล UV สะสม (อัปเดตวันละครั้งจาก Open-Meteo ที่พิกัดจริงของ Nong Fab) - รอสะสมข้อมูลจริงเพิ่มอีกสักพัก ไม่ฝืนสุ่ม/ประมาณค่าเพื่อทำเป็นกราฟ
+                ยังไม่มีข้อมูล UV สะสม (จาก Open-Meteo ที่พิกัดจริงของ Nong Fab) - รอสะสมข้อมูลจริงเพิ่มอีกสักพัก ไม่ฝืนสุ่ม/ประมาณค่าเพื่อทำเป็นกราฟ
               </p>
             )}
           </div>

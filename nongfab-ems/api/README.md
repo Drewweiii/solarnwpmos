@@ -1149,3 +1149,26 @@ per-point raster overlay remains a documented follow-up. Tested:
 `test_routes_irradiance_map.py` asserts `cloud_data_source` is present/valid;
 `features/test_irradiance_map.py` +4 and `forecast/test_real_data.py` +4 cover
 the anchoring math and the real-vs-none provenance signal.
+
+### 2026-07-22 - Hourly UV resolution (roadmap item 5)
+
+UV was daily-only (Open-Meteo `uv_index_max`, one bar per day). Added a real
+**hourly** UV curve end-to-end:
+
+- `openmeteo_uv.fetch_hourly_uv_observations` - Open-Meteo `hourly=uv_index` at
+  Nong Fab's coordinates, `timezone=UTC`, returned tz-aware UTC (same convention
+  as cloud_history), oldest-first, nulls skipped.
+- `local_store` new `uv_hourly_history` table (+ `insert_hourly_uv_observations`,
+  `uv_hourly_history_df`, added to `counts()`).
+- `ingestion_scheduler` - `_backfill_uv_hourly` at startup (guarded on empty
+  table) and the live UV poll now refreshes hourly UV alongside daily, both
+  non-fatal.
+- New route `GET /weather/uv-hourly-history` -> `{points: [{observed_at,
+  uv_index}]}` oldest-first, UTC-aware (frontend renders ICT), honest-empty.
+
+Same Thailand-first exception already approved for Open-Meteo (2026-07-19):
+non-Thai service, but queried at Nong Fab's own real coordinates. Frontend: the
+ForecastPage UV chart now shows the real hourly line when hourly data exists,
+falling back to the daily bar otherwise. Tested: `test_openmeteo_uv.py` +4,
+`test_local_store.py` +2, `test_routes_weather.py` +3; `forecast` local_store
+and `api` openmeteo/routes_weather suites pass, `ruff` clean.

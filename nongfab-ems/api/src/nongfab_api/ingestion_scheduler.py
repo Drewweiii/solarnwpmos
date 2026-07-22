@@ -76,6 +76,9 @@ async def run_startup_backfill(store: RealDataStore, lookback_days: int) -> None
     if counts["uv_history"] == 0:
         await _backfill_uv(store, lookback_days)
 
+    if counts["uv_hourly_history"] == 0:
+        await _backfill_uv_hourly(store, lookback_days)
+
     await _backfill_pvgis(store)
 
 
@@ -185,6 +188,28 @@ async def _backfill_uv(store: RealDataStore, lookback_days: int) -> None:
         return
     store.insert_uv_observations(observations)
     logger.info("startup backfill: open-meteo UV done, %d days ingested", len(observations))
+
+
+async def _backfill_uv_hourly(store: RealDataStore, lookback_days: int) -> None:
+    """Best-effort hourly UV backfill from Open-Meteo (2026-07-22, roadmap item
+    5) - the intraday UV curve, alongside the daily max backfilled above. Same
+    non-fatal contract: a failure here never takes down the rest of ingestion.
+    """
+    from .openmeteo_uv import fetch_hourly_uv_observations
+
+    lat, lon = nong_fab_site_location()
+    logger.info("startup backfill: open-meteo hourly UV starting (%d days)", lookback_days)
+    try:
+        async with httpx.AsyncClient() as client:
+            observations = await fetch_hourly_uv_observations(client, lat, lon, past_days=lookback_days)
+    except Exception:
+        logger.warning("startup backfill: open-meteo hourly UV unreachable, skipping (non-fatal)", exc_info=True)
+        return
+    if not observations:
+        logger.info("startup backfill: open-meteo hourly UV returned no usable data")
+        return
+    store.insert_hourly_uv_observations(observations)
+    logger.info("startup backfill: open-meteo hourly UV done, %d hours ingested", len(observations))
 
 
 async def _backfill_pvgis(store: RealDataStore) -> None:
@@ -410,15 +435,16 @@ async def _poll_nwp_forever(store: RealDataStore, interval_seconds: float, forec
             await asyncio.sleep(interval_seconds)
 
 
-# UV is a once-a-day figure (Open-Meteo publishes a daily uv_index_max), so a
-# frequent poll would just re-fetch the same numbers - refreshing a few times a
-# day is plenty to pick up today's value and any late revision. Insert-or-
-# replace on (observation_date, source) keeps re-fetching idempotent.
+# The daily UV max barely moves within a day, and the hourly UV curve is a
+# forecast that Open-Meteo revises slowly, so a frequent poll would just
+# re-fetch near-identical numbers - refreshing a few times a day is plenty to
+# pick up today's values and any late revision. Insert-or-replace on the
+# primary keys ((observation_date|observed_at), source) keeps both idempotent.
 UV_POLL_INTERVAL_SECONDS = 6 * 3600.0
 
 
 async def _poll_uv_forever(store: RealDataStore, interval_seconds: float = UV_POLL_INTERVAL_SECONDS) -> None:
-    from .openmeteo_uv import fetch_uv_observations
+    from .openmeteo_uv import fetch_hourly_uv_observations, fetch_uv_observations
 
     lat, lon = nong_fab_site_location()
     async with httpx.AsyncClient() as client:
@@ -430,6 +456,13 @@ async def _poll_uv_forever(store: RealDataStore, interval_seconds: float = UV_PO
                     logger.debug("uv live poll: refreshed %d days of open-meteo UV", len(observations))
             except Exception:
                 logger.warning("uv live poll failed, retrying next tick", exc_info=True)
+            try:
+                hourly = await fetch_hourly_uv_observations(client, lat, lon, past_days=7)
+                if hourly:
+                    store.insert_hourly_uv_observations(hourly)
+                    logger.debug("uv live poll: refreshed %d hours of open-meteo hourly UV", len(hourly))
+            except Exception:
+                logger.warning("hourly uv live poll failed, retrying next tick", exc_info=True)
             await asyncio.sleep(interval_seconds)
 
 

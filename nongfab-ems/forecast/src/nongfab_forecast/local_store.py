@@ -56,6 +56,12 @@ CREATE TABLE IF NOT EXISTS uv_history (
     source TEXT NOT NULL,
     PRIMARY KEY (observation_date, source)
 );
+CREATE TABLE IF NOT EXISTS uv_hourly_history (
+    observed_at TEXT NOT NULL,
+    uv_index REAL NOT NULL,
+    source TEXT NOT NULL,
+    PRIMARY KEY (observed_at, source)
+);
 CREATE TABLE IF NOT EXISTS forecast_history (
     zone TEXT NOT NULL,
     horizon TEXT NOT NULL,
@@ -214,6 +220,21 @@ class RealDataStore:
             conn.commit()
         return len(rows)
 
+    def insert_hourly_uv_observations(self, observations: Iterable) -> int:
+        """Upsert hourly UV readings keyed by (observed_at, source). Each item
+        exposes observed_at (a tz-aware UTC datetime, same convention as
+        cloud_history), uv_index, source - see openmeteo_uv.HourlyUVObservation.
+        """
+        rows = [(o.observed_at.isoformat(), float(o.uv_index), o.source) for o in observations]
+        if not rows:
+            return 0
+        with self._connect() as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO uv_hourly_history (observed_at, uv_index, source) VALUES (?, ?, ?)", rows
+            )
+            conn.commit()
+        return len(rows)
+
     def nwp_history_df(self) -> pd.DataFrame:
         with self._connect() as conn:
             df = pd.read_sql_query("SELECT * FROM nwp_history ORDER BY valid_time", conn)
@@ -251,6 +272,17 @@ class RealDataStore:
             df = pd.read_sql_query("SELECT * FROM uv_history ORDER BY observation_date", conn)
         if len(df):
             df["observation_date"] = pd.to_datetime(df["observation_date"]).dt.date
+        return df
+
+    def uv_hourly_history_df(self) -> pd.DataFrame:
+        with self._connect() as conn:
+            df = pd.read_sql_query("SELECT * FROM uv_hourly_history ORDER BY observed_at", conn)
+        if len(df):
+            # format="ISO8601" - same mixed-precision reasoning as
+            # cloud_history_df above (hour-aligned ticks vs. datetime.now() in
+            # tests), stored UTC-aware so the frontend converts to ICT for
+            # display (Thailand-first display, UTC store semantics).
+            df["observed_at"] = pd.to_datetime(df["observed_at"], utc=True, format="ISO8601")
         return df
 
     def latest_cloud_observation(self) -> tuple[datetime, float, float] | None:
@@ -337,7 +369,7 @@ class RealDataStore:
         with self._connect() as conn:
             return {
                 table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608 - table names are this module's own constants, never user input
-                for table in ("nwp_history", "cloud_history", "uv_history", "forecast_history")
+                for table in ("nwp_history", "cloud_history", "uv_history", "uv_hourly_history", "forecast_history")
             }
 
     def count_nwp_rows_by_source(self, source: str) -> int:

@@ -452,6 +452,41 @@ async def get_uv_history(request: Request, _user=Depends(require_role("viewer"))
     )
 
 
+class UvHourlyHistoryPoint(BaseModel):
+    observed_at: datetime  # tz-aware UTC; the frontend renders it in ICT
+    uv_index: float
+
+
+class UvHourlyHistoryResponse(BaseModel):
+    points: list[UvHourlyHistoryPoint]  # oldest first
+
+
+@router.get("/weather/uv-hourly-history", response_model=UvHourlyHistoryResponse)
+async def get_uv_hourly_history(request: Request, _user=Depends(require_role("viewer"))) -> UvHourlyHistoryResponse:
+    """Every real hourly UV reading this deployment has accumulated (Open-Meteo
+    `hourly=uv_index` at Nong Fab's coordinates - see openmeteo_uv.py), oldest
+    first. Added 2026-07-22 (roadmap item 5) so the UV chart can show the real
+    intraday curve (UV rising and falling with sun elevation) instead of one
+    flat bar per day - a genuine hourly resolution the daily `uv_index_max`
+    couldn't provide.
+
+    Same ephemeral-per-container, honest-empty caveat as `/weather/uv-history`
+    above: timestamps are UTC-aware (the frontend converts to ICT), and an
+    empty `points` list is a legitimate "not enough data yet" response, not an
+    error.
+    """
+    store: RealDataStore = request.app.state.real_data_store
+    uv_df = store.uv_hourly_history_df()
+    if uv_df.empty:
+        return UvHourlyHistoryResponse(points=[])
+    return UvHourlyHistoryResponse(
+        points=[
+            UvHourlyHistoryPoint(observed_at=row["observed_at"].to_pydatetime(), uv_index=float(row["uv_index"]))
+            for _, row in uv_df.iterrows()
+        ]
+    )
+
+
 def _wind_speed_ms(u: float | None, v: float | None) -> float | None:
     if u is None or v is None or pd.isna(u) or pd.isna(v):
         return None

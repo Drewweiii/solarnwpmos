@@ -2882,3 +2882,15 @@ __tests__/ForecastPage.test.tsx` +3 (viewer-hides-Model-Competition,
 UV-chart-renders-with-data, UV-chart-honest-empty-state) and 2 existing
 cases updated for the new UV chart title/copy. Full suite 364/364. `npm
 run build` (`tsc -b` + `vite build`) clean too.
+
+### 2026-07-22 - UV chart upgraded to a real hourly curve (roadmap item 5)
+
+The ForecastPage UV chart was a one-bar-per-day daily chart. It now shows the
+real **hourly** UV line (Open-Meteo `hourly=uv_index`, rendered in ICT) when
+hourly data has accumulated, automatically falling back to the daily bar chart
+when only daily data exists, and to the honest-empty state when neither does.
+New `useUvHourlyHistory` query + `getUvHourlyHistory` client +
+`UvHourlyHistoryPoint`/`UvHourlyHistoryResponse` types hit the new backend
+`GET /weather/uv-hourly-history`. Tested: `ForecastPage.test.tsx` +1 (hourly
+line renders + title switches to "รายชั่วโมง" when hourly data exists); full
+web suite (374) + `tsc` + build pass.
