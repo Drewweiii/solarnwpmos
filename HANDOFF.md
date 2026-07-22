@@ -1425,3 +1425,93 @@ self-check-in ผ่าน `send_later` ไว้แล้วอีก ~5 นา
    auto-follow ดวงอาทิตย์, Day-ahead hybrid real+synthetic, Financial
    module placeholder (CAPEX/PEA tariff/WACC/BOI - ยังรอ user), mm/hr rain
    rate ที่แม่นกว่านี้
+
+## 2026-07-22 16:03 ICT
+
+**Track 1 - เนื้อหาเชิงวิชาการ (Content/Engineering)**
+
+หยุดกลางแผนตามคำสั่ง user ("หยุดทำก่อนทุกอย่าง สรุปแพลนอนาคต เพราะโควต้าใกล้หมด")
+— session นี้เดินตาม medium-term roadmap 5 ข้อที่ user สั่ง ทำเสร็จ 2 ข้อแรก
+(commit+push+verify แล้ว) เหลือ 3 ข้อ
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+**Roadmap ข้อ 1 — wire `/performance` `/simulate` `/ws/live` เข้า real NWP**
+(commit `59e6c54`): ทั้ง 3 route เดิมสร้าง baseline irradiance/temp จาก
+`synthetic_day_irradiance_temp()` ล้วน ทั้งที่ `/forecast`+`/weather/strip`
+อ่าน real NWP จาก `RealDataStore` เดียวกันมาเป็นสัปดาห์แล้ว
+- `forecast/real_data.py`: เพิ่ม `real_day_conditions(store, now)` คืน
+  `(idx, ssrd, temp)` ของวันนี้จาก real NWP — drop-in แทน synthetic tuple
+  (nearest-real-row/ชม. ในระยะ 1.5h, เติม gap เล็กด้วย interpolate,
+  raise `InsufficientHistoryError` ถ้า coverage < 0.8 = bar เดียวกับ
+  `/weather/strip`)
+- `api/baseline.py` (ไฟล์ใหม่): `day_baseline_conditions()` = shared
+  real-or-synthetic switch ที่ทั้ง 3 route เรียก คืน `data_source` label
+- เพิ่ม field `data_source` ใน `PerformanceResponse`/`SimulateResponse` +
+  top-level ของ ws/live payload; ws/live สร้าง conditions ครั้งเดียว/push
+  (site-wide) แทนสร้างต่อโซน
+- พฤติกรรมเดิมไม่เปลี่ยนบน cold-start/empty store (`data_source: synthetic`,
+  ตัวเลขเท่าเดิม). power ยังเป็น physics conversion ของ weather ไม่ใช่ค่าวัดจริง
+  — label แค่บอกว่า *weather* จริงไหม
+
+**Roadmap ข้อ 2 — seasonal annual energy แทน x365** (commit `487e9fb`):
+Energy Report headline "Annual", lifecycle 25 ปี, และ `/financial` year-1
+energy (ที่ป้อน NPV/IRR/LCOE/payback) เดิมใช้ `estimate_annual_ac_energy_kwh`
+= x365 ของวัน clear-sky วันเดียว ทั้งที่ `monthly_ac_energy_estimates`
+(seasonal pvlib จริง + rainy-season derate) มีอยู่แล้วและโชว์เป็นกราฟรายเดือน
+อยู่ใต้ headline พอดี → headline กับกราฟไม่ตรงกัน + payback ไม่คิด rainy season
+- `simulation/pipeline.py`: เพิ่ม `seasonal_annual_ac_energy_kwh(zone_id, year)`
+  = ผลรวม 12 เดือน. `estimate_annual_ac_energy_kwh` เก็บไว้เป็น building block
+  (x365 unit test ยังคุมนิยามเดิม) แต่ไม่มี route ไหนใช้เป็น headline แล้ว
+- `routes_energy_report.py`: คำนวณ monthly ครั้งเดียว sum เป็น annual
+  (headline == กราฟเป๊ะ); `routes_financial.py`: sum ข้ามโซนที่ติดตั้งจริง,
+  ทิ้ง synthetic-day baseline ที่ไม่ต้องใช้แล้ว; `routes_savings.py` (Track 2)
+  ทำถูกอยู่แล้ว — ตอนนี้ทั้ง 3 สอดคล้องกัน
+
+**เทสต์รวมทั้ง session (ผ่านหมด):** api 209, forecast 150, simulation 88,
+ruff clean. README อัปเดตครบ (api/forecast/simulation). Merge งาน Track 2
+30 commits เข้ามาแบบไม่มี conflict (ไฟล์ไม่ทับกัน)
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- **Branch เดียวกันทั้ง 2 track:** `claude/solar-optimization-forecasting-jryux7`
+  (HEAD ตอนนี้ = `487e9fb`, push แล้ว). ทุก push ของ session นี้เขียว
+- **Railway auto-deploy กลับมาทำงานแล้ว** (user ยืนยัน 2026-07-19 — ดู
+  CLAUDE.md ที่ Track 2 อัปเดต) → **ไม่ต้องกด Deploy มืออีกแล้ว** ไม่ต้องเตือน
+  เรื่องนี้ในสรุปต่อๆ ไป
+- **UV เปลี่ยนเป็น Open-Meteo แล้ว** (Track 2, commit `24e6f82`, user อนุมัติ
+  Thailand-first exception 2026-07-19) — เป็นรายวัน (`uv_index_max`) +
+  `_poll_uv_forever` ทุก 6 ชม. → roadmap ข้อ 5 เหลือแค่ทำ *รายชั่วโมง*
+  ต่อยอด Open-Meteo (มี `hourly=uv_index`) ไม่ต้องหาแหล่งใหม่/TMD แล้ว
+- **standing reminder — Financial ยังใช้ตัวเลข placeholder:** session นี้แตะ
+  `/financial` (routes_financial.py) — CAPEX/PEA tariff/WACC/BOI ยังเป็น
+  placeholder (มีแค่ภาษี 20% ที่จริง) ตอนนี้ year-1 energy แม่นขึ้น (seasonal)
+  แต่ NPV/IRR/LCOE/payback ยังใช้ต้นทุน/ค่าไฟสมมติอยู่ — ถ้า user คุยเรื่องนี้
+  ให้ขอตัวเลขจริงทั้ง 4 มาแทน default ใน `financial/model.py`
+- ยังไม่ได้ live-verify ด้วย browser จริง ทั้ง 2 ข้อ (ยืนยันด้วย unit/
+  integration test เท่านั้น) — ถ้ามีเวลาควรเปิด dev server ดูจริง
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+Medium-term roadmap เหลือ 3 ข้อ (ทำตามลำดับ):
+
+1. **ข้อ 3 — shading จริงแทน literature default** (ค้างตรงจุดถาม user พอดี):
+   ระบบมี `features/shading.py` (analytical inter-row self-shading, เกือบ
+   exact เพราะแผงเป็นแถวขนาน) ใช้ใน 3D view/solar-access อยู่แล้ว แต่
+   `loss_model.shading_pct` ยังเป็นค่า literature คงที่. **2 ทางเลือก
+   (ยังไม่ได้คำตอบ user):**
+   - (A, แนะนำ) เอา `zone_solar_access` ที่มีมาเฉลี่ยตลอด sun path ทั้งปี
+     แล้วป้อนเป็น `shading_pct` จริงต่อโซน — reuse โค้ด+test ที่มี งานปานกลาง
+   - (B) เขียน ray-cast per-panel ใหม่ (ตามชื่อ roadmap เป๊ะ) — งานหนัก,
+     self-shading แถวขนาน analytical แม่นอยู่แล้ว, ray-cast ได้ประโยชน์แค่
+     'สิ่งกีดขวางภายนอก' ซึ่งต้องมี survey จริงที่ยังไม่มี (known gap)
+   → **session หน้าถาม user ก่อนว่าเอา A หรือ B** (คำตอบยังไม่มา)
+2. **ข้อ 4 — Live Himawari cloud raster store แทน synthetic cloud_factor**
+   ของ `/irradiance-map`: ต่อ `cloud_factor_at` (ใน `features/irradiance_map.py`
+   ตอนนี้เป็น synthetic) เข้า real Himawari `cloud_history` ที่แอปมีอยู่แล้ว
+3. **ข้อ 5 — UV รายชั่วโมง** (scope ลดแล้ว): ต่อยอด `openmeteo_uv.py` ของ
+   Track 2 เพิ่ม `hourly=uv_index` (Open-Meteo รองรับ) — ไม่ต้องหาแหล่งใหม่
+
+**หมายเหตุ track:** ทั้ง 5 ข้อเป็น Track 1 (backend/data-modeling) ล้วน.
+ข้อ 3 เป็นงานหนักสุด+เป็น physics ใหม่ — เข้าข่าย credit-risky ควรแบ่ง commit
+ย่อยถ้าเริ่มทำ
