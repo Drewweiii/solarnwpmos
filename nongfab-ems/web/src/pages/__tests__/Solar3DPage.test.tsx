@@ -37,6 +37,7 @@ vi.mock('../../components/Solar3DScene', () => ({
     precipIntensity,
     irradianceGrid,
     showIrradianceOverlay,
+    showEnvironment,
   }: {
     panels: unknown[]
     zoneOutputRatio?: number
@@ -45,11 +46,12 @@ vi.mock('../../components/Solar3DScene', () => ({
     precipIntensity: string | null
     irradianceGrid?: unknown[]
     showIrradianceOverlay?: boolean
+    showEnvironment?: boolean
   }) => (
     <div data-testid="mock-scene">
       {panels.length} panels, ratio={zoneOutputRatio}, cloud={String(cloudOpacityPct)}, precip={String(precipMm)}, intensity=
       {String(precipIntensity)}, irradiancePoints={irradianceGrid?.length ?? 0}, showIrradianceOverlay=
-      {String(showIrradianceOverlay)}
+      {String(showIrradianceOverlay)}, showEnvironment={String(showEnvironment)}
     </div>
   ),
 }))
@@ -320,6 +322,19 @@ describe('Solar3DPage', () => {
     await user.click(overlayToggle)
     expect(overlayToggle).not.toBeChecked()
     expect(await screen.findByText(/showIrradianceOverlay=false/)).toBeInTheDocument()
+  })
+
+  it('toggles the illustrative site environment on/off (2026-07-22)', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    // On by default so the scene reads as a real site at human scale.
+    expect(await screen.findByText(/showEnvironment=true/)).toBeInTheDocument()
+
+    const envToggle = screen.getByLabelText(/สภาพแวดล้อมจำลอง/)
+    expect(envToggle).toBeChecked()
+    await user.click(envToggle)
+    expect(envToggle).not.toBeChecked()
+    expect(await screen.findByText(/showEnvironment=false/)).toBeInTheDocument()
   })
 
   it('shows zenith angle and the selected zone\'s own lat/lon', async () => {

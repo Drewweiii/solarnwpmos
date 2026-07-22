@@ -825,6 +825,166 @@ function RainLayer({ center, span, precipMm, intensity }: RainLayerProps) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Illustrative site environment (2026-07-22): trees / houses / a taller
+// building / equipment cabinets arranged in a ring just OUTSIDE the framed
+// array block, so the scene reads as a real site with human-scale context
+// around it rather than panels floating on an empty plane. Requested by the
+// user ("ปรับ 3D ให้เห็น Area จำลอง เช่น ต้นไม้ ตึก บ้าน อาคาร อุปกรณ์ ให้ชัดขึ้น").
+//
+// HONESTY (same bar as BUILDING_HEIGHT_M / the external-shading known gap):
+// these are ILLUSTRATIVE props for scale and orientation only. Their kinds,
+// sizes, and positions are a fixed deterministic decoration - NOT a real site
+// obstacle survey (none exists, see features/shading.py's "Known gaps"), and
+// they do NOT feed the irradiance/shading physics at all (the loss model's
+// shading term is inter-row self-shading + a documented external allowance,
+// computed server-side and unaffected by anything drawn here). A toggle on the
+// page lets a user hide them for a clean engineering view.
+// ---------------------------------------------------------------------------
+
+// Absolute human-scale sizes in METERS (not span-scaled): a ~5 m tree next to
+// the ~2 m-tall tilted panels is what actually communicates scale, so these
+// stay realistic regardless of how large or small the framed block is.
+const ENV_TREE_HEIGHT_M = 5
+const ENV_HOUSE_HEIGHT_M = 4
+const ENV_TALL_BUILDING_HEIGHT_M = 14
+const ENV_CABINET_HEIGHT_M = 2
+
+// Deterministic pseudo-random (mulberry32) so the environment is stable across
+// re-renders/zone switches - decoration must not jitter every frame.
+function envRng(seed: number): () => number {
+  let a = seed >>> 0
+  return () => {
+    a |= 0
+    a = (a + 0x6d2b79f5) | 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+type EnvKind = 'tree' | 'house' | 'building' | 'cabinet'
+
+interface EnvProp {
+  kind: EnvKind
+  x: number // scene X (east)
+  z: number // scene Z (-north)
+  rotationY: number
+  scale: number
+}
+
+function EnvTree({ scale }: { scale: number }) {
+  const h = ENV_TREE_HEIGHT_M * scale
+  const trunk = h * 0.35
+  return (
+    <group>
+      <mesh position={[0, trunk / 2, 0]}>
+        <cylinderGeometry args={[0.18 * scale, 0.24 * scale, trunk, 6]} />
+        <meshStandardMaterial color="#6b4f2a" />
+      </mesh>
+      <mesh position={[0, trunk + (h - trunk) / 2, 0]}>
+        <coneGeometry args={[1.3 * scale, h - trunk, 8]} />
+        <meshStandardMaterial color="#2f7d4f" />
+      </mesh>
+    </group>
+  )
+}
+
+function EnvHouse({ scale }: { scale: number }) {
+  const h = ENV_HOUSE_HEIGHT_M * scale
+  const w = 4 * scale
+  const d = 3.4 * scale
+  const wall = h * 0.6
+  return (
+    <group>
+      <mesh position={[0, wall / 2, 0]}>
+        <boxGeometry args={[w, wall, d]} />
+        <meshStandardMaterial color="#c9b79c" />
+      </mesh>
+      {/* Pyramidal roof: a 4-sided cone rotated so a flat face points forward. */}
+      <mesh position={[0, wall + (h - wall) / 2, 0]} rotation={[0, Math.PI / 4, 0]}>
+        <coneGeometry args={[w * 0.78, h - wall, 4]} />
+        <meshStandardMaterial color="#9c4a3a" />
+      </mesh>
+    </group>
+  )
+}
+
+function EnvBuilding({ scale }: { scale: number }) {
+  const h = ENV_TALL_BUILDING_HEIGHT_M * scale
+  return (
+    <mesh position={[0, h / 2, 0]}>
+      <boxGeometry args={[6 * scale, h, 6 * scale]} />
+      <meshStandardMaterial color="#8a94a6" />
+    </mesh>
+  )
+}
+
+function EnvCabinet({ scale }: { scale: number }) {
+  // A transformer/inverter-cabinet-looking box - the "equipment" the user asked
+  // for. Placed nearest the array (see SiteEnvironment's inner ring).
+  const h = ENV_CABINET_HEIGHT_M * scale
+  return (
+    <mesh position={[0, h / 2, 0]}>
+      <boxGeometry args={[1.6 * scale, h, 1.1 * scale]} />
+      <meshStandardMaterial color="#3f7d5a" metalness={0.2} roughness={0.7} />
+    </mesh>
+  )
+}
+
+interface SiteEnvironmentProps {
+  center: [number, number] // scene [x, z] of the framed block
+  span: number // framed block span (meters)
+  visible: boolean
+}
+
+function SiteEnvironment({ center, span, visible }: SiteEnvironmentProps) {
+  const props = useMemo<EnvProp[]>(() => {
+    // Ring radius keyed to the framed block so props sit just outside it and
+    // stay in view; floored so a tiny block still gets breathing room.
+    const rInner = Math.max(span * 0.62, 10)
+    const rOuter = Math.max(span * 0.95, 18)
+    const rng = envRng(1337)
+    // A fixed illustrative mix: mostly trees, a few houses, one taller
+    // building, and equipment cabinets tucked closer to the array.
+    const plan: { kind: EnvKind; near?: boolean }[] = [
+      { kind: 'tree' }, { kind: 'tree' }, { kind: 'tree' }, { kind: 'tree' },
+      { kind: 'tree' }, { kind: 'tree' }, { kind: 'tree' },
+      { kind: 'house' }, { kind: 'house' }, { kind: 'house' },
+      { kind: 'building' }, { kind: 'building' },
+      { kind: 'cabinet', near: true }, { kind: 'cabinet', near: true },
+      { kind: 'cabinet', near: true }, { kind: 'cabinet', near: true },
+    ]
+    const n = plan.length
+    return plan.map((item, i) => {
+      // Even angular spread + jitter so it looks placed, not gridded.
+      const angle = (i / n) * Math.PI * 2 + (rng() - 0.5) * 0.5
+      const r = item.near ? Math.max(span * 0.55, 8) + rng() * 4 : rInner + rng() * (rOuter - rInner)
+      return {
+        kind: item.kind,
+        x: center[0] + Math.cos(angle) * r,
+        z: center[1] + Math.sin(angle) * r,
+        rotationY: rng() * Math.PI * 2,
+        scale: 0.8 + rng() * 0.5,
+      }
+    })
+  }, [center, span])
+
+  if (!visible) return null
+  return (
+    <group>
+      {props.map((p, i) => (
+        <group key={i} position={[p.x, 0, p.z]} rotation={[0, p.rotationY, 0]}>
+          {p.kind === 'tree' && <EnvTree scale={p.scale} />}
+          {p.kind === 'house' && <EnvHouse scale={p.scale} />}
+          {p.kind === 'building' && <EnvBuilding scale={p.scale} />}
+          {p.kind === 'cabinet' && <EnvCabinet scale={p.scale} />}
+        </group>
+      ))}
+    </group>
+  )
+}
+
 interface Solar3DSceneProps {
   panels: Panel[]
   tiltDeg: number
@@ -903,6 +1063,11 @@ interface Solar3DSceneProps {
   irradianceOriginLat?: number
   irradianceOriginLon?: number
   showIrradianceOverlay?: boolean
+  // Illustrative site-environment props (trees/houses/building/equipment) drawn
+  // around the framed block for scale/orientation - see SiteEnvironment's own
+  // docstring for why these are decoration, not surveyed data, and never touch
+  // the physics. Defaults to on; Solar3DPage's own checkbox toggles it.
+  showEnvironment?: boolean
 }
 
 export function Solar3DScene({
@@ -933,6 +1098,7 @@ export function Solar3DScene({
   irradianceOriginLat = 0,
   irradianceOriginLon = 0,
   showIrradianceOverlay = false,
+  showEnvironment = true,
   ref,
 }: Solar3DSceneProps & { ref?: Ref<Solar3DSceneHandle> }) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null)
@@ -1092,6 +1258,8 @@ export function Solar3DScene({
       {blockFootprints.map((f) => (
         <BuildingMass key={f.blockId} minEast={f.minEast} maxEast={f.maxEast} minNorth={f.minNorth} maxNorth={f.maxNorth} mountType={mountType} />
       ))}
+
+      <SiteEnvironment center={focusCenterScene} span={bounds.focus.span} visible={showEnvironment} />
 
       {panels.map((panel) => (
         <PanelMesh

@@ -2894,3 +2894,17 @@ New `useUvHourlyHistory` query + `getUvHourlyHistory` client +
 `GET /weather/uv-hourly-history`. Tested: `ForecastPage.test.tsx` +1 (hourly
 line renders + title switches to "รายชั่วโมง" when hourly data exists); full
 web suite (374) + `tsc` + build pass.
+
+### 2026-07-22 - Illustrative site environment in the 3D View
+
+Added a `SiteEnvironment` layer to `Solar3DScene`: trees, houses, a taller
+building, and equipment cabinets arranged in a deterministic ring just outside
+the framed array block, so the 3D scene reads as a real site at human scale
+instead of panels on an empty plane (user request). A page checkbox
+"แสดงสภาพแวดล้อมจำลอง" (default on) toggles it, with a caption stating plainly it
+is illustrative for scale/orientation only - NOT a surveyed obstacle layout and
+NOT an input to the irradiance/shading calculation (same honesty bar as the
+external-shading known gap). Objects are absolute human-scale meters (a ~5 m
+tree beside the ~2 m panels), positioned by a seeded RNG so they never jitter.
+Tested: `Solar3DPage.test.tsx` +1 (toggle on/off); live-verified in Chromium at
+13:00 ICT. `tsc` + full web suite (375) pass, `oxlint` clean.

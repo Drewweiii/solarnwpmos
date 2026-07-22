@@ -69,6 +69,7 @@ export function Solar3DPage() {
   // `irradiance` query this page's own GHI readout card already fetches, no
   // new network request.
   const [showIrradianceOverlay, setShowIrradianceOverlay] = useState(true)
+  const [showEnvironment, setShowEnvironment] = useState(true)
 
   const atIso = useMemo(() => buildAtIso(date, timeOfDayMinutes), [date, timeOfDayMinutes])
 
@@ -358,6 +359,7 @@ export function Solar3DPage() {
               irradianceOriginLat={zoneObj?.centroid.lat ?? 0}
               irradianceOriginLon={zoneObj?.centroid.lon ?? 0}
               showIrradianceOverlay={showIrradianceOverlay}
+              showEnvironment={showEnvironment}
             />
           </>
         )}
@@ -386,6 +388,22 @@ export function Solar3DPage() {
             <span>1000 W/m²</span>
           </div>
         )}
+      </div>
+
+      {/* Illustrative surroundings (2026-07-22) - trees/houses/a building/
+          equipment cabinets around the array so the scene reads as a real
+          site at human scale. Explicitly labeled as decoration for scale/
+          orientation only: not a real obstacle survey, and it does not affect
+          the irradiance/shading calculation (see Solar3DScene's SiteEnvironment
+          docstring). Toggle off for a clean engineering view. */}
+      <div className="solar3d-irradiance-overlay-toggle">
+        <label>
+          <input type="checkbox" checked={showEnvironment} onChange={(e) => setShowEnvironment(e.target.checked)} />
+          แสดงสภาพแวดล้อมจำลอง (ต้นไม้ / บ้าน / อาคาร / อุปกรณ์)
+        </label>
+        <p className="forecast-status forecast-status-caption">
+          ภาพประกอบเพื่อบอกสเกลและทิศทางรอบพื้นที่เท่านั้น - ไม่ใช่ตำแหน่ง/ขนาดจริงจากการสำรวจ และไม่มีผลต่อการคำนวณ irradiance หรือเงาบังของแผง
+        </p>
       </div>
     </div>
   )
