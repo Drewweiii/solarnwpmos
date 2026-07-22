@@ -1515,3 +1515,73 @@ Medium-term roadmap เหลือ 3 ข้อ (ทำตามลำดับ)
 **หมายเหตุ track:** ทั้ง 5 ข้อเป็น Track 1 (backend/data-modeling) ล้วน.
 ข้อ 3 เป็นงานหนักสุด+เป็น physics ใหม่ — เข้าข่าย credit-risky ควรแบ่ง commit
 ย่อยถ้าเริ่มทำ
+
+## 2026-07-22 15:50 ICT
+
+**Track 1 — เนื้อหาเชิงวิชาการ (Content/Engineering)**
+
+Medium-term roadmap ทั้ง 5 ข้อ **เสร็จครบแล้ว** ในรอบนี้ (แต่ละข้อ commit แยก
+เป็น checkpoint บน branch `claude/solar-optimization-forecasting-jryux7`).
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+- **ข้อ 1 (ก่อนหน้ารอบนี้) — wire /simulate,/performance,/ws/live เข้า real NWP**
+  ผ่าน `api/baseline.py` `day_baseline_conditions` + `real_data.real_day_conditions`
+  พร้อม field `data_source` — DONE
+- **ข้อ 2 (ก่อนหน้ารอบนี้) — seasonal annual energy จริงแทน x365**:
+  `pipeline.seasonal_annual_ac_energy_kwh` ใช้ใน energy-report + financial — DONE
+- **ข้อ 3 — shading จริงแทน literature default** (commit `0ac532f`): เลือกแนวทาง
+  A2 (ตาม user). เพิ่ม `features/shading.annual_shading_loss_pct(zone)` —
+  inter-row self-shading ถ่วงน้ำหนักด้วย clear-sky GHI ตลอดปี (12 กลางเดือน x
+  24 ชม., lru-cache). `loss_model.default_loss_factors` เปลี่ยน `shading_pct`
+  จากค่าคงที่ 3% → `annual_shading_loss_pct(zone) + DEFAULT_EXTERNAL_SHADING_PCT
+  (2.0%)` (ค่าเผื่อ external-obstacle ที่ยังไม่มี survey — known gap ระบุชัด).
+  Tests: features +2, loss_model +2. energy-report route (13) ผ่าน
+- **ข้อ 4 — irradiance-map ยึดระดับเมฆจริง Himawari** (commit `e460103`): เลือก
+  C1 (ตาม user). เพิ่ม `real_data.cloud_factor_for_time(store, when)` (คืน factor
+  จริง หรือ None ถ้าไม่มีข้อมูลในช่วง tolerance). `irradiance_map.cloud_factor_at
+  /irradiance_at_point/irradiance_grid` รับ `base_cloud_factor`: ถ้ามีค่าจริง →
+  ยึดระดับเมฆจริง + ripple เชิงพื้นที่เล็กๆ (0.12) เป็น texture ที่ระบุว่า
+  interpolated; ถ้าไม่มี → fallback synthetic เดิม. route เพิ่ม field
+  `cloud_data_source` ("real"/"synthetic"). **หมายเหตุ:** ไม่มี per-point raster
+  store บน Railway (ไม่มี MinIO/RawObjectStorage) จึงทำได้แค่ระดับ plant-wide
+  จริง — spatial ยัง interpolate (known gap). Tests: features +4, real_data +4,
+  route +1
+- **ข้อ 5 — UV รายชั่วโมง end-to-end** (commit `a50510c`): เลือก D1 (เต็ม slice).
+  Backend: `openmeteo_uv.fetch_hourly_uv_observations` (Open-Meteo hourly=uv_index,
+  UTC-aware) → `local_store.uv_hourly_history` table ใหม่ + insert/read/counts →
+  `ingestion_scheduler` backfill+poll hourly (non-fatal) → route ใหม่
+  `GET /weather/uv-hourly-history`. Frontend: ForecastPage UV chart แสดง
+  **เส้นรายชั่วโมงจริง** เมื่อมีข้อมูล (ICT) fallback เป็นแท่งรายวันเดิม.
+  Tests: openmeteo +4, local_store +2, routes_weather +3, ForecastPage +1
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- **Pattern สำคัญ:** ทุก data ใช้ UTC store semantics + ICT display (Thailand-first).
+  `cloud_history`/`nwp_history`/`uv_hourly_history` เก็บ `observed_at`/`valid_time`
+  เป็น UTC-aware ISO, frontend แปลงเป็น ICT ตอนแสดง
+- **honest-empty + data_source labeling:** ทุก endpoint คืน list ว่างได้ถ้าไม่มี
+  ข้อมูลจริง — ห้ามสุ่ม/ปลอมค่า. label real vs synthetic ทุกจุด
+- **ผลรัน (รอบนี้):** simulation 38, features 85, forecast local_store/real_data/
+  serving, api openmeteo(8)/local_store(28)/routes_weather(31)/energy-report(13)/
+  irradiance-map(9)/ingestion_scheduler(8) — ผ่านหมด; web vitest 374 + tsc + build
+  ผ่าน; ruff + oxlint clean
+- **Railway auto-deploy ทำงานแล้ว** (ตั้งแต่ 2026-07-19) — push แตะ api/ ขึ้น live
+  เอง ไม่ต้องกดปุ่ม. รอบนี้ไม่มี env var ใหม่
+- **⚠️ Financial ยังเป็น placeholder:** CAPEX(฿30k/kWp), PEA tariff(฿4/kWh), WACC(8%),
+  BOI(0) เป็นค่าสมมติ (จริงแค่ภาษี 20%). ข้อ 2 ทำให้ year-1 energy แม่นขึ้น แต่
+  NPV/IRR/LCOE/payback ยังใช้ต้นทุนสมมติ — ถ้า user คุยเรื่องนี้ ให้ขอตัวเลขจริง
+  ทั้ง 4 มาแทน default ใน `financial/model.py`
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+Roadmap ระยะกลางหมดแล้ว — ไม่มีงานค้างบังคับ. ตัวเลือกงานถัดไป (ให้ user เลือก):
+
+1. **Live-verify ด้วย browser จริง**: ทั้ง 5 ข้อยืนยันด้วย unit/integration test
+   เท่านั้น ยังไม่เปิด dev server + Playwright ดู UI จริง (โดยเฉพาะ UV hourly line
+   + irradiance-map cloud_data_source badge) — ควรทำถ้ามีเวลา
+2. **ขอตัวเลข Financial จริง 4 ตัว** (ดูsection 2) มาแทน placeholder
+3. **ปิด known gaps ที่เหลือ**: (ก) external-obstacle shading ต้องมี site survey จริง
+   (ข) per-point cloud raster ต้องมี raster store (MinIO) — ทั้งคู่ติดเรื่องไม่มี
+   ข้อมูล/infra จริง ไม่ใช่โค้ด
+4. งาน Track 2 (UI/AI assistant/visitor network) เป็นของอีกบัญชี — ไม่แตะ
