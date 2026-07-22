@@ -17,15 +17,15 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from nongfab_forecast.pv_conversion import nong_fab_zone_capacities_kwp
-from nongfab_simulation.dev_data import synthetic_day_irradiance_temp
 from nongfab_simulation.monte_carlo import ScenarioDistribution, monte_carlo_scenario_simulation
 from nongfab_simulation.pipeline import simulate_zone_baseline
 from nongfab_simulation.what_if import ScenarioParams, apply_scenario
 from pydantic import BaseModel
 
 from .auth import require_role
+from .baseline import day_baseline_conditions
 
 router = APIRouter(tags=["simulate"])
 
@@ -58,6 +58,13 @@ class SimulateResponse(BaseModel):
     simulated_zone: bool
     points: list[SimulatePointOut]
     loss_breakdown: dict[str, float]
+    # "real" when the what-if baseline was built on today's real ingested NWP
+    # (via nongfab_forecast.real_data.real_day_conditions), "synthetic" when
+    # too little real history has accumulated for today and the synthetic
+    # generator was used instead - see api/baseline.py. The scenario
+    # adjustments (cloud/curtailment/degradation) are applied on top of
+    # whichever baseline this is.
+    data_source: str
 
 
 def _validate_zone(zone: str) -> str:
@@ -68,9 +75,9 @@ def _validate_zone(zone: str) -> str:
 
 
 @router.post("/simulate/{zone}", response_model=SimulateResponse)
-async def simulate(zone: str, req: SimulateRequest, _user=Depends(require_role("operator"))) -> SimulateResponse:
+async def simulate(zone: str, req: SimulateRequest, request: Request, _user=Depends(require_role("operator"))) -> SimulateResponse:
     zone = _validate_zone(zone)
-    idx, ssrd, temp = synthetic_day_irradiance_temp()
+    idx, ssrd, temp, data_source = day_baseline_conditions(request.app.state.real_data_store)
     baseline = simulate_zone_baseline(zone, ssrd, temp, idx)
 
     scenario = ScenarioParams(
@@ -108,4 +115,7 @@ async def simulate(zone: str, req: SimulateRequest, _user=Depends(require_role("
         for i, ts in enumerate(idx)
     ]
 
-    return SimulateResponse(zone=zone, simulated_zone=baseline.zone.simulated, points=points, loss_breakdown=baseline.loss_breakdown)
+    return SimulateResponse(
+        zone=zone, simulated_zone=baseline.zone.simulated, points=points,
+        loss_breakdown=baseline.loss_breakdown, data_source=data_source,
+    )

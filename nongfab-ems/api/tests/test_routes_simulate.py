@@ -24,6 +24,10 @@ def test_simulate_allows_operator_role(app, token_factory):
     assert body["simulated_zone"] is False
     assert len(body["points"]) == 24
     assert all(p["lower"] is None for p in body["points"])
+    # The app fixture's store is an empty :memory: one, so no real NWP exists
+    # for today - the baseline falls back to the synthetic generator and the
+    # route labels that honestly (see api/baseline.py).
+    assert body["data_source"] == "synthetic"
 
 
 def test_simulate_allows_admin_role(app, token_factory):

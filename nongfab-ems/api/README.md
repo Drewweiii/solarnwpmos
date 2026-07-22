@@ -341,21 +341,13 @@ their own) this app already serves HTTP:
 No real accumulated (irradiance, temperature, power) history existed until
 this pass's `ingestion_scheduler.py` (see "Real-data background ingestion"
 above) - `/forecast/{zone}/{horizon}` now trains and serves on real data
-once enough has accumulated. `/simulate/{zone}`, `/performance/{zone}`, and
-`/ws/live` are **not yet wired to the same real-data store** - still worth
-tracking as the next piece, listed below:
+once enough has accumulated.
 
-- `/simulate/{zone}` and `/performance/{zone}` build their baseline day from
-  `nongfab_simulation.dev_data.synthetic_day_irradiance_temp()`, not a real
-  TimescaleDB query or `RealDataStore` query. Swapping in a real query is a
-  follow-up to this module's shape, not a rewrite of it (the pipeline call
-  underneath doesn't care where `irradiance_w_m2`/`temp_c` come from) -
-  `real_data.py`'s existing frame builders (forecast/README.md) are a
-  natural source once this route is updated to use them.
-- `/ws/live`'s `current_ac_kw` is today's synthetic baseline's row nearest
-  the current wall-clock time (not literally "the last received sensor
-  reading" - there isn't one yet, and this route doesn't consult
-  `real_data_store` either).
+**(2026-07-22) `/simulate/{zone}`, `/performance/{zone}`, and `/ws/live` are
+now wired to the same real-data store too** - see "Real weather baseline for
+/performance, /simulate, /ws/live" below; the two bullets that used to head
+this list (their synthetic-only baseline) are resolved. The remaining gaps:
+
 - `/energy-report/{zone}`'s annual figures are a flat extrapolation of one
   synthetic day (x365), not a real annual simulation with weather
   variability/seasonality - see `simulation/README.md`'s "Annual energy +
@@ -1058,3 +1050,62 @@ order, asserts the response comes back sorted). Full `api` suite 180
 passed, `ruff check` clean. Frontend consumer (`SolarVariablesGraphs`'s
 new UV bar chart) documented in `web/README.md`'s matching 2026-07-19
 entry.
+
+### Added - real weather baseline for /performance, /simulate, /ws/live (2026-07-22)
+
+The first medium-term roadmap item after the project recheck: three routes
+(`/performance/{zone}`, `/simulate/{zone}`, `/ws/live`) built their hourly
+irradiance/temperature baseline from `nongfab_simulation.dev_data.
+synthetic_day_irradiance_temp()` - a purely synthetic day - even though
+`/forecast` and `/weather/strip` had already been reading *real* ingested
+NWP from the same `RealDataStore` for weeks. The plumbing to fix this was
+described in the old Known-gaps bullet as "a follow-up to this route's
+shape, not a rewrite" (the pipeline underneath - `simulate_zone_baseline` -
+already documents that it "doesn't care which" its irradiance/temp are);
+this wires it up.
+
+- **New `nongfab_forecast.real_data.real_day_conditions(store, now=None)`**
+  returns `(idx, ssrd_w_m2, temp_c)` for the current UTC calendar day
+  (00:00-23:00 hourly) from real NWP history - the exact tuple shape
+  `synthetic_day_irradiance_temp()` returns, so it's a drop-in. Each hourly
+  slot is filled from the nearest real NWP `valid_time` within a 1.5h
+  tolerance (matching `_nearest_real_row`); small gaps are interpolated from
+  the surrounding real values. Raises `InsufficientHistoryError` if fewer
+  than 80% of the day's 24 slots have a real match - the same 0.8 coverage
+  bar `/weather/strip`'s `_real_window` already uses, and for the same
+  reason (a day stitched from a handful of scattered real rows is worse than
+  an honest, fully-populated synthetic fallback). Zone-independent: weather
+  is site-wide here, exactly as the synthetic generator and `/weather/strip`
+  already assume.
+- **New `api/baseline.py`** `day_baseline_conditions(store, now=None)` is the
+  single shared real-or-synthetic switch all three routes now call: tries
+  `real_day_conditions`, falls back to `synthetic_day_irradiance_temp()` on
+  `InsufficientHistoryError`, and returns a `data_source` label (`"real"` /
+  `"synthetic"`) so each response can say honestly which drove its numbers -
+  the same pattern `/weather/strip` and `/forecast` already expose. Factored
+  out so the three routes share one behaviour instead of three copies.
+- **`PerformanceResponse` and `SimulateResponse` gained a `data_source`
+  field; the `/ws/live` payload gained a top-level `data_source`.** The
+  power/energy numbers are still a physics conversion of the weather (never
+  a measured plant output - no telemetry exists anywhere in this system, see
+  this file's own caveats), but the flag now tells the dashboard whether the
+  *weather* driving them is real. `/ws/live` builds the day's conditions
+  once per push and reuses them across all three zones (weather is
+  site-wide) rather than the old per-zone synthetic recompute.
+
+Behaviour is unchanged wherever no real NWP has accumulated for today (a
+cold-start / empty-store deploy) - `data_source` reads `"synthetic"` and the
+numbers are exactly what they were before. `/performance`'s existing
+`live_efficiency_factor` derate still applies on top either way (a bounded
+<=1.0 loss layer, documented separately - it never claims *more* than the
+weather-driven physics estimate).
+
+**Tested**: new `test_baseline.py` (synthetic on empty store, real when
+today is fully covered); `forecast/tests/test_real_data.py` +4
+(`real_day_conditions`: full real day round-trips, empty store and thin
+coverage both raise, small gaps interpolate with no NaN); `data_source`
+assertions added to the `/performance` and `/simulate` route tests;
+`test_ws_live.py`'s `_zone_snapshot` test updated for the new shared-
+conditions signature. Full `api` and `forecast` suites pass, `ruff` clean.
+See `forecast/README.md`'s matching 2026-07-22 entry for the
+`real_day_conditions` half.

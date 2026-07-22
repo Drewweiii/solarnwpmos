@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -394,3 +395,72 @@ def test_physics_baseline_series_historical_cloud_differs_per_timestamp():
 
     result = real_data.physics_baseline_series("GIS", timestamps, store, use_historical_cloud=True)
     assert result["pred"].iloc[0] < result["pred"].iloc[1]
+
+
+def _seed_full_day_nwp(store: RealDataStore, day_start: datetime) -> None:
+    """24 hourly NWP rows covering `day_start` .. day_start+23h."""
+    _seed_nwp_history(store, n=24, start=day_start, step=timedelta(hours=1))
+
+
+def test_real_day_conditions_returns_full_day_from_real_nwp():
+    store = RealDataStore()
+    now = datetime(2026, 7, 20, 8, 0, tzinfo=timezone.utc)
+    day_start = now.replace(hour=0)
+    _seed_full_day_nwp(store, day_start)
+
+    idx, ssrd, temp = real_data.real_day_conditions(store, now=now)
+
+    # Matches synthetic_day_irradiance_temp()'s shape exactly: one UTC calendar
+    # day, 00:00-23:00 hourly.
+    assert len(idx) == 24 and len(ssrd) == 24 and len(temp) == 24
+    assert idx[0] == pd.Timestamp(day_start)
+    assert idx[-1] == pd.Timestamp(day_start) + pd.Timedelta(hours=23)
+    # Each slot round-trips the seeded real value (delta 0, well within tolerance)
+    # - _seed_nwp_history peaks its ssrd bump at hour 12.
+    assert ssrd[12] == pytest.approx(700.0)
+    assert ssrd[6] == pytest.approx(0.0)
+    assert np.isfinite(ssrd).all() and np.isfinite(temp).all()
+
+
+def test_real_day_conditions_raises_on_empty_store():
+    store = RealDataStore()
+    with pytest.raises(real_data.InsufficientHistoryError):
+        real_data.real_day_conditions(store, now=datetime(2026, 7, 20, 8, 0, tzinfo=timezone.utc))
+
+
+def test_real_day_conditions_raises_when_coverage_too_thin():
+    store = RealDataStore()
+    now = datetime(2026, 7, 20, 8, 0, tzinfo=timezone.utc)
+    # Only 3 hourly rows near the start of the day - far below the 0.8 coverage
+    # bar, so this must fall through to InsufficientHistoryError (the caller
+    # then uses the synthetic generator) rather than stitch a whole day from
+    # three scattered points.
+    _seed_nwp_history(store, n=3, start=now.replace(hour=0), step=timedelta(hours=1))
+    with pytest.raises(real_data.InsufficientHistoryError):
+        real_data.real_day_conditions(store, now=now)
+
+
+def test_real_day_conditions_interpolates_small_gaps():
+    store = RealDataStore()
+    now = datetime(2026, 7, 20, 8, 0, tzinfo=timezone.utc)
+    day_start = now.replace(hour=0)
+    # A full day minus a 3-hour block (hours 10,11,12 dropped). With the 1.5h
+    # match tolerance, slots 10 and 12 still match their 1h-away neighbours
+    # (hours 9 and 13), so only slot 11 is a genuine gap - coverage stays 23/24
+    # (>= 0.8), and slot 11 is interpolated rather than left NaN.
+    points = []
+    for hour in range(24):
+        if hour in (10, 11, 12):
+            continue
+        t = day_start + timedelta(hours=hour)
+        points.append(
+            _FakeNWPPoint(
+                valid_time=t, issue_time=day_start, ssrd_w_m2=500.0, temp2m_c=30.0,
+                wind10m_u_ms=1.0, wind10m_v_ms=1.0, relative_humidity_pct=75.0, source="test",
+            )
+        )
+    store.insert_nwp_points(points)
+
+    idx, ssrd, temp = real_data.real_day_conditions(store, now=now)
+    assert len(idx) == 24
+    assert np.isfinite(ssrd).all() and np.isfinite(temp).all()  # slot 11 interpolated, no NaN hole

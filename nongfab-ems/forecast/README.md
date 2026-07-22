@@ -976,3 +976,37 @@ rather than just silencing the same-thread check. Full `forecast` suite:
   (pandas `.view()`/`DataFrameGroupBy.apply` FutureWarnings) during fit/
   predict - from those libraries' own internals, not this module's code;
   harmless today, worth revisiting on a future neuralprophet upgrade.
+
+## Added - `real_day_conditions()`: real-NWP today-baseline for the API's non-forecast routes (2026-07-22)
+
+`real_data.py` gained `real_day_conditions(store, now=None)` -> `(idx,
+ssrd_w_m2, temp_c)` for the current UTC calendar day (00:00-23:00 hourly),
+built from real ingested NWP history. It's the real-data counterpart to
+`nongfab_simulation.dev_data.synthetic_day_irradiance_temp()`, returning the
+exact same tuple shape so the API's `/performance`, `/simulate` and
+`/ws/live` routes can feed it straight into `simulate_zone_baseline()` in
+place of the synthetic generator (the API-side real-or-synthetic fallback
+lives in `api/baseline.py`; see `api/README.md`'s matching 2026-07-22
+entry).
+
+Unlike this module's training-frame builders (`real_hour_frame`,
+`real_day_frame`, etc.), this one is **zone-independent** - weather is
+site-wide (one shared NWP series drives every zone; only each zone's own
+capacity/losses differ), the same assumption the synthetic generator and
+`/weather/strip` already make, so it takes no `zone` argument.
+
+Each of the day's 24 hourly slots is filled from the nearest real NWP
+`valid_time` within `_DAY_CONDITIONS_TOLERANCE` (1.5h, matching
+`api/routes_weather.py`'s `_nearest_real_row`); slots with no match inside
+the tolerance are interpolated from the surrounding real values, keeping the
+series internally consistent with the real, cloud-affected NWP rather than
+splicing in a separate clear-sky estimate. It raises the module's usual
+`InsufficientHistoryError` if fewer than `DAY_CONDITIONS_MIN_COVERAGE`
+(0.8 - the same bar `_real_window` uses for the weather strip) of the 24
+slots have a real match, so the caller falls back to the synthetic
+generator, the same real-or-synthetic split `/weather/strip` already uses.
+
+**Tested**: `test_real_data.py` +4 - a full real day round-trips its seeded
+values (with the correct 24-hour UTC index), an empty store and a
+3-rows-only store both raise `InsufficientHistoryError`, and a day with a
+single interpolable gap comes back with 24 finite values (no NaN hole).

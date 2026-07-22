@@ -34,7 +34,11 @@ def test_zone_snapshot_uses_the_row_nearest_now_not_always_the_last_row(monkeypa
 
     monkeypatch.setattr(ws_live, "datetime", FixedDatetime)
     monkeypatch.setattr(dev_data, "datetime", FixedDatetime)
-    snapshot = ws_live._zone_snapshot("GIS")
+    # `_zone_snapshot` now takes the shared site-wide day conditions (built
+    # once per push in `live_payload`, see api/baseline.py) rather than
+    # recomputing them per zone - build the synthetic day here and pass it in.
+    idx, ssrd, temp = dev_data.synthetic_day_irradiance_temp()
+    snapshot = ws_live._zone_snapshot("GIS", idx, ssrd, temp)
     assert snapshot["current_ac_kw"] == pytest.approx(50.0, rel=1e-3)
 
 

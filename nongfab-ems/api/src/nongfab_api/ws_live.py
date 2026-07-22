@@ -16,13 +16,16 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
+import numpy as np
+import pandas as pd
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from nongfab_forecast.local_store import RealDataStore
 from nongfab_forecast.pv_conversion import nong_fab_zone_capacities_kwp
 from nongfab_forecast.serving import ModelNotTrainedError, get_latest_forecast
-from nongfab_simulation.dev_data import synthetic_day_irradiance_temp
 from nongfab_simulation.pipeline import simulate_zone_baseline
 
 from .auth import decode_access_token
+from .baseline import day_baseline_conditions
 from .config import Settings
 
 logger = logging.getLogger(__name__)
@@ -30,8 +33,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["live"])
 
 
-def _zone_snapshot(zone_id: str) -> dict:
-    idx, ssrd, temp = synthetic_day_irradiance_temp()
+def _zone_snapshot(zone_id: str, idx: pd.DatetimeIndex, ssrd: np.ndarray, temp: np.ndarray) -> dict:
+    """`idx`/`ssrd`/`temp` are today's shared site-wide conditions, built once
+    per push (weather is site-wide - see api/baseline.py) and passed in rather
+    than recomputed per zone."""
     baseline = simulate_zone_baseline(zone_id, ssrd, temp, idx)
     # `idx` spans today 00:00-23:00; iloc[-1] would always be the 23:00 (always-
     # dark) row regardless of wall-clock time, so pick the row closest to now
@@ -49,8 +54,17 @@ def _zone_snapshot(zone_id: str) -> dict:
     return {"zone": zone_id, "current_ac_kw": current_ac_kw, "forecast_hour_ahead_kw": forecast_hour_ahead_kw}
 
 
-def live_payload() -> dict:
-    return {"zones": [_zone_snapshot(zone_id) for zone_id in sorted(nong_fab_zone_capacities_kwp())]}
+def live_payload(store: RealDataStore) -> dict:
+    # Today's irradiance/temperature is site-wide, so build it once here (real
+    # ingested NWP when enough has accumulated, else synthetic - see
+    # api/baseline.py) and reuse it across every zone, rather than the old
+    # per-zone synthetic recompute. `data_source` lets a client label whether
+    # the weather driving these numbers is real, same as /performance.
+    idx, ssrd, temp, data_source = day_baseline_conditions(store)
+    return {
+        "zones": [_zone_snapshot(zone_id, idx, ssrd, temp) for zone_id in sorted(nong_fab_zone_capacities_kwp())],
+        "data_source": data_source,
+    }
 
 
 @router.websocket("/ws/live")
@@ -67,10 +81,11 @@ async def ws_live(websocket: WebSocket) -> None:
         await websocket.close(code=1008, reason="invalid or expired token")
         return
 
+    store: RealDataStore = websocket.app.state.real_data_store
     await websocket.accept()
     try:
         while True:
-            await websocket.send_json(live_payload())
+            await websocket.send_json(live_payload(store))
             await asyncio.sleep(settings.live_push_interval_seconds)
     except WebSocketDisconnect:
         logger.debug("ws/live client disconnected")

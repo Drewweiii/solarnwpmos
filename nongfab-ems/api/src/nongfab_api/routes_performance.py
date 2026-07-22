@@ -34,12 +34,13 @@ from nongfab_forecast.serving import (
     generated_power_history,
     record_generated_power,
 )
-from nongfab_simulation.dev_data import live_efficiency_factor, synthetic_day_irradiance_temp
+from nongfab_simulation.dev_data import live_efficiency_factor
 from nongfab_simulation.loss_model import performance_ratio
 from nongfab_simulation.pipeline import simulate_zone_baseline
 from pydantic import BaseModel
 
 from .auth import require_role
+from .baseline import day_baseline_conditions
 
 router = APIRouter(tags=["performance"])
 
@@ -96,6 +97,16 @@ class PerformanceResponse(BaseModel):
     # docstring for why: no live Himawari raster store exists yet) evaluated
     # at this zone's own centroid, not a generic plant-wide grid point.
     cloud_factor: float
+    # "real" when today's hourly irradiance/temperature came from real
+    # ingested NWP (via nongfab_forecast.real_data.real_day_conditions),
+    # "synthetic" when too little real history has accumulated for today and
+    # the physics-free synthetic generator was used instead - see
+    # api/baseline.py. `ac_kw`/energy figures are still a physics conversion
+    # of these conditions (never a measured plant output - no telemetry
+    # exists, see this route's own docstring), but this flag lets the
+    # dashboard label whether the *weather* driving them is real, exactly as
+    # /weather/strip and /forecast already do.
+    data_source: str
 
 
 def _validate_zone(zone: str) -> str:
@@ -108,10 +119,11 @@ def _validate_zone(zone: str) -> str:
 @router.get("/performance/{zone}", response_model=PerformanceResponse)
 async def get_performance(zone: str, request: Request, _user=Depends(require_role("viewer"))) -> PerformanceResponse:
     zone = _validate_zone(zone)
-    idx, ssrd, temp = synthetic_day_irradiance_temp()
+    now = datetime.now(timezone.utc)
+    store = request.app.state.real_data_store
+    idx, ssrd, temp, data_source = day_baseline_conditions(store, now)
     baseline = simulate_zone_baseline(zone, ssrd, temp, idx)
 
-    now = datetime.now(timezone.utc)
     efficiency = live_efficiency_factor(zone, now)
     ac_power_kw_live = baseline.ac_power_kw * efficiency  # bounded <= the physics estimate, see live_efficiency_factor()
 
@@ -148,7 +160,6 @@ async def get_performance(zone: str, request: Request, _user=Depends(require_rol
     centroid = baseline.zone.centroid
     cloud_factor = cloud_factor_at(centroid.lat, centroid.lon, now.timestamp())
 
-    store = request.app.state.real_data_store
     # Persists *this* poll's own live reading (the current hour's
     # ac_power_kw_live, the same number reported in `hourly` for "now") into
     # the actual/generated-power history - see record_generated_power()'s
@@ -166,4 +177,5 @@ async def get_performance(zone: str, request: Request, _user=Depends(require_rol
         ac_energy_kwh_today=ac_energy_kwh, poa_irradiance_kwh_per_m2_today=poa_irradiance_kwh_per_m2,
         performance_ratio=pr, specific_yield_kwh_per_kwp_today=ac_energy_kwh / baseline.zone.dc_capacity_kwp,
         loss_breakdown=baseline.loss_breakdown, hourly=hourly, history=history, cloud_factor=cloud_factor,
+        data_source=data_source,
     )

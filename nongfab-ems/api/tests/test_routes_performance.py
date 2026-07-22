@@ -77,6 +77,10 @@ def test_get_performance_returns_metrics_for_viewer(app, token_factory, monkeypa
     # reading, superseding its own backfilled estimate.
     assert all(row["estimated"] is True for row in body["history"][:-1])
     assert body["history"][-1]["estimated"] is False
+    # Empty :memory: store in the app fixture -> no real NWP for today -> the
+    # baseline falls back to the synthetic generator, labelled honestly (see
+    # api/baseline.py).
+    assert body["data_source"] == "synthetic"
 
 
 def test_get_performance_includes_zone_coordinates_and_cloud_factor(app, token_factory):

@@ -472,7 +472,76 @@ def physics_baseline_series(
     return pd.DataFrame({"pred": power.to_numpy()}, index=timestamps)
 
 
+# How far a given hour-of-today slot may sit from its nearest real NWP
+# valid_time and still count as "covered" by real data - matches
+# api/routes_weather.py's `_nearest_real_row` default (1.5h), wide enough to
+# absorb GFS's coarser (3-hourly beyond the near-term) forecast-hour spacing
+# without over-counting a distant row as this slot's own reading.
+_DAY_CONDITIONS_TOLERANCE = pd.Timedelta(hours=1.5)
+
+# Fraction of today's 24 hourly slots that must have a real NWP match within
+# `_DAY_CONDITIONS_TOLERANCE` for `real_day_conditions` to trust the day as
+# real (else it raises InsufficientHistoryError and the caller falls back to
+# the synthetic generator) - same 0.8 bar api/routes_weather.py's
+# `_real_window` uses for the weather strip, and for the same reason: a day
+# stitched from a handful of scattered real rows is worse than an honest,
+# fully-populated synthetic fallback.
+DAY_CONDITIONS_MIN_COVERAGE = 0.8
+
+
+def real_day_conditions(
+    store: RealDataStore, now: datetime | None = None, coverage: float = DAY_CONDITIONS_MIN_COVERAGE
+) -> tuple[pd.DatetimeIndex, np.ndarray, np.ndarray]:
+    """`(idx, ssrd_w_m2, temp_c)` for the current UTC calendar day (00:00-23:00,
+    hourly) built from real ingested NWP history - the real-data counterpart to
+    `nongfab_simulation.dev_data.synthetic_day_irradiance_temp()`, returning the
+    exact same tuple shape so the API's `/performance`, `/simulate`, and
+    `/ws/live` routes can feed it straight into `simulate_zone_baseline()` in
+    place of the synthetic generator (see api/baseline.py, which does the
+    real-or-synthetic fallback).
+
+    Zone-independent: weather here is site-wide - one shared NWP series drives
+    every zone, only each zone's own capacity/losses differ - exactly as the
+    synthetic generator and `/weather/strip` already assume.
+
+    Each hourly slot is filled from the nearest real NWP `valid_time` within
+    `_DAY_CONDITIONS_TOLERANCE`; slots with no match inside the tolerance are
+    left as gaps and linearly interpolated from the surrounding real values
+    (keeping the series internally consistent with the real, cloud-affected
+    NWP rather than splicing in a separate clear-sky estimate for the holes).
+    Raises `InsufficientHistoryError` if fewer than `coverage` of the 24
+    slots have a real match - the caller then falls back to the synthetic
+    generator, the same real-or-synthetic split `/weather/strip` already uses.
+    """
+    now = now if now is not None else datetime.now(timezone.utc)
+    day_start = pd.Timestamp(now).tz_convert("UTC").normalize()
+    idx = pd.date_range(day_start, periods=24, freq="h", tz="UTC")
+
+    nwp = _deduped_nwp_history(store)
+    if len(nwp) == 0:
+        raise InsufficientHistoryError("no real NWP rows accumulated yet")
+
+    nwp = nwp.sort_values("valid_time")
+    merged = pd.merge_asof(
+        pd.DataFrame({"valid_time": idx}),
+        nwp[["valid_time", "ssrd_w_m2", "temp2m_c"]],
+        on="valid_time",
+        direction="nearest",
+        tolerance=_DAY_CONDITIONS_TOLERANCE,
+    )
+    matched = int(merged["ssrd_w_m2"].notna().sum())
+    if matched < len(idx) * coverage:
+        raise InsufficientHistoryError(
+            f"only {matched}/{len(idx)} of today's hourly slots have a real NWP match, need >= {coverage:.0%}"
+        )
+
+    ssrd = merged["ssrd_w_m2"].interpolate(limit_direction="both").to_numpy()
+    temp = merged["temp2m_c"].interpolate(limit_direction="both").to_numpy()
+    return idx, ssrd, temp
+
+
 __all__ = [
+    "DAY_CONDITIONS_MIN_COVERAGE",
     "InsufficientHistoryError",
     "MIN_DAY_ROWS",
     "MIN_HOUR_ROWS",
@@ -483,6 +552,7 @@ __all__ = [
     "current_hour_conditions_kstep",
     "physics_baseline_series",
     "pv_params_for_zone",
+    "real_day_conditions",
     "real_day_frame",
     "real_future_regressors",
     "real_hour_frame",
