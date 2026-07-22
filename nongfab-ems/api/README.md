@@ -348,10 +348,15 @@ now wired to the same real-data store too** - see "Real weather baseline for
 /performance, /simulate, /ws/live" below; the two bullets that used to head
 this list (their synthetic-only baseline) are resolved. The remaining gaps:
 
-- `/energy-report/{zone}`'s annual figures are a flat extrapolation of one
-  synthetic day (x365), not a real annual simulation with weather
-  variability/seasonality - see `simulation/README.md`'s "Annual energy +
-  temperature loss" section.
+- ~~`/energy-report/{zone}`'s annual figures are a flat extrapolation of one
+  synthetic day (x365)~~ **Resolved (2026-07-22)**: the annual headline (and
+  the financial year-1 energy, and the savings table) now use
+  `seasonal_annual_ac_energy_kwh` - the sum of the 12 representative-month
+  estimates (real pvlib per-month solar-position swing + rainy-season derate)
+  that the Energy Report's own monthly chart already showed. Still one step
+  short of a genuine day-by-day measured-weather annual sum (which needs
+  reliably-persistent real historical weather this deployment can't yet
+  guarantee) - see `simulation/README.md`'s matching 2026-07-22 entry.
 - `/irradiance-map`'s per-grid-point `cloud_factor` is a documented
   synthetic placeholder (no live Himawari raster store exists in this dev
   environment yet) - see `features/README.md`'s "SLD topology & irradiance

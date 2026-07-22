@@ -26,7 +26,6 @@ from nongfab_simulation.dev_data import synthetic_day_irradiance_temp
 from nongfab_simulation.loss_model import annual_specific_yield, performance_ratio
 from nongfab_simulation.pipeline import (
     NONG_FAB_TZ,
-    estimate_annual_ac_energy_kwh,
     lifecycle_ac_energy_estimate,
     loss_breakdown_with_temperature,
     monthly_ac_energy_estimates,
@@ -139,7 +138,14 @@ async def get_energy_report(zone: str, _user=Depends(require_role("viewer"))) ->
     poa_irradiance_kwh_per_m2_today = float(ssrd.sum() / 1000)
     pr = performance_ratio(ac_energy_kwh_today, poa_irradiance_kwh_per_m2_today, baseline.zone.dc_capacity_kwp)
 
-    annual_ac_energy_kwh = estimate_annual_ac_energy_kwh(baseline)
+    # Annual energy = sum of the 12 representative-month estimates (real pvlib
+    # seasonal swing + rainy-season derate), not the old x365 of one clear-sky
+    # day - so this headline agrees with the monthly chart right below it
+    # (2026-07-22). `monthly` is computed once here and reused for both the
+    # annual total and the chart, rather than paying for the 12x
+    # simulate_zone_baseline twice.
+    monthly = monthly_ac_energy_estimates(zone, year=datetime.now().year)
+    annual_ac_energy_kwh = sum(m.ac_energy_kwh for m in monthly)
     specific_yield = annual_specific_yield(annual_ac_energy_kwh, baseline.zone.dc_capacity_kwp)
     loss_breakdown = loss_breakdown_with_temperature(baseline, ssrd, temp)
 
@@ -158,7 +164,6 @@ async def get_energy_report(zone: str, _user=Depends(require_role("viewer"))) ->
     access = zone_solar_access(layout, float(solpos["elevation_deg"].iloc[0]), float(solpos["azimuth_deg"].iloc[0]))
     avg_access_pct = average_solar_access_pct(access)
 
-    monthly = monthly_ac_energy_estimates(zone, year=datetime.now().year)
     lifecycle = lifecycle_ac_energy_estimate(annual_ac_energy_kwh)
 
     sld = build_sld(zone_obj)

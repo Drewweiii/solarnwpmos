@@ -24,8 +24,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from nongfab_common.assets import load_assets
 from nongfab_financial.model import FinancialAssumptions, compute_financial_analysis
-from nongfab_simulation.dev_data import synthetic_day_irradiance_temp
-from nongfab_simulation.pipeline import estimate_annual_ac_energy_kwh, simulate_zone_baseline
+from nongfab_simulation.pipeline import seasonal_annual_ac_energy_kwh
 from pydantic import BaseModel
 
 from .auth import require_role
@@ -76,13 +75,18 @@ class FinancialResponse(BaseModel):
 @router.post("/financial", response_model=FinancialResponse)
 async def get_financial_analysis(req: FinancialRequest, _user=Depends(require_role("operator"))) -> FinancialResponse:
     registry = load_assets()
-    idx, ssrd, temp = synthetic_day_irradiance_temp()
 
+    # Year-1 energy is the seasonal annual estimate (real pvlib per-month
+    # swing + rainy-season derate - see seasonal_annual_ac_energy_kwh), summed
+    # across the installed zones, not the old x365 of one clear-sky day
+    # (2026-07-22). This feeds NPV/IRR/LCOE/payback, so a seasonally honest
+    # year-1 yield matters more here than anywhere - the rainy-season months
+    # this now accounts for are a real drag on the payback the crude x365
+    # silently ignored.
     year_1_ac_energy_kwh = 0.0
     installed_dc_capacity_kwp = 0.0
     for zone_id in INSTALLED_ZONE_IDS:
-        baseline = simulate_zone_baseline(zone_id, ssrd, temp, idx)
-        year_1_ac_energy_kwh += estimate_annual_ac_energy_kwh(baseline)
+        year_1_ac_energy_kwh += seasonal_annual_ac_energy_kwh(zone_id)
         installed_dc_capacity_kwp += registry.zone(zone_id).dc_capacity_kwp
 
     overrides = req.model_dump(exclude_none=True)

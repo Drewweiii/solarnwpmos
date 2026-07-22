@@ -9,6 +9,7 @@ from nongfab_simulation.pipeline import (
     lifecycle_ac_energy_estimate,
     loss_breakdown_with_temperature,
     monthly_ac_energy_estimates,
+    seasonal_annual_ac_energy_kwh,
     simulate_zone_baseline,
 )
 
@@ -133,6 +134,27 @@ def test_monthly_ac_energy_estimates_rainy_season_is_lower_than_dry_season():
     # months at this latitude.
     estimates = {e.month: e.ac_energy_kwh for e in monthly_ac_energy_estimates("GIS", year=2026)}
     assert estimates[7] < estimates[1]
+
+
+def test_seasonal_annual_ac_energy_kwh_is_sum_of_monthly_estimates():
+    monthly = monthly_ac_energy_estimates("GIS", year=2026)
+    assert seasonal_annual_ac_energy_kwh("GIS", year=2026) == pytest.approx(sum(m.ac_energy_kwh for m in monthly))
+
+
+def test_seasonal_annual_ac_energy_kwh_is_positive():
+    assert seasonal_annual_ac_energy_kwh("ISB", year=2026) > 0
+
+
+def test_seasonal_annual_differs_from_flat_x365_of_one_clear_sky_day():
+    # The whole point of the 2026-07-22 change: the seasonal annual (real
+    # per-month pvlib swing + rainy-season derate) is genuinely NOT the crude
+    # x365 of a single clear-sky day - if they came out equal, the seasonal
+    # variation would be doing nothing.
+    idx, ssrd, temp = _synthetic_day()
+    baseline = simulate_zone_baseline("GIS", ssrd, temp, idx)
+    flat_x365 = estimate_annual_ac_energy_kwh(baseline)
+    seasonal = seasonal_annual_ac_energy_kwh("GIS", year=2026)
+    assert seasonal != pytest.approx(flat_x365)
 
 
 def test_lifecycle_ac_energy_estimate_year_1_matches_input():

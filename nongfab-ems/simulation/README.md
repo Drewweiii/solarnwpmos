@@ -252,3 +252,44 @@ curl -X POST http://localhost:8003/simulate/ISB/compare -H "Content-Type: applic
   degradation) rather than asserting an unsourced number.
 - **No battery/BESS** - confirmed out of scope entirely, permanently (see
   top of this README) - not merely deferred.
+
+## Added - seasonal annual energy is now the canonical annual figure (2026-07-22)
+
+The Energy Report's headline "Annual energy" (and the 25-year lifecycle
+projection built off it, and the `/financial` module's year-1 energy that
+drives NPV/IRR/LCOE/payback) came from `estimate_annual_ac_energy_kwh()` -
+a flat `x365` of one clear-sky day with zero seasonal variation - even
+though `monthly_ac_energy_estimates()` (a genuine per-month pvlib solar-
+position swing + a rainy-season cloud derate) already existed and was
+*already shown as the Energy Report's monthly chart*. So the headline and
+the chart right below it silently disagreed, and the payback ignored the
+rainy season entirely.
+
+New `seasonal_annual_ac_energy_kwh(zone_id, year=None)` = the sum of those
+12 monthly estimates. It's now the canonical annual figure:
+
+- `api/routes_energy_report.py` computes `monthly` once and sums it for the
+  annual headline (so headline == chart, exactly), feeding specific yield +
+  the 25-year lifecycle.
+- `api/routes_financial.py` sums `seasonal_annual_ac_energy_kwh` across the
+  installed zones for its year-1 energy (dropping the synthetic-day baseline
+  it no longer needs) - a seasonally honest year-1 yield matters most here,
+  since the rainy-season months it now accounts for are a real drag on the
+  payback the crude x365 silently ignored.
+- `api/routes_savings.py` (Track 2's savings table) already summed the same
+  monthly estimates inline - unchanged, and now consistent with the other
+  two via the shared formula.
+
+`estimate_annual_ac_energy_kwh(baseline)` is kept as the simple single-day
+building block (its x365 unit test still pins that definition) but no API
+route uses it for an annual headline anymore. Still a documented
+approximation, not a genuine day-by-day measured-weather annual sum - that
+remains the natural next step once reliably-persistent real historical
+weather exists (PVGIS's ERA5 seed is ephemeral per container - see the root
+README), not a redesign of this function's shape.
+
+**Tested**: `test_pipeline.py` +3 (`seasonal_annual_ac_energy_kwh` equals
+the sum of the monthly estimates, is positive, and genuinely differs from
+the flat x365 of one clear-sky day); `test_routes_energy_report.py` +1 (the
+annual headline now equals the sum of the monthly chart values). Full
+`simulation` (24) and `api` route suites pass, `ruff` clean.

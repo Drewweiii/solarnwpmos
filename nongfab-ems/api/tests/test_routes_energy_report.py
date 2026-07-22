@@ -40,6 +40,17 @@ def test_get_energy_report_annual_figures_are_positive(app, token_factory):
     assert 0 < body["annual"]["performance_ratio"] <= 1.0
 
 
+def test_get_energy_report_annual_equals_sum_of_monthly_chart(app, token_factory):
+    # The 2026-07-22 seasonal-annual fix: the headline annual figure is now the
+    # sum of the 12 monthly estimates shown right below it, not a x365 of one
+    # clear-sky day that silently disagreed with the chart.
+    token = token_factory("viewer")
+    with TestClient(app) as client:
+        resp = client.get("/energy-report/GIS", headers={"Authorization": f"Bearer {token}"})
+    body = resp.json()
+    assert body["annual"]["ac_energy_kwh"] == pytest.approx(sum(m["ac_energy_kwh"] for m in body["monthly"]))
+
+
 def test_get_energy_report_loss_breakdown_includes_temperature(app, token_factory):
     token = token_factory("viewer")
     with TestClient(app) as client:

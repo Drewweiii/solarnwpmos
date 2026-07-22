@@ -100,16 +100,39 @@ def simulate_zone_baseline(
 
 
 def estimate_annual_ac_energy_kwh(baseline: ZoneBaseline) -> float:
-    """Annual AC energy estimate: `baseline`'s own day summed to kWh, x
-    `DAYS_PER_YEAR`. This is a flat extrapolation of one synthetic clear-sky
-    day - NOT a real annual simulation with weather variability or seasonal
-    irradiance variation, since Module 1/2 don't have enough accumulated
-    history yet to average over (same caveat as every other module's dev-time
-    behavior - see README "Known gaps"). Swapping in a real day-by-day annual
-    sum is a follow-up once that history exists, not a redesign of this
-    function's shape.
+    """Coarse annual AC energy: `baseline`'s own day summed to kWh, x
+    `DAYS_PER_YEAR`. A flat extrapolation of one day with NO seasonal
+    variation - superseded for all annual/lifetime *reporting* by
+    `seasonal_annual_ac_energy_kwh()` below (2026-07-22), which sums the 12
+    representative-month estimates for a genuine astronomical seasonal swing.
+    Kept as the simple single-day building block (and for the direct unit
+    test that pins its x365 definition); no API route uses it for an annual
+    headline anymore.
     """
     return float(baseline.ac_power_kw.sum()) * DAYS_PER_YEAR
+
+
+def seasonal_annual_ac_energy_kwh(zone_id: str, year: int | None = None) -> float:
+    """Annual AC energy as the sum of the 12 representative-month estimates
+    (`monthly_ac_energy_estimates`) - a genuine astronomical (pvlib solar-
+    position) seasonal irradiance/day-length swing with the rainy-season
+    cloud derate applied June-October, NOT the flat single-day x365 of
+    `estimate_annual_ac_energy_kwh`. This is the canonical annual figure every
+    annual/lifetime consumer should use (energy report, financial, savings) so
+    they all agree with the Energy Report's own monthly chart instead of the
+    headline being x365 of one clear-sky day while the chart right below it
+    shows a real seasonal curve (2026-07-22 - the first was silently ~10-15%
+    off the second before this).
+
+    Same "representative day per month, not a full day-by-day annual
+    simulation" honesty caveat as `monthly_ac_energy_estimates` (see its own
+    docstring) - one step short of a genuine measured-weather annual sum,
+    which would need reliably-present real historical weather this deployment
+    can't yet guarantee (PVGIS's ERA5 seed is ephemeral per container - see
+    the root README). A real-history annual sum remains the natural next step
+    once that persistence exists, not a redesign of this function's shape.
+    """
+    return sum(m.ac_energy_kwh for m in monthly_ac_energy_estimates(zone_id, year=year))
 
 
 def loss_breakdown_with_temperature(
