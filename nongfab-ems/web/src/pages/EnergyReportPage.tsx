@@ -96,7 +96,8 @@ export function EnergyReportPage() {
               />
             </div>
             <p className="energy-report-note">
-              Extrapolated from one synthetic clear-sky day - not a real annual simulation with weather variability
+              Sum of the 12 monthly estimates below (each month's real solar geometry plus an approximate
+              rainy-season cloud derate) - not yet a day-by-day simulation from real historical weather
               (no accumulated generation history exists yet).
             </p>
           </section>
