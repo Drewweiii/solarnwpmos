@@ -1500,6 +1500,11 @@ export function Solar3DScene({
         ],
         fov: 45,
       }}
+      // touch-action:none inline on the canvas so touch drags rotate/zoom the
+      // scene (OrbitControls) instead of scrolling/zooming the page on
+      // iOS/Android - the stylesheet rule alone doesn't win against r3f's own
+      // inline canvas styles.
+      style={{ touchAction: 'none' }}
       data-testid="solar3d-canvas"
     >
       <ambientLight intensity={0.6} />

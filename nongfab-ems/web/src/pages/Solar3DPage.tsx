@@ -458,8 +458,19 @@ export function Solar3DPage() {
         </p>
       </div>
 
-      {/* Hidden video element the webcam stream feeds into for MediaPipe. */}
-      <video ref={hand.videoRef} muted playsInline style={{ display: 'none' }} />
+      {/* The webcam <video> MediaPipe reads from. iOS Safari will NOT play a
+          `display:none` / `visibility:hidden` video (it treats it as not
+          visible and pauses it), so instead of hiding it we shrink it to a 1px
+          transparent element kept in the render tree - it still decodes frames
+          for the tracker but is invisible. `playsInline` + `muted` + `autoPlay`
+          are all required for inline autoplay on iOS. */}
+      <video
+        ref={hand.videoRef}
+        muted
+        autoPlay
+        playsInline
+        style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none', left: 0, bottom: 0 }}
+      />
     </div>
   )
 }

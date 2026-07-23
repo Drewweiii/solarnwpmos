@@ -2975,3 +2975,24 @@ dev sandbox enabling it surfaces a clean error (verified live: camera acquired
 via a fake device, model fetch blocked -> graceful message, no crash).
 Phase 2 (multi-gesture, smoother, nicer indicator, self-hosted model to drop the
 CDN) is a follow-up. tsc + full web suite (394) pass, oxlint clean.
+
+### 2026-07-23 - iOS/Android support for the 3D View + hand control
+
+Made the 3D View and its webcam hand control work on mobile:
+- **iOS inline video fix**: the webcam `<video>` is no longer `display:none`
+  (iOS Safari refuses to play a hidden video) - it's a 1px transparent element
+  kept in the render tree, with `autoPlay`+`muted`+`playsInline` for inline
+  autoplay. Front camera via `facingMode:'user'`.
+- **Touch controls**: `touch-action:none` on the r3f canvas container so touch
+  drags rotate/pinch-zoom the scene (OrbitControls) instead of scrolling the
+  page.
+- **Mobile GPU fallback**: HandLandmarker tries the GPU delegate, falls back to
+  CPU (some mobile GPUs reject GPU).
+- **Responsive layout**: control rows wrap/stack, the time scrubber and the hand
+  toggle go full-width, and the canvas uses a viewport-relative height under
+  640px.
+
+Live-verified in an emulated iPhone 13 viewport: video is display:block +
+playsInline/muted/autoplay, the r3f container has touch-action:none, the hand
+toggle renders, and the page has no horizontal overflow. tsc + full web suite
+(394) pass, oxlint clean.

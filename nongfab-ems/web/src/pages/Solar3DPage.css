@@ -255,6 +255,9 @@
 
 .solar3d-canvas-wrapper canvas {
   display: block;
+  /* Route touch gestures (rotate/pinch-zoom) to OrbitControls instead of
+     letting the browser scroll/zoom the page - essential on iOS/Android. */
+  touch-action: none;
 }
 
 /* --- Icon rail, overlaid on the canvas' top-left corner (reslink.org
@@ -393,4 +396,31 @@
   background: #2b6ca3;
   border-color: #2b6ca3;
   color: #fff;
+}
+
+/* --- Mobile (iOS/Android) responsiveness for the 3D View (2026-07-23) --- */
+@media (max-width: 640px) {
+  .solar3d-canvas-wrapper {
+    height: 68vh;
+    min-height: 320px;
+  }
+  /* Control rows stack + wrap instead of overflowing a narrow screen. */
+  .solar3d-controls,
+  .solar3d-sweep-controls,
+  .solar3d-irradiance-overlay-toggle {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  /* The time scrubber takes the full row so it's draggable with a thumb. */
+  .solar3d-sweep-controls input[type='range'] {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .solar3d-hand-toggle {
+    width: 100%;
+  }
+  /* A little more finger room on the buttons. */
+  .solar3d-sweep-controls button {
+    min-height: 40px;
+  }
 }

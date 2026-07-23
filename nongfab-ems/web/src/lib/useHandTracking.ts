@@ -81,11 +81,19 @@ export function useHandTracking(enabled: boolean): UseHandTrackingResult {
         const vision = await import('@mediapipe/tasks-vision')
         const fileset = await vision.FilesetResolver.forVisionTasks(WASM_BASE)
         if (cancelled) return
-        landmarker = (await vision.HandLandmarker.createFromOptions(fileset, {
-          baseOptions: { modelAssetPath: HAND_MODEL_URL, delegate: 'GPU' },
-          runningMode: 'VIDEO',
-          numHands: 1,
-        })) as unknown as typeof landmarker
+        // Try the GPU delegate first (fast), fall back to CPU - some mobile
+        // GPUs (older Android, certain iOS WebGL contexts) reject the GPU path.
+        const build = (delegate: 'GPU' | 'CPU') =>
+          vision.HandLandmarker.createFromOptions(fileset, {
+            baseOptions: { modelAssetPath: HAND_MODEL_URL, delegate },
+            runningMode: 'VIDEO',
+            numHands: 1,
+          })
+        try {
+          landmarker = (await build('GPU')) as unknown as typeof landmarker
+        } catch {
+          landmarker = (await build('CPU')) as unknown as typeof landmarker
+        }
         if (cancelled) return
         setStatus('no-hand')
 
