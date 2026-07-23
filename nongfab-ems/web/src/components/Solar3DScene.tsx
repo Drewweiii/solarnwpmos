@@ -9,7 +9,7 @@ import { Canvas, useFrame } from '@react-three/fiber'
 import { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { Ref } from 'react'
 import type { DirectionalLight, Group } from 'three'
-import { CanvasTexture, TextureLoader, type Texture } from 'three'
+import { CanvasTexture, Spherical, TextureLoader, Vector3, type Texture } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import {
   advanceSimClockMs,
@@ -27,6 +27,7 @@ import {
   tileFootprintMeters,
   type SatelliteTile,
 } from '../lib/satelliteTile'
+import { signalToCameraTarget, type HandSignal } from '../lib/handControl'
 import type { IrradianceGridPoint, MoonPathPoint, Panel, PrecipitationIntensity, SunPathPoint } from '../lib/types'
 
 // Exposed to Solar3DPage's icon rail "reset camera" button - React 19 takes
@@ -1209,6 +1210,44 @@ function JettyStructures({ center, span, deckY, visible }: JettyStructuresProps)
   )
 }
 
+// Drives the camera from the webcam hand signal (2026-07-23, Phase 1). When
+// active it reads the smoothed HandSignal every frame and eases the camera to
+// the requested azimuth/polar/distance around OrbitControls' own target, then
+// lets OrbitControls.update() reconcile - so the mouse still works the instant
+// hand control is turned off. Pure geometry; the hand math/tracking lives in
+// lib/handControl.ts + lib/useHandTracking.ts.
+const _hcSpherical = new Spherical()
+const _hcPos = new Vector3()
+
+interface HandCameraDriverProps {
+  signalRef?: React.MutableRefObject<HandSignal | null>
+  active: boolean
+  controlsRef: React.MutableRefObject<OrbitControlsImpl | null>
+  span: number
+}
+
+function HandCameraDriver({ signalRef, active, controlsRef, span }: HandCameraDriverProps) {
+  useFrame((state) => {
+    if (!active || !signalRef) return
+    const sig = signalRef.current
+    const controls = controlsRef.current
+    if (!sig || !controls) return
+    const target = signalToCameraTarget(sig, {
+      minDistance: Math.max(span * 0.5, 8),
+      maxDistance: Math.max(span * 2.8, 40),
+      minPolar: 0.15,
+      maxPolar: 1.45,
+      azimuthSpan: Math.PI,
+    })
+    // three.Spherical is (radius, phi=polar-from-+Y, theta=azimuth-around-Y).
+    _hcSpherical.set(target.distance, target.polar, target.azimuth)
+    _hcPos.setFromSpherical(_hcSpherical).add(controls.target)
+    state.camera.position.lerp(_hcPos, 0.15)
+    controls.update()
+  })
+  return null
+}
+
 interface Solar3DSceneProps {
   panels: Panel[]
   tiltDeg: number
@@ -1293,6 +1332,12 @@ interface Solar3DSceneProps {
   // docstring for why these are decoration, not surveyed data, and never touch
   // the physics. Defaults to on; Solar3DPage's own checkbox toggles it.
   showEnvironment?: boolean
+  // Optional webcam hand-gesture camera control (2026-07-23, Phase 1). When
+  // `handControlActive`, HandCameraDriver eases the camera from the smoothed
+  // signal in `handSignalRef` each frame; both default off/undefined so every
+  // existing caller renders exactly as before. See lib/useHandTracking.ts.
+  handControlActive?: boolean
+  handSignalRef?: React.MutableRefObject<HandSignal | null>
 }
 
 export function Solar3DScene({
@@ -1323,6 +1368,8 @@ export function Solar3DScene({
   irradianceOriginLon = 0,
   showIrradianceOverlay = false,
   showEnvironment = true,
+  handControlActive = false,
+  handSignalRef,
   ref,
 }: Solar3DSceneProps & { ref?: Ref<Solar3DSceneHandle> }) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null)
@@ -1572,6 +1619,7 @@ export function Solar3DScene({
       <RainLayer center={bounds.full.center} span={bounds.full.span} precipMm={precipMm} intensity={precipIntensity} />
 
       <OrbitControls ref={controlsRef} target={[focusCenterScene[0], panelBaseY, focusCenterScene[1]]} />
+      <HandCameraDriver active={handControlActive} signalRef={handSignalRef} controlsRef={controlsRef} span={bounds.full.span} />
     </Canvas>
   )
 }

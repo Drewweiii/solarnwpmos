@@ -1,0 +1,154 @@
+// Webcam hand tracking for the 3D View's optional "🖐️ ควบคุมด้วยมือ" control
+// (2026-07-23, Phase 1). ALL processing is on-device: the webcam frames go
+// straight into MediaPipe's HandLandmarker in the browser and are never
+// uploaded anywhere - only the derived normalized HandSignal (see
+// lib/handControl.ts) leaves this hook, into a ref the 3D scene reads. Off by
+// default; the camera is requested only when the user turns it on.
+//
+// The MediaPipe model + wasm load from a CDN, so like the satellite ground this
+// cannot be visually confirmed in the egress-blocked dev sandbox (it surfaces a
+// clear error state there) - it comes alive on a real deploy. Self-hosting the
+// two files under web/public is the documented follow-up to drop the CDN.
+import { useEffect, useRef, useState } from 'react'
+import {
+  DEFAULT_HAND_CONTROL_CONFIG,
+  NEUTRAL_SIGNAL,
+  mapHandToSignal,
+  smoothSignal,
+  type HandSignal,
+} from './handControl'
+
+const MEDIAPIPE_VERSION = '0.10.14'
+const WASM_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/wasm`
+const HAND_MODEL_URL =
+  'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task'
+
+// How fast the camera glides toward the hand's requested pose each frame.
+const SMOOTHING_FACTOR = 0.18
+
+export type HandTrackingStatus =
+  | 'idle'
+  | 'requesting-camera'
+  | 'loading-model'
+  | 'tracking'
+  | 'no-hand'
+  | 'error'
+
+export interface UseHandTrackingResult {
+  status: HandTrackingStatus
+  error: string | null
+  // The scene reads this every frame (in useFrame) - a ref so hand motion never
+  // triggers React re-renders. Holds the smoothed signal, or null when idle.
+  signalRef: React.MutableRefObject<HandSignal | null>
+  // Attach to a (hidden) <video> element the webcam stream feeds.
+  videoRef: React.RefObject<HTMLVideoElement | null>
+}
+
+export function useHandTracking(enabled: boolean): UseHandTrackingResult {
+  const [status, setStatus] = useState<HandTrackingStatus>('idle')
+  const [error, setError] = useState<string | null>(null)
+  const signalRef = useRef<HandSignal | null>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+
+  useEffect(() => {
+    if (!enabled) {
+      signalRef.current = null
+      setStatus('idle')
+      setError(null)
+      return
+    }
+
+    let cancelled = false
+    let stream: MediaStream | null = null
+    let usedVideo: HTMLVideoElement | null = null
+    let landmarker: { detectForVideo: (v: HTMLVideoElement, t: number) => { landmarks?: unknown[][] }; close: () => void } | null = null
+    let raf = 0
+    let smoothed: HandSignal = NEUTRAL_SIGNAL
+
+    async function start() {
+      try {
+        setError(null)
+        setStatus('requesting-camera')
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+        if (cancelled) return
+        const video = videoRef.current
+        if (!video) throw new Error('no video element')
+        usedVideo = video
+        video.srcObject = stream
+        await video.play()
+
+        setStatus('loading-model')
+        const vision = await import('@mediapipe/tasks-vision')
+        const fileset = await vision.FilesetResolver.forVisionTasks(WASM_BASE)
+        if (cancelled) return
+        landmarker = (await vision.HandLandmarker.createFromOptions(fileset, {
+          baseOptions: { modelAssetPath: HAND_MODEL_URL, delegate: 'GPU' },
+          runningMode: 'VIDEO',
+          numHands: 1,
+        })) as unknown as typeof landmarker
+        if (cancelled) return
+        setStatus('no-hand')
+
+        const loop = () => {
+          if (cancelled || !landmarker || !videoRef.current) return
+          const now = performance.now()
+          let hands: unknown[][] | undefined
+          try {
+            hands = landmarker.detectForVideo(videoRef.current, now).landmarks
+          } catch {
+            // A transient detect error shouldn't kill the loop.
+          }
+          if (hands && hands.length > 0) {
+            const target = mapHandToSignal(hands[0] as { x: number; y: number }[], DEFAULT_HAND_CONTROL_CONFIG)
+            smoothed = smoothSignal(smoothed, target, SMOOTHING_FACTOR)
+            signalRef.current = smoothed
+            setStatus((s) => (s === 'tracking' ? s : 'tracking'))
+          } else {
+            signalRef.current = null
+            setStatus((s) => (s === 'no-hand' ? s : 'no-hand'))
+          }
+          raf = requestAnimationFrame(loop)
+        }
+        raf = requestAnimationFrame(loop)
+      } catch (e) {
+        if (cancelled) return
+        signalRef.current = null
+        setStatus('error')
+        setError(errorMessage(e))
+      }
+    }
+
+    void start()
+
+    return () => {
+      cancelled = true
+      if (raf) cancelAnimationFrame(raf)
+      if (landmarker) {
+        try {
+          landmarker.close()
+        } catch {
+          // ignore
+        }
+      }
+      if (stream) stream.getTracks().forEach((t) => t.stop())
+      if (usedVideo) usedVideo.srcObject = null
+      signalRef.current = null
+    }
+  }, [enabled])
+
+  return { status, error, signalRef, videoRef }
+}
+
+function errorMessage(e: unknown): string {
+  if (e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
+    return 'ไม่ได้รับอนุญาตให้ใช้กล้อง - กดอนุญาตกล้องในเบราว์เซอร์แล้วลองใหม่'
+  }
+  if (e instanceof DOMException && e.name === 'NotFoundError') {
+    return 'ไม่พบกล้องบนอุปกรณ์นี้'
+  }
+  // MediaPipe/wasm load failures often surface as a bare Event (no useful
+  // message) - don't dump "[object Event]" at the user; only append a detail
+  // when it's a real Error string.
+  const detail = e instanceof Error && e.message ? ` (${e.message})` : ''
+  return `เปิดการติดตามมือไม่สำเร็จ${detail} - โมเดลโหลดจากอินเทอร์เน็ต ต้องมีการเชื่อมต่อ`
+}

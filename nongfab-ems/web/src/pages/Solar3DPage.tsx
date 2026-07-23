@@ -20,8 +20,18 @@ import {
   useZones,
 } from '../lib/queries'
 import { esriWorldImageryTileUrl } from '../lib/satelliteTile'
+import { useHandTracking } from '../lib/useHandTracking'
 import { buildAtIso, minutesToHhMm, todayIso, utcMinutesToIctHhMm } from '../lib/timeScrub'
 import './Solar3DPage.css'
+
+const HAND_STATUS_LABEL: Record<string, string> = {
+  idle: '',
+  'requesting-camera': 'กำลังขอสิทธิ์กล้อง…',
+  'loading-model': 'กำลังโหลดโมเดลตรวจจับมือ…',
+  tracking: '🖐️ กำลังติดตามมือ - ขยับมือเพื่อหมุน, หนีบนิ้วเพื่อ zoom',
+  'no-hand': 'ยกมือขึ้นให้กล้องเห็น…',
+  error: '',
+}
 
 const REAL_ZONE_IDS = ['GIS', 'ISB', 'Jetty'] as const
 // Manual-drag slider granularity - the sun's own *animation* (icon rail
@@ -77,6 +87,12 @@ export function Solar3DPage() {
   // new network request.
   const [showIrradianceOverlay, setShowIrradianceOverlay] = useState(true)
   const [showEnvironment, setShowEnvironment] = useState(true)
+  // Optional webcam hand-gesture camera control (2026-07-23, Phase 1) - off by
+  // default; the camera is requested only when the user turns it on. All frames
+  // are processed on-device (see lib/useHandTracking.ts).
+  const [handControlEnabled, setHandControlEnabled] = useState(false)
+  const hand = useHandTracking(handControlEnabled)
+  const handControlActive = handControlEnabled && (hand.status === 'tracking' || hand.status === 'no-hand')
 
   const atIso = useMemo(() => buildAtIso(date, timeOfDayMinutes), [date, timeOfDayMinutes])
 
@@ -367,6 +383,8 @@ export function Solar3DPage() {
               irradianceOriginLon={zoneObj?.centroid.lon ?? 0}
               showIrradianceOverlay={showIrradianceOverlay}
               showEnvironment={showEnvironment}
+              handControlActive={handControlActive}
+              handSignalRef={hand.signalRef}
             />
           </>
         )}
@@ -412,6 +430,36 @@ export function Solar3DPage() {
           ภาพประกอบเพื่อบอกสเกลและทิศทางรอบพื้นที่เท่านั้น - ไม่ใช่ตำแหน่ง/ขนาดจริงจากการสำรวจ และไม่มีผลต่อการคำนวณ irradiance หรือเงาบังของแผง
         </p>
       </div>
+
+      {/* Optional webcam hand-gesture camera control (2026-07-23, Phase 1).
+          Off by default; enabling it requests the camera. All processing is
+          on-device - webcam frames never leave the browser, only the derived
+          camera signal does (see lib/useHandTracking.ts). Mouse/touch control
+          keeps working either way. */}
+      <div className="solar3d-irradiance-overlay-toggle">
+        <button
+          type="button"
+          className="solar3d-hand-toggle"
+          aria-pressed={handControlEnabled}
+          onClick={() => setHandControlEnabled((v) => !v)}
+        >
+          {handControlEnabled ? '🖐️ ปิดการควบคุมด้วยมือ' : '🖐️ ควบคุมด้วยมือ (ใช้กล้อง)'}
+        </button>
+        {handControlEnabled && hand.status !== 'error' && HAND_STATUS_LABEL[hand.status] && (
+          <p className="forecast-status forecast-status-caption">{HAND_STATUS_LABEL[hand.status]}</p>
+        )}
+        {handControlEnabled && hand.error && (
+          <p className="forecast-status forecast-status-caption" role="alert">
+            {hand.error}
+          </p>
+        )}
+        <p className="forecast-status forecast-status-caption">
+          ประมวลผลภาพในเครื่องของคุณเท่านั้น ไม่ส่งภาพขึ้นเซิร์ฟเวอร์ - เมาส์/นิ้วยังหมุน-ซูมได้ตามปกติ
+        </p>
+      </div>
+
+      {/* Hidden video element the webcam stream feeds into for MediaPipe. */}
+      <video ref={hand.videoRef} muted playsInline style={{ display: 'none' }} />
     </div>
   )
 }

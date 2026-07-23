@@ -2952,3 +2952,26 @@ Live-verified in Chromium at 13:00 ICT: GIS shows a fenced grass yard with a
 road, Jetty shows the long trestle over the sea with the LNG carrier's spheres
 + JCR; only console errors are the expected blocked satellite-tile fetches.
 tsc + full web suite (379) pass, oxlint clean.
+
+### 2026-07-23 - Webcam hand-gesture camera control for 3D View (Phase 1)
+
+Optional "🖐️ ควบคุมด้วยมือ" toggle (off by default) on the 3D View: turning it on
+requests the webcam and lets the user rotate (hand left/right, up/down) and zoom
+(pinch open/close) the camera with one hand. All frames are processed
+**on-device** via MediaPipe HandLandmarker - only the derived normalized signal
+leaves the tracker, never the video. Mouse/touch OrbitControls keep working.
+
+- `lib/handControl.ts`: pure gesture->signal->camera-target mapping + smoothing
+  (14 unit tests) - no DOM/three imports, fully testable.
+- `lib/useHandTracking.ts`: webcam + MediaPipe (dynamic import, code-split), with
+  a clear on-screen status/error state and a stated privacy note.
+- `Solar3DScene` `HandCameraDriver`: eases the camera to the hand's requested
+  pose around OrbitControls' target each frame; both new props default off so
+  every existing caller is unchanged.
+
+The MediaPipe model/wasm load from a CDN, so - like the satellite ground - the
+actual tracking can only be confirmed on a real-egress deploy; in the blocked
+dev sandbox enabling it surfaces a clean error (verified live: camera acquired
+via a fake device, model fetch blocked -> graceful message, no crash).
+Phase 2 (multi-gesture, smoother, nicer indicator, self-hosted model to drop the
+CDN) is a follow-up. tsc + full web suite (394) pass, oxlint clean.

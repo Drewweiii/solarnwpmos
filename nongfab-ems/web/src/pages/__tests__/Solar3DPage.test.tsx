@@ -337,6 +337,20 @@ describe('Solar3DPage', () => {
     expect(await screen.findByText(/showEnvironment=false/)).toBeInTheDocument()
   })
 
+  it('offers a hand-gesture control toggle, off by default (2026-07-23)', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    // Off by default (camera is only requested when the user opts in) + states
+    // the on-device privacy note.
+    const handBtn = await screen.findByRole('button', { name: /ควบคุมด้วยมือ/ })
+    expect(handBtn).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByText(/ไม่ส่งภาพขึ้นเซิร์ฟเวอร์/)).toBeInTheDocument()
+
+    await user.click(handBtn)
+    // Label flips to the "turn off" form once enabled.
+    expect(await screen.findByRole('button', { name: /ปิดการควบคุมด้วยมือ/ })).toHaveAttribute('aria-pressed', 'true')
+  })
+
   it('shows zenith angle and the selected zone\'s own lat/lon', async () => {
     renderPage()
     // elevation 38deg -> zenith 90-38 = 52deg

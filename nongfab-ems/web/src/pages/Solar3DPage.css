@@ -378,3 +378,19 @@
   font-weight: 600;
   color: #818cf8;
 }
+
+/* Hand-gesture control toggle (2026-07-23, Phase 1). */
+.solar3d-hand-toggle {
+  cursor: pointer;
+  border: 1px solid var(--border, #334155);
+  background: var(--surface-2, #1e293b);
+  color: inherit;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.solar3d-hand-toggle[aria-pressed='true'] {
+  background: #2b6ca3;
+  border-color: #2b6ca3;
+  color: #fff;
+}
