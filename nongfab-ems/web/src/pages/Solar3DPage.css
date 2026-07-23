@@ -382,20 +382,173 @@
   color: #818cf8;
 }
 
-/* Hand-gesture control toggle (2026-07-23, Phase 1). */
+/* Hand-gesture control panel: on/off mode switch + live sync readout
+   (2026-07-23, Phase 2 follow-up). */
+.solar3d-hand-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+/* Explicit on/off MODE switch - a labeled control (icon · name · ON/OFF badge)
+   rather than a bare button, so it clearly reads as a mode you flip. */
 .solar3d-hand-toggle {
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   border: 1px solid var(--border, #334155);
   background: var(--surface-2, #1e293b);
   color: inherit;
-  padding: 6px 14px;
-  border-radius: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
   font-size: 14px;
+}
+.solar3d-hand-toggle-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+.solar3d-hand-toggle-text {
+  font-weight: 600;
+}
+/* The ON/OFF badge on the right of the switch - grey when off, green when on. */
+.solar3d-hand-toggle-state {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.25);
+  color: #cbd5e1;
 }
 .solar3d-hand-toggle[aria-pressed='true'] {
   background: #2b6ca3;
   border-color: #2b6ca3;
   color: #fff;
+}
+.solar3d-hand-toggle[aria-pressed='true'] .solar3d-hand-toggle-state {
+  background: #16a34a;
+  color: #fff;
+}
+
+/* --- Live sync / "hand connected" indicator --- */
+.solar3d-hand-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid var(--border, #334155);
+  background: var(--surface-2, #1e293b);
+  color: var(--text-h, #e2e8f0);
+}
+.solar3d-hand-sync-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #64748b;
+  flex: none;
+}
+/* Off / idle - muted grey. */
+.solar3d-hand-sync-off .solar3d-hand-sync-dot,
+.solar3d-hand-sync-idle .solar3d-hand-sync-dot {
+  background: #64748b;
+}
+/* Connecting (camera / model loading) - amber, pulsing. */
+.solar3d-hand-sync-connecting {
+  border-color: #b45309;
+}
+.solar3d-hand-sync-connecting .solar3d-hand-sync-dot {
+  background: #f59e0b;
+  animation: solar3d-hand-sync-pulse 1s ease-in-out infinite;
+}
+/* Waiting for a hand - blue, pulsing. */
+.solar3d-hand-sync-waiting {
+  border-color: #1d4ed8;
+}
+.solar3d-hand-sync-waiting .solar3d-hand-sync-dot {
+  background: #3b82f6;
+  animation: solar3d-hand-sync-pulse 1.2s ease-in-out infinite;
+}
+/* Locked on - green, steady glow. */
+.solar3d-hand-sync-synced {
+  border-color: #16a34a;
+  background: rgba(22, 163, 74, 0.15);
+}
+.solar3d-hand-sync-synced .solar3d-hand-sync-dot {
+  background: #16a34a;
+  box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.6);
+  animation: solar3d-hand-sync-glow 1.4s ease-out infinite;
+}
+/* Error - red. */
+.solar3d-hand-sync-error {
+  border-color: var(--danger, #dc2626);
+}
+.solar3d-hand-sync-error .solar3d-hand-sync-dot {
+  background: var(--danger, #dc2626);
+}
+
+@keyframes solar3d-hand-sync-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes solar3d-hand-sync-glow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 8px rgba(22, 163, 74, 0);
+  }
+}
+
+/* Live movement bars - proof the connection is live: the top marker slides
+   left/right with the hand's rotate signal, the lower bar fills with zoom. */
+.solar3d-hand-sync-bars {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-left: 4px;
+}
+.solar3d-hand-sync-bar {
+  position: relative;
+  width: 64px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.3);
+  overflow: hidden;
+}
+.solar3d-hand-sync-bar-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+/* Azimuth: a thin marker positioned by `left` (centered = 50%). */
+.solar3d-hand-sync-bar-azimuth {
+  width: 6px;
+  border-radius: 999px;
+  background: #38bdf8;
+  transform: translateX(-50%);
+  transition: left 60ms linear;
+}
+/* Zoom: a fill growing from the left by `width`. */
+.solar3d-hand-sync-bar-zoom {
+  left: 0;
+  border-radius: 999px;
+  background: #22c55e;
+  transition: width 60ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .solar3d-hand-sync-dot {
+    animation: none !important;
+  }
 }
 
 /* --- Mobile (iOS/Android) responsiveness for the 3D View (2026-07-23) --- */
@@ -417,6 +570,10 @@
     min-width: 0;
   }
   .solar3d-hand-toggle {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .solar3d-hand-sync {
     width: 100%;
   }
   /* A little more finger room on the buttons. */

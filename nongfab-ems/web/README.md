@@ -3036,3 +3036,26 @@ across the seam). tsc clean, oxlint clean, full web suite (400) passes, prod
 build succeeds. The actual camera tracking still needs a real deploy to
 exercise (the sandbox has no webcam and blocks the MediaPipe CDN); the render
 easing and the signal->camera math are fully covered by the unit tests.
+
+### 2026-07-23 - Hand control: explicit on/off mode + live "hand connected" sync
+
+Per the user's ask for a clear on/off mode and a sync readout that shows the
+hand is actually connected:
+
+- **On/off mode switch** (`Solar3DPage.tsx` + CSS): the hand-control button now
+  reads as a labeled mode control - icon · "ควบคุมด้วยมือ" · an ON/OFF badge
+  that turns green when on - instead of a bare button whose text flipped. Still
+  off by default; still only requests the camera when switched on.
+- **Live sync indicator** (`components/HandSyncIndicator.tsx`): a color-coded
+  status pill driven by the tracking status - grey "ปิดอยู่" (off), amber
+  pulsing "กำลังเชื่อมต่อกล้อง…/โหลดโมเดล…", blue pulsing "ยังไม่เจอมือ", and a
+  green glowing "✅ เชื่อมต่อมือติดแล้ว (Hand connected)" once a hand is locked
+  on, red on error. While connected it also shows two **live movement bars** -
+  the top marker slides with the rotate signal, the lower bar fills with the
+  zoom signal - as visible proof the connection is live. It reads the live
+  `HandSignal` ref in its OWN throttled (~15fps) requestAnimationFrame loop so
+  only this small pill re-renders, never the heavy 3D scene above it. It's an
+  `aria-live="polite"` status region for screen readers.
+
+tsc clean, oxlint clean, full web suite (401, +1 sync test) passes, prod build
+succeeds.

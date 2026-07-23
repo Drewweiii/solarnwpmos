@@ -337,18 +337,35 @@ describe('Solar3DPage', () => {
     expect(await screen.findByText(/showEnvironment=false/)).toBeInTheDocument()
   })
 
-  it('offers a hand-gesture control toggle, off by default (2026-07-23)', async () => {
+  it('offers a hand-gesture control on/off mode switch, off by default (2026-07-23)', async () => {
     const user = userEvent.setup()
     renderPage()
     // Off by default (camera is only requested when the user opts in) + states
     // the on-device privacy note.
     const handBtn = await screen.findByRole('button', { name: /ควบคุมด้วยมือ/ })
     expect(handBtn).toHaveAttribute('aria-pressed', 'false')
+    expect(handBtn).toHaveTextContent(/ปิด \(OFF\)/)
     expect(screen.getByText(/ไม่ส่งภาพขึ้นเซิร์ฟเวอร์/)).toBeInTheDocument()
 
     await user.click(handBtn)
-    // Label flips to the "turn off" form once enabled.
-    expect(await screen.findByRole('button', { name: /ปิดการควบคุมด้วยมือ/ })).toHaveAttribute('aria-pressed', 'true')
+    // The ON/OFF badge flips to ON and aria-pressed becomes true once enabled.
+    expect(handBtn).toHaveAttribute('aria-pressed', 'true')
+    expect(handBtn).toHaveTextContent(/เปิด \(ON\)/)
+  })
+
+  it('shows a hand-connection (sync) status readout that reflects the on/off mode (2026-07-23)', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    // A live-region status pill exists and reads "off" before enabling.
+    const sync = await screen.findByRole('status')
+    expect(sync).toHaveTextContent(/ปิดอยู่/)
+
+    const handBtn = screen.getByRole('button', { name: /ควบคุมด้วยมือ/ })
+    await user.click(handBtn)
+    // Once enabled, the sync pill leaves the "off" copy (it advances toward a
+    // camera/model/tracking phase - the exact phase depends on the environment,
+    // but it must no longer read "off").
+    await waitFor(() => expect(screen.getByRole('status')).not.toHaveTextContent(/ปิดอยู่/))
   })
 
   it('shows zenith angle and the selected zone\'s own lat/lon', async () => {

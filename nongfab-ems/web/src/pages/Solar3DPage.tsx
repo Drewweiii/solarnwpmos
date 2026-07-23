@@ -5,6 +5,7 @@ import type { Solar3DSceneHandle } from '../components/Solar3DScene'
 import { Solar3DScene } from '../components/Solar3DScene'
 import { Solar3DIconRail } from '../components/Solar3DIconRail'
 import { Solar3DAssistants } from '../components/Solar3DAssistants'
+import { HandSyncIndicator } from '../components/HandSyncIndicator'
 import { ZoneSelector } from '../components/ZoneSelector'
 import { nearestToTimestamp } from '../lib/chartData'
 import { moonPhaseName, zenithAngleDeg } from '../lib/solar3d'
@@ -436,15 +437,25 @@ export function Solar3DPage() {
           on-device - webcam frames never leave the browser, only the derived
           camera signal does (see lib/useHandTracking.ts). Mouse/touch control
           keeps working either way. */}
-      <div className="solar3d-irradiance-overlay-toggle">
+      <div className="solar3d-hand-panel">
+        {/* Explicit on/off MODE switch (2026-07-23) - reads as a labeled ON/OFF
+            control, not just a button, so it's obvious the hand control is a
+            mode you flip. */}
         <button
           type="button"
           className="solar3d-hand-toggle"
           aria-pressed={handControlEnabled}
           onClick={() => setHandControlEnabled((v) => !v)}
         >
-          {handControlEnabled ? '🖐️ ปิดการควบคุมด้วยมือ' : '🖐️ ควบคุมด้วยมือ (ใช้กล้อง)'}
+          <span className="solar3d-hand-toggle-icon" aria-hidden="true">🖐️</span>
+          <span className="solar3d-hand-toggle-text">ควบคุมด้วยมือ</span>
+          <span className="solar3d-hand-toggle-state">{handControlEnabled ? 'เปิด (ON)' : 'ปิด (OFF)'}</span>
         </button>
+
+        {/* Live connection/sync readout - shows the hand is actually locked on,
+            with live movement bars while tracking (see HandSyncIndicator). */}
+        <HandSyncIndicator enabled={handControlEnabled} status={hand.status} signalRef={hand.signalRef} />
+
         {handControlEnabled && hand.status !== 'error' && HAND_STATUS_LABEL[hand.status] && (
           <p className="forecast-status forecast-status-caption">{HAND_STATUS_LABEL[hand.status]}</p>
         )}
