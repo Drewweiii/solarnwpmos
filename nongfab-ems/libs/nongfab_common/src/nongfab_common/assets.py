@@ -136,6 +136,34 @@ class Environmental(BaseModel):
     jetty_600kw_trees_equivalent: float
 
 
+class LngTerminal(BaseModel):
+    """Public facts about the host LNG terminal (PTT LNG Nong Fab / Map Ta Phut
+    Terminal 2) the solar array sits on. Describes the LNG FACILITY, not the
+    solar plant - every figure is from cited public sources (see the `sources`
+    list), not measured by this project. Surfaced read-only in the frontend's
+    "About this facility" card so viewers understand the site's context. All
+    fields default to None/empty so existing minimal YAML/test fixtures that
+    omit the whole block still validate.
+    """
+
+    official_name: str = ""
+    owner: str = ""
+    epc_contractors: str = ""
+    operational_since_year: int | None = None
+    regas_capacity_mmtpa: float | None = None
+    peak_capacity_mmtpa: float | None = None
+    storage_tank_count: int | None = None
+    storage_tank_capacity_m3: float | None = None
+    storage_tank_type: str = ""
+    jetty_length_km_public: float | None = None
+    jetty_length_km_user_stated: float | None = None
+    lng_carrier_min_m3: float | None = None
+    lng_carrier_max_m3: float | None = None
+    cold_energy_reuse: bool = False
+    seawater_recycling: bool = False
+    sources: list[str] = Field(default_factory=list)
+
+
 class Site(BaseModel):
     name: str
     project_code: str
@@ -149,6 +177,9 @@ class Site(BaseModel):
     # street, not previously captured anywhere in this registry.
     facility_code: str = ""
     street_address: str = ""
+    # Public LNG-terminal context (2026-07-23) - None where the YAML omits it,
+    # so older fixtures/tests keep validating. See LngTerminal.
+    lng_terminal: LngTerminal | None = None
 
 
 class CloudTileConfig(BaseModel):

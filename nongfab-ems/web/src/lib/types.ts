@@ -40,7 +40,38 @@ export interface Zone {
   inverter_detail: InverterDetail | null
 }
 
+// Public facts about the host LNG terminal (Map Ta Phut Terminal 2 / Nong Fab)
+// the solar array sits on - sourced, not measured by this project. Surfaced
+// read-only in the "About this facility" card. All fields optional/nullable
+// since the backend defaults them to None when the YAML omits the block.
+export interface LngTerminal {
+  official_name: string
+  owner: string
+  epc_contractors: string
+  operational_since_year: number | null
+  regas_capacity_mmtpa: number | null
+  peak_capacity_mmtpa: number | null
+  storage_tank_count: number | null
+  storage_tank_capacity_m3: number | null
+  storage_tank_type: string
+  jetty_length_km_public: number | null
+  jetty_length_km_user_stated: number | null
+  lng_carrier_min_m3: number | null
+  lng_carrier_max_m3: number | null
+  cold_energy_reuse: boolean
+  seawater_recycling: boolean
+  sources: string[]
+}
+
+export interface SiteInfo {
+  name: string
+  facility_code: string
+  street_address: string
+  lng_terminal: LngTerminal | null
+}
+
 export interface AssetRegistry {
+  site?: SiteInfo
   zones: Zone[]
 }
 

@@ -171,3 +171,25 @@ def test_real_repo_assets_yaml_loads_and_validates():
     assert 12.70 < lat_max < 12.80
     assert 101.00 < lon_min < 101.10
     assert 101.15 < lon_max < 101.25
+
+    # Public LNG-terminal context (2026-07-23) - the facts the frontend's
+    # "About this facility" card surfaces. Sourced, not measured here.
+    lng = registry.site.lng_terminal
+    assert lng is not None
+    assert lng.official_name == "Map Ta Phut LNG Terminal 2 (Nong Fab)"
+    assert lng.regas_capacity_mmtpa == pytest.approx(7.5)
+    assert lng.peak_capacity_mmtpa == pytest.approx(9.0)
+    assert lng.storage_tank_count == 2
+    assert lng.storage_tank_capacity_m3 == pytest.approx(250000)
+    # Both jetty figures are recorded honestly rather than reconciled to one.
+    assert lng.jetty_length_km_public == pytest.approx(5.5)
+    assert lng.jetty_length_km_user_stated == pytest.approx(5.66)
+    assert len(lng.sources) >= 1
+
+
+def test_lng_terminal_optional_when_omitted(minimal_registry_path):
+    """The minimal fixture omits site.lng_terminal entirely - it must still load,
+    with lng_terminal defaulting to None, so older YAML/fixtures keep validating.
+    """
+    registry = load_assets(minimal_registry_path)
+    assert registry.site.lng_terminal is None

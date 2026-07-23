@@ -20,6 +20,38 @@ site:
   facility_code: "LMPT2"
   street_address: "Rong Pui Alley, Mueang Rayong District, Rayong"
 
+  # Public facts about the host LNG terminal the solar array sits on - PTT LNG's
+  # Nong Fab receiving terminal, officially renamed "Map Ta Phut LNG Terminal 2"
+  # (Thailand's 2nd onshore LNG import terminal). These describe the LNG FACILITY
+  # itself (not the solar plant) and give viewers the context for why a solar EMS
+  # exists here. Every figure is from the cited public sources (2026-07-23
+  # research pass), NOT measured by this project - kept separate from the
+  # surveyed solar-array geometry above, and surfaced read-only in the frontend's
+  # "About this facility" card (web FacilityInfoCard). Note the small jetty-length
+  # discrepancy: public write-ups round the trestle to ~5.5 km ("world's longest
+  # for this service"); the user stated 5.66 km (see zone Jetty's jetty_structure)
+  # - both are recorded honestly rather than silently reconciled to one number.
+  lng_terminal:
+    official_name: "Map Ta Phut LNG Terminal 2 (Nong Fab)"
+    owner: "PTT LNG Company Limited (PTTLNG)"
+    epc_contractors: "Saipem + CTCI"
+    operational_since_year: 2022
+    regas_capacity_mmtpa: 7.5            # nominal regasification capacity
+    peak_capacity_mmtpa: 9.0             # peak send-out capacity
+    storage_tank_count: 2
+    storage_tank_capacity_m3: 250000     # each; full-containment type
+    storage_tank_type: "full-containment"
+    jetty_length_km_public: 5.5          # public "longest jetty for this service"
+    jetty_length_km_user_stated: 5.66    # user-stated (see zone Jetty.jetty_structure)
+    lng_carrier_min_m3: 125000           # smallest carrier the jetty berths
+    lng_carrier_max_m3: 266000           # largest (Q-Max class)
+    cold_energy_reuse: true              # LNG cold-energy recovery runs admin HVAC
+    seawater_recycling: true             # seawater recycled via underwater tunnels
+    sources:
+      - "https://www.offshore-technology.com/projects/nong-fab-lng-receiving-terminal/"
+      - "https://www.saipem.com/en/saipem-worldwide-projects/pttlng-nong"
+      - "https://lngprime.com/asia/saipem-and-ctci-wrap-up-work-on-ptts-nong-fab-lng-terminal-in-thailand/75287/"
+
 zones:
   - id: GIS
     name_full: "Grid Integrated Substation"
@@ -158,6 +190,11 @@ zones:
     # is a much longer marine loading trestle than the array footprint.
     jetty_structure:
       full_length_km: 5.66            # full trestle out to sea (user-stated, 2026-07-23)
+      full_length_km_public: 5.5      # public sources round to ~5.5km ("world's
+                                      # longest jetty for this service") - kept
+                                      # alongside the user-stated 5.66 rather than
+                                      # overwriting it; ~0.16km apart, same jetty.
+                                      # See site.lng_terminal for the cited sources.
       receives_ships: true            # LNG-carrier berthing jetty
       jetty_control_room: "JCR"       # Jetty Control Room on the structure
       source: "user-stated 2026-07-23 (not satellite-remeasured)"

@@ -573,6 +573,72 @@
   color: #c4b5fd;
 }
 
+/* --- "About this facility" LNG-terminal context card (2026-07-23) --- */
+.facility-info-card {
+  border: 1px solid var(--border, #334155);
+  border-radius: 10px;
+  background: var(--card-bg);
+  overflow: hidden;
+}
+.facility-info-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  color: var(--text-h);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.facility-info-chevron {
+  opacity: 0.7;
+}
+.facility-info-body {
+  padding: 4px 16px 14px;
+  border-top: 1px solid var(--border);
+}
+.facility-info-name {
+  font-weight: 700;
+  color: var(--text-h);
+  margin: 10px 0;
+}
+.facility-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px 20px;
+  margin: 0 0 10px;
+}
+.facility-info-stat dt {
+  font-size: 12px;
+  color: var(--text);
+  opacity: 0.8;
+}
+.facility-info-stat dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+}
+.facility-info-green {
+  font-size: 13px;
+  color: #16a34a;
+  margin: 6px 0;
+}
+.facility-info-disclaimer {
+  font-size: 12px;
+  color: var(--text);
+  opacity: 0.8;
+  line-height: 150%;
+  margin: 6px 0 0;
+}
+.facility-info-disclaimer a {
+  color: var(--accent, #3b82f6);
+}
+
 /* Live hand-skeleton preview window. */
 .solar3d-hand-preview {
   border: 1px solid var(--border, #334155);

@@ -3094,3 +3094,30 @@ speed-responsiveness property). tsc clean, oxlint clean, full web suite (412,
 +11) passes, prod build succeeds. Live hand tracking still needs a real deploy
 to exercise (sandbox has no webcam + blocks the MediaPipe CDN); the graceful
 off/error paths and all the math are covered by tests.
+
+### 2026-07-23 - LNG-terminal facility context (research-driven)
+
+Researched PTT LNG's Nong Fab receiving terminal (officially "Map Ta Phut LNG
+Terminal 2") from public sources and closed the gaps where the site showed the
+solar array but almost no context about the LNG facility it sits on:
+
+- **`config/assets.yaml` `site.lng_terminal`** (+ `nongfab_common.assets`'s new
+  `LngTerminal` model): public, cited facts - 7.5 MMTPA regas (peak 9), 2 x
+  250,000 m³ full-containment storage tanks, ~5.5 km jetty berthing
+  125,000-266,000 m³ carriers, operational 2022, owner PTT LNG, EPC Saipem+CTCI,
+  plus the cold-energy-reuse / seawater-recycling sustainability notes. The
+  jetty-length discrepancy (public ~5.5 km vs the user-stated 5.66 km) is
+  recorded as BOTH figures, not silently reconciled. All fields optional so
+  older YAML/fixtures still validate; surfaced via the existing `GET /assets`.
+- **`components/FacilityInfoCard.tsx`**: a collapsible "About this facility" card
+  on the 3D View that renders those facts, explicitly labeled as public info
+  about the LNG terminal (not the solar plant's numbers, not measured here) with
+  links to the sources.
+- **`Solar3DScene`'s `LngStorageTanks`**: the terminal's two big full-containment
+  tanks now render inland of the array as domed concrete cylinders at roughly
+  real scale (~90 m across) - the site's dominant real-world landmark - labelled
+  "ภาพประกอบ" (illustrative) and toggled with the site-environment checkbox, so
+  it's clearly context, not a survey, and it does not touch the shading calc.
+
+Python `nongfab_common` tests (7, +1) pass; full web suite (414, +2) passes; tsc
++ oxlint clean; prod build succeeds.

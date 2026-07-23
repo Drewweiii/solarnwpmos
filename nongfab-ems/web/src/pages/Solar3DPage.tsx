@@ -7,6 +7,7 @@ import { Solar3DIconRail } from '../components/Solar3DIconRail'
 import { Solar3DAssistants } from '../components/Solar3DAssistants'
 import { HandSyncIndicator } from '../components/HandSyncIndicator'
 import { HandPreview } from '../components/HandPreview'
+import { FacilityInfoCard } from '../components/FacilityInfoCard'
 import { ZoneSelector } from '../components/ZoneSelector'
 import { nearestToTimestamp } from '../lib/chartData'
 import { moonPhaseName, zenithAngleDeg } from '../lib/solar3d'
@@ -203,6 +204,10 @@ export function Solar3DPage() {
         <ZoneSelector value={zone} onChange={setZone} includeAll={false} />
         {geometry.data && <SolarAccessGauge pct={geometry.data.average_solar_access_pct} />}
       </div>
+
+      {/* Context: the LNG terminal the solar array sits on (public, sourced -
+          see FacilityInfoCard / config/assets.yaml site.lng_terminal). */}
+      <FacilityInfoCard terminal={zones.data?.site?.lng_terminal} />
 
       {/* Which instant is being simulated, in the same Thai-local-time
           convention every other page on this dashboard already uses (see

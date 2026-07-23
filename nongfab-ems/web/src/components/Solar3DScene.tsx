@@ -1210,6 +1210,63 @@ function JettyStructures({ center, span, deckY, visible }: JettyStructuresProps)
   )
 }
 
+interface LngStorageTanksProps {
+  // Scene coords [x, z] (z already negated from north-metres by the caller).
+  center: [number, number]
+  span: number
+  visible: boolean
+}
+
+// The terminal's two full-containment LNG storage tanks (2026-07-23) - the
+// dominant visual landmark of the real Nong Fab / Map Ta Phut Terminal 2 (2 x
+// 250,000 m3, see config/assets.yaml site.lng_terminal). Rendered as two large
+// domed concrete cylinders inland of the solar array. This is ILLUSTRATIVE
+// context at roughly real scale (a 250,000 m3 full-containment tank is ~90 m
+// across, ~55 m tall) for orientation only - their exact position/size here is
+// NOT a survey, and like the rest of SiteEnvironment they do not affect the
+// irradiance/shading calculation. Toggled with the site-environment checkbox.
+function LngStorageTanks({ center, span, visible }: LngStorageTanksProps) {
+  const [cx, cz] = center
+  if (!visible) return null
+  const radius = clamp(span * 0.045, 28, 55) // ~90 m diameter full-containment tank
+  const bodyH = radius * 1.15
+  const gap = radius * 2.8
+  // Sit inland (west, -X) of the array so they never overlap the panels.
+  const baseX = cx - clamp(span * 0.55, 130, 900)
+  const positions: Array<[number, number]> = [
+    [baseX, cz - gap / 2],
+    [baseX, cz + gap / 2],
+  ]
+  return (
+    <group>
+      {positions.map(([x, z], i) => (
+        <group key={`lng-tank-${i}`} position={[x, 0, z]}>
+          {/* Cylindrical outer concrete wall. */}
+          <mesh position={[0, bodyH / 2, 0]} castShadow>
+            <cylinderGeometry args={[radius, radius, bodyH, 32]} />
+            <meshStandardMaterial color="#d9dde2" roughness={0.85} metalness={0.05} />
+          </mesh>
+          {/* Shallow domed roof (a squashed hemisphere). */}
+          <mesh position={[0, bodyH, 0]} scale={[1, 0.32, 1]} castShadow>
+            <sphereGeometry args={[radius, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
+            <meshStandardMaterial color="#c3c9d0" roughness={0.8} metalness={0.05} />
+          </mesh>
+        </group>
+      ))}
+      <Html
+        position={[baseX, bodyH * 1.5, cz]}
+        center
+        distanceFactor={clamp(span * 0.5, 30, 90)}
+        occlude={false}
+      >
+        <div style={{ color: '#e2e8f0', background: 'rgba(15,23,42,0.8)', padding: '2px 8px', borderRadius: 6, fontSize: 12, whiteSpace: 'nowrap' }}>
+          ถัง LNG 2 ใบ (2×250,000 m³) · ภาพประกอบ
+        </div>
+      </Html>
+    </group>
+  )
+}
+
 // Drives the camera from the webcam hand signal (Phase 2, 2026-07-23:
 // ultra-smooth). Runs every RENDER frame (up to the display's 60fps), fully
 // decoupled from however fast hand DETECTION runs - the camera eases toward the
@@ -1605,6 +1662,13 @@ export function Solar3DScene({
         span={bounds.full.span}
         deckY={panelBaseY}
         visible={showEnvironment && mountType === 'pier'}
+      />
+      {/* The terminal's two big LNG storage tanks - a shared facility landmark,
+          shown inland for every zone (illustrative, see LngStorageTanks). */}
+      <LngStorageTanks
+        center={[bounds.full.center[0], -bounds.full.center[1]]}
+        span={bounds.full.span}
+        visible={showEnvironment}
       />
 
       {panels.map((panel) => (
