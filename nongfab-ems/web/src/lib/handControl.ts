@@ -124,6 +124,34 @@ export function smoothSignal(prev: HandSignal, target: HandSignal, factor: numbe
   }
 }
 
+// --- Frame-rate-independent smoothing (Phase 2, 2026-07-23) ---------------
+// The 3D camera eases toward the hand's requested pose every RENDER frame (up to
+// 60fps), decoupled from however fast hand DETECTION runs - so motion stays
+// buttery even when detection is slower than the display. `damp` is the same
+// exponential smoothing THREE.MathUtils.damp uses: independent of the frame
+// delta, so it looks identical at 30 or 120fps. Higher `lambda` = snappier.
+
+export function damp(current: number, target: number, lambda: number, dt: number): number {
+  if (dt <= 0) return current
+  return current + (target - current) * (1 - Math.exp(-lambda * dt))
+}
+
+/** Wrap an angle to (-π, π]. */
+export function wrapAngle(a: number): number {
+  const twoPi = Math.PI * 2
+  let x = (a + Math.PI) % twoPi
+  if (x <= 0) x += twoPi
+  return x - Math.PI
+}
+
+/** Damp an angle toward a target along the SHORTEST path, so e.g. rotating from
+ * +170° to -170° sweeps 20° across the wrap seam, never 340° the long way. */
+export function dampAngle(current: number, target: number, lambda: number, dt: number): number {
+  if (dt <= 0) return current
+  const delta = wrapAngle(target - current)
+  return current + delta * (1 - Math.exp(-lambda * dt))
+}
+
 // The scene-facing target: real spherical camera params. Kept here (pure) so the
 // mapping from a normalized signal to angles/distance is testable too.
 export interface CameraTarget {

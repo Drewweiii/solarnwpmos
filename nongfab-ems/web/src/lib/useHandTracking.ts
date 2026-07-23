@@ -23,8 +23,27 @@ const WASM_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAP
 const HAND_MODEL_URL =
   'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task'
 
-// How fast the camera glides toward the hand's requested pose each frame.
-const SMOOTHING_FACTOR = 0.18
+// How fast the raw hand signal is pre-smoothed each detection frame. Kept LIGHT
+// in Phase 2 (was 0.18) because the heavy, frame-rate-independent easing now
+// lives on the RENDER side (Solar3DScene's HandCameraDriver dampens toward this
+// target every render frame). Over-smoothing here would just add lag on top.
+const SMOOTHING_FACTOR = 0.5
+
+// Ask the camera for 60fps at a modest resolution: hand landmarking doesn't
+// need full-res frames, and a smaller frame keeps per-frame inference fast
+// enough to actually hit 60fps detection on mid-range mobile GPUs.
+const VIDEO_CONSTRAINTS: MediaTrackConstraints = {
+  facingMode: 'user',
+  frameRate: { ideal: 60 },
+  width: { ideal: 640 },
+  height: { ideal: 480 },
+}
+
+// A <video> that also exposes requestVideoFrameCallback (not yet in TS's lib).
+type VideoWithRVFC = HTMLVideoElement & {
+  requestVideoFrameCallback?: (cb: (now: number) => void) => number
+  cancelVideoFrameCallback?: (handle: number) => void
+}
 
 export type HandTrackingStatus =
   | 'idle'
@@ -60,18 +79,20 @@ export function useHandTracking(enabled: boolean): UseHandTrackingResult {
 
     let cancelled = false
     let stream: MediaStream | null = null
-    let usedVideo: HTMLVideoElement | null = null
+    let usedVideo: VideoWithRVFC | null = null
     let landmarker: { detectForVideo: (v: HTMLVideoElement, t: number) => { landmarks?: unknown[][] }; close: () => void } | null = null
     let raf = 0
+    let rvfc = 0
+    let lastDetectTs = -1
     let smoothed: HandSignal = NEUTRAL_SIGNAL
 
     async function start() {
       try {
         setError(null)
         setStatus('requesting-camera')
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+        stream = await navigator.mediaDevices.getUserMedia({ video: VIDEO_CONSTRAINTS })
         if (cancelled) return
-        const video = videoRef.current
+        const video = videoRef.current as VideoWithRVFC | null
         if (!video) throw new Error('no video element')
         usedVideo = video
         video.srcObject = stream
@@ -97,12 +118,23 @@ export function useHandTracking(enabled: boolean): UseHandTrackingResult {
         if (cancelled) return
         setStatus('no-hand')
 
-        const loop = () => {
-          if (cancelled || !landmarker || !videoRef.current) return
-          const now = performance.now()
+        // Run detection once per available frame. Driven by
+        // requestVideoFrameCallback when the browser supports it (fires exactly
+        // when a NEW camera frame is ready - up to the camera's 60fps, and never
+        // wastefully re-running MediaPipe on a frame it already saw), falling
+        // back to requestAnimationFrame elsewhere (iOS Safari lacked rVFC until
+        // recently). `readyState >= 2` (HAVE_CURRENT_DATA) guards against
+        // detecting on an un-decoded frame.
+        const detectOnce = (tsMs: number) => {
+          if (cancelled || !landmarker) return
+          const v = videoRef.current as VideoWithRVFC | null
+          if (!v || v.readyState < 2) return
+          // MediaPipe rejects two detects with the same timestamp; nudge if equal.
+          const ts = tsMs <= lastDetectTs ? lastDetectTs + 1 : tsMs
+          lastDetectTs = ts
           let hands: unknown[][] | undefined
           try {
-            hands = landmarker.detectForVideo(videoRef.current, now).landmarks
+            hands = landmarker.detectForVideo(v, ts).landmarks
           } catch {
             // A transient detect error shouldn't kill the loop.
           }
@@ -115,9 +147,27 @@ export function useHandTracking(enabled: boolean): UseHandTrackingResult {
             signalRef.current = null
             setStatus((s) => (s === 'no-hand' ? s : 'no-hand'))
           }
-          raf = requestAnimationFrame(loop)
         }
-        raf = requestAnimationFrame(loop)
+
+        const detectVideo = videoRef.current as VideoWithRVFC | null
+        if (detectVideo && typeof detectVideo.requestVideoFrameCallback === 'function') {
+          const rvfcLoop = (now: number) => {
+            if (cancelled) return
+            detectOnce(now)
+            const v = videoRef.current as VideoWithRVFC | null
+            if (!cancelled && v?.requestVideoFrameCallback) {
+              rvfc = v.requestVideoFrameCallback(rvfcLoop)
+            }
+          }
+          rvfc = detectVideo.requestVideoFrameCallback(rvfcLoop)
+        } else {
+          const rafLoop = () => {
+            if (cancelled) return
+            detectOnce(performance.now())
+            raf = requestAnimationFrame(rafLoop)
+          }
+          raf = requestAnimationFrame(rafLoop)
+        }
       } catch (e) {
         if (cancelled) return
         signalRef.current = null
@@ -131,6 +181,13 @@ export function useHandTracking(enabled: boolean): UseHandTrackingResult {
     return () => {
       cancelled = true
       if (raf) cancelAnimationFrame(raf)
+      if (rvfc && usedVideo?.cancelVideoFrameCallback) {
+        try {
+          usedVideo.cancelVideoFrameCallback(rvfc)
+        } catch {
+          // ignore
+        }
+      }
       if (landmarker) {
         try {
           landmarker.close()

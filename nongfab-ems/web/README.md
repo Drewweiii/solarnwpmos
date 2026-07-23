@@ -2996,3 +2996,43 @@ Live-verified in an emulated iPhone 13 viewport: video is display:block +
 playsInline/muted/autoplay, the r3f container has touch-action:none, the hand
 toggle renders, and the page has no horizontal overflow. tsc + full web suite
 (394) pass, oxlint clean.
+
+### 2026-07-23 - Hand control Phase 2: 60fps detection + ultra-smooth camera
+
+Phase 2 of the webcam hand control, per the user's ask to "read the hand at
+60fps and move the 3D view ultra-smoothly, with no errors". Two decoupled
+halves so motion stays buttery even when detection can't keep up with the
+display:
+
+- **Detection side (`lib/useHandTracking.ts`) - up to 60fps**: the camera is
+  now requested at `frameRate:{ideal:60}` and a modest 640x480 (landmarking
+  doesn't need full res, and a smaller frame keeps per-frame inference fast
+  enough to actually hit 60fps on mid-range mobile GPUs). The detection loop
+  is driven by **`requestVideoFrameCallback`** when available - it fires exactly
+  when a *new* camera frame is decoded, so MediaPipe never wastefully re-runs on
+  a frame it already saw, and never lags behind a fresh one - with a plain
+  `requestAnimationFrame` fallback for browsers without rVFC (older iOS Safari).
+  A `readyState >= 2` guard avoids detecting on an un-decoded frame, and a
+  monotonic-timestamp nudge avoids MediaPipe's "two detects at the same
+  timestamp" rejection. The per-detection pre-smoothing was lightened
+  (`SMOOTHING_FACTOR` 0.18 -> 0.5) since the heavy easing now lives on the
+  render side (below) - double-smoothing would only add lag.
+- **Render side (`components/Solar3DScene.tsx`'s `HandCameraDriver`) -
+  ultra-smooth**: instead of snapping the camera to the latest hand pose, the
+  driver keeps its own spherical state (azimuth/polar/distance) and eases it
+  toward the hand's requested target **every render frame** using
+  frame-rate-independent exponential damping (`lib/handControl.ts`'s new
+  `damp`/`dampAngle`, the same math as `THREE.MathUtils.damp` - identical feel
+  at 30, 60 or 120fps). `dampAngle` takes the shortest path across the +/-pi
+  seam so a rotation from +170deg to -170deg sweeps 20deg, not 340deg. The
+  delta is clamped (`HAND_MAX_DT=0.05`) so a stalled tab doesn't jump the
+  camera on resume, and the driver re-syncs from the live camera whenever it's
+  inactive or the hand is lost - so turning hand control on/off, or mixing in a
+  mouse drag, never causes a jump.
+
+`damp`/`wrapAngle`/`dampAngle` are pure and unit-tested (frame-rate
+independence via one-2dt-step ~= two-dt-steps, convergence, and shortest-path
+across the seam). tsc clean, oxlint clean, full web suite (400) passes, prod
+build succeeds. The actual camera tracking still needs a real deploy to
+exercise (the sandbox has no webcam and blocks the MediaPipe CDN); the render
+easing and the signal->camera math are fully covered by the unit tests.

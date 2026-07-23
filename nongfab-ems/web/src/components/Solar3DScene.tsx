@@ -27,7 +27,7 @@ import {
   tileFootprintMeters,
   type SatelliteTile,
 } from '../lib/satelliteTile'
-import { signalToCameraTarget, type HandSignal } from '../lib/handControl'
+import { damp, dampAngle, signalToCameraTarget, type HandSignal } from '../lib/handControl'
 import type { IrradianceGridPoint, MoonPathPoint, Panel, PrecipitationIntensity, SunPathPoint } from '../lib/types'
 
 // Exposed to Solar3DPage's icon rail "reset camera" button - React 19 takes
@@ -1210,14 +1210,21 @@ function JettyStructures({ center, span, deckY, visible }: JettyStructuresProps)
   )
 }
 
-// Drives the camera from the webcam hand signal (2026-07-23, Phase 1). When
-// active it reads the smoothed HandSignal every frame and eases the camera to
-// the requested azimuth/polar/distance around OrbitControls' own target, then
-// lets OrbitControls.update() reconcile - so the mouse still works the instant
-// hand control is turned off. Pure geometry; the hand math/tracking lives in
-// lib/handControl.ts + lib/useHandTracking.ts.
+// Drives the camera from the webcam hand signal (Phase 2, 2026-07-23:
+// ultra-smooth). Runs every RENDER frame (up to the display's 60fps), fully
+// decoupled from however fast hand DETECTION runs - the camera eases toward the
+// latest hand target with frame-rate-independent damping (lib/handControl.damp/
+// dampAngle), so motion stays buttery even when detection lags. It keeps its own
+// spherical state and re-syncs it from the LIVE camera whenever no hand is seen,
+// so (a) turning control on eases from wherever you already are - no jump, and
+// (b) mouse/touch OrbitControls moves made while the hand is away are picked up
+// seamlessly when it returns.
 const _hcSpherical = new Spherical()
 const _hcPos = new Vector3()
+// Higher = snappier; ~7 is responsive yet smooth. dt is clamped so a stalled
+// tab (huge delta) can never fling the camera.
+const HAND_DAMP_LAMBDA = 7
+const HAND_MAX_DT = 0.05
 
 interface HandCameraDriverProps {
   signalRef?: React.MutableRefObject<HandSignal | null>
@@ -1227,11 +1234,28 @@ interface HandCameraDriverProps {
 }
 
 function HandCameraDriver({ signalRef, active, controlsRef, span }: HandCameraDriverProps) {
-  useFrame((state) => {
-    if (!active || !signalRef) return
-    const sig = signalRef.current
+  const st = useRef({ azimuth: 0, polar: 0.9, distance: 50, synced: false })
+  useFrame((state, delta) => {
+    const s = st.current
+    if (!active || !signalRef) {
+      s.synced = false
+      return
+    }
     const controls = controlsRef.current
-    if (!sig || !controls) return
+    if (!controls) return
+    const sig = signalRef.current
+    // (Re)adopt the current camera pose when first activated or whenever the
+    // hand isn't visible this frame - keeps everything continuous with the
+    // mouse and avoids any snap on (re)acquire.
+    if (!s.synced || !sig) {
+      _hcPos.copy(state.camera.position).sub(controls.target)
+      _hcSpherical.setFromVector3(_hcPos)
+      s.azimuth = _hcSpherical.theta
+      s.polar = _hcSpherical.phi
+      s.distance = _hcSpherical.radius
+      s.synced = true
+      if (!sig) return
+    }
     const target = signalToCameraTarget(sig, {
       minDistance: Math.max(span * 0.5, 8),
       maxDistance: Math.max(span * 2.8, 40),
@@ -1239,10 +1263,15 @@ function HandCameraDriver({ signalRef, active, controlsRef, span }: HandCameraDr
       maxPolar: 1.45,
       azimuthSpan: Math.PI,
     })
-    // three.Spherical is (radius, phi=polar-from-+Y, theta=azimuth-around-Y).
-    _hcSpherical.set(target.distance, target.polar, target.azimuth)
-    _hcPos.setFromSpherical(_hcSpherical).add(controls.target)
-    state.camera.position.lerp(_hcPos, 0.15)
+    const dt = Math.min(Math.max(delta, 0), HAND_MAX_DT)
+    s.azimuth = dampAngle(s.azimuth, target.azimuth, HAND_DAMP_LAMBDA, dt)
+    s.polar = damp(s.polar, target.polar, HAND_DAMP_LAMBDA, dt)
+    s.distance = damp(s.distance, target.distance, HAND_DAMP_LAMBDA, dt)
+    // three.Spherical is (radius, phi=polar-from-+Y, theta=azimuth-around-Y);
+    // makeSafe keeps phi off the exact poles so it never gimbal-flips.
+    _hcSpherical.set(s.distance, s.polar, s.azimuth)
+    _hcSpherical.makeSafe()
+    state.camera.position.setFromSpherical(_hcSpherical).add(controls.target)
     controls.update()
   })
   return null
