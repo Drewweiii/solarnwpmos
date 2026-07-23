@@ -21,6 +21,12 @@ import {
   sunPositionVector,
   zenithAngleDeg,
 } from '../lib/solar3d'
+import {
+  DEFAULT_SATELLITE_ZOOM,
+  esriWorldImageryTileGrid,
+  tileFootprintMeters,
+  type SatelliteTile,
+} from '../lib/satelliteTile'
 import type { IrradianceGridPoint, MoonPathPoint, Panel, PrecipitationIntensity, SunPathPoint } from '../lib/types'
 
 // Exposed to Solar3DPage's icon rail "reset camera" button - React 19 takes
@@ -203,52 +209,59 @@ function BuildingMass({ minEast, maxEast, minNorth, maxNorth, mountType }: Build
   )
 }
 
-interface SatelliteGroundPlaneProps {
-  tileUrl: string
-  center: [number, number]
-  size: number
-}
-
-// Loads a single Esri World Imagery tile as a ground texture - the
-// reslink.org reference video's "photorealistic satellite" ground style
-// (see lib/satelliteTile.ts's own docstring for the tile-math/zoom-choice
-// rationale and, importantly, its "never confirmed to actually load from
-// this environment" caveat). Uses THREE.TextureLoader's callback API
-// directly rather than drei's Suspense-based useTexture, specifically so a
-// failed/blocked fetch degrades to "render nothing" (the existing grid
-// floor underneath stays visible) instead of throwing into a Suspense
-// boundary this scene doesn't otherwise need - the one deliberately
-// defensive piece of this component, given the fetch is genuinely unverified.
-function SatelliteGroundPlane({ tileUrl, center, size }: SatelliteGroundPlaneProps) {
+// Loads ONE Esri World Imagery tile as a ground-texture patch at a given scene
+// position. Uses THREE.TextureLoader's callback API directly (not drei's
+// Suspense-based useTexture) specifically so a failed/blocked fetch degrades to
+// "render nothing" (the NaturalGround underneath stays visible) instead of
+// throwing into a Suspense boundary - the one deliberately defensive piece
+// here, given the fetch is genuinely unverified in the dev sandbox (tile
+// providers are blocked; see lib/satelliteTile.ts's own docstring).
+function SatelliteTilePlane({ url, x, z, size }: { url: string; x: number; z: number; size: number }) {
   const [texture, setTexture] = useState<Texture | null>(null)
-
   useEffect(() => {
     setTexture(null)
     const loader = new TextureLoader()
     loader.setCrossOrigin('anonymous')
     let cancelled = false
-    loader.load(
-      tileUrl,
-      (loaded) => {
-        if (!cancelled) setTexture(loaded)
-      },
-      undefined,
-      () => {
-        // Blocked/failed fetch - stay null, grid floor remains the fallback.
-      },
-    )
+    loader.load(url, (loaded) => !cancelled && setTexture(loaded), undefined, () => {})
     return () => {
       cancelled = true
     }
-  }, [tileUrl])
-
+  }, [url])
   if (!texture) return null
-
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center[0], 0.01, -center[1]]}>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[x, 0.01, z]}>
       <planeGeometry args={[size, size]} />
       <meshStandardMaterial map={texture} />
     </mesh>
+  )
+}
+
+interface SatelliteGroundPlaneProps {
+  tiles: SatelliteTile[]
+  center: [number, number]
+}
+
+// The reslink.org reference video's "photorealistic satellite" ground style,
+// now stitched from a GRID of tiles (2026-07-23) so a long zone like Jetty's
+// ~1.25 km trestle is covered end-to-end instead of just its central 300 m -
+// see lib/satelliteTile.ts's esriWorldImageryTileGrid. Each tile is laid at its
+// own east/north offset; any that fail to fetch simply don't render (the
+// NaturalGround base shows through), same graceful degradation as the single
+// tile before it. Still pending a real-egress deploy for visual confirmation.
+function SatelliteGroundPlane({ tiles, center }: SatelliteGroundPlaneProps) {
+  return (
+    <group>
+      {tiles.map((t, i) => (
+        <SatelliteTilePlane
+          key={i}
+          url={t.url}
+          x={center[0] + t.offsetEastM}
+          z={-(center[1] + t.offsetNorthM)}
+          size={t.sizeM}
+        />
+      ))}
+    </group>
   )
 }
 
@@ -1051,6 +1064,151 @@ function NaturalGround({ center, span, marine }: NaturalGroundProps) {
   )
 }
 
+// A perimeter fence + an access road around a land zone (2026-07-22 request).
+// Illustrative site furniture for realism/scale, not a surveyed boundary - same
+// honesty bar as SiteEnvironment; it never touches the physics. Land-only (a
+// fence around Jetty's sea makes no sense - that gets JettyStructures instead).
+interface SitePerimeterProps {
+  center: [number, number]
+  span: number
+  visible: boolean
+}
+
+function SitePerimeter({ center, span, visible }: SitePerimeterProps) {
+  const { rails, posts, road } = useMemo(() => {
+    const half = span * 0.62 // fence sits just outside the array footprint
+    const railH = 1.4
+    const t = 0.12
+    const [cx, cz] = [center[0], -center[1]]
+    const side = half * 2
+    // Four top rails (thin long boxes) forming the rectangle.
+    const railList = [
+      { pos: [cx, railH, cz - half] as [number, number, number], size: [side, t, t] as [number, number, number] },
+      { pos: [cx, railH, cz + half] as [number, number, number], size: [side, t, t] as [number, number, number] },
+      { pos: [cx - half, railH, cz] as [number, number, number], size: [t, t, side] as [number, number, number] },
+      { pos: [cx + half, railH, cz] as [number, number, number], size: [t, t, side] as [number, number, number] },
+    ]
+    // Posts every ~step along each side.
+    const step = Math.max(6, span * 0.18)
+    const postList: [number, number, number][] = []
+    for (let d = -half; d <= half + 0.01; d += step) {
+      postList.push([cx + d, railH / 2, cz - half], [cx + d, railH / 2, cz + half])
+      postList.push([cx - half, railH / 2, cz + d], [cx + half, railH / 2, cz + d])
+    }
+    // A road strip running up to the array from the -X (west) side, with a
+    // small gate gap in the fence implied by the road passing through.
+    const roadInfo = {
+      pos: [cx - half - span * 0.35, 0.02, cz] as [number, number, number],
+      size: [span * 0.75, span * 0.22] as [number, number],
+    }
+    return { rails: railList, posts: postList, road: roadInfo }
+  }, [center, span])
+
+  if (!visible) return null
+  return (
+    <group>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={road.pos}>
+        <planeGeometry args={road.size} />
+        <meshStandardMaterial color="#3b3f45" roughness={0.95} />
+      </mesh>
+      {rails.map((r, i) => (
+        <mesh key={`rail-${i}`} position={r.pos}>
+          <boxGeometry args={r.size} />
+          <meshStandardMaterial color="#9aa3ad" metalness={0.3} roughness={0.6} />
+        </mesh>
+      ))}
+      {posts.map((p, i) => (
+        <mesh key={`post-${i}`} position={p}>
+          <boxGeometry args={[0.14, 1.4, 0.14]} />
+          <meshStandardMaterial color="#8b939c" metalness={0.3} roughness={0.6} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
+// Jetty-only structures (2026-07-23), from facility facts the user supplied:
+// the trestle is a ~5.66 km pier out to sea that RECEIVES SHIPS and has a
+// Jetty Control Room (JCR). Rendered as informed illustration - the trestle
+// spine + JCR + a berthed carrier communicate what the site IS; exact positions
+// are not surveyed (only the array-corner coordinates in assets.yaml are), and
+// none of this feeds the physics. Placed relative to the framed block.
+interface JettyStructuresProps {
+  center: [number, number]
+  span: number
+  deckY: number
+  visible: boolean
+}
+
+// Clamp helper so structures stay near real-world sizes regardless of how big
+// the zone's span is: a real LNG carrier is ~300 m and ~50 m wide, a JCR is a
+// small building - not fractions of the whole 1.25 km trestle.
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+
+function JettyStructures({ center, span, deckY, visible }: JettyStructuresProps) {
+  const [cx, cz] = [center[0], -center[1]]
+  if (!visible) return null
+  const spineLen = span * 1.1 // the long pier running north-south, ~ the array extent
+  const shipLen = clamp(span * 0.24, 40, 320) // real carrier ~300 m
+  const shipBeam = clamp(span * 0.04, 8, 55)
+  const tankR = clamp(span * 0.018, 4, 22)
+  const shoreZ = cz - spineLen * 0.42
+  const eastX = cx + clamp(span * 0.06, 10, 90)
+  return (
+    <group>
+      {/* Trestle spine: a long narrow deck running north-south (along Z). */}
+      <mesh position={[cx, deckY - 0.3, cz]}>
+        <boxGeometry args={[clamp(span * 0.01, 3, 8), 0.5, spineLen]} />
+        <meshStandardMaterial color="#5b6570" roughness={0.8} />
+      </mesh>
+      {/* Support pilings down into the water. */}
+      {Array.from({ length: 11 }).map((_, i) => {
+        const z = cz - spineLen / 2 + (i / 10) * spineLen
+        return (
+          <mesh key={`pile-${i}`} position={[cx, deckY / 2 - 0.3, z]}>
+            <cylinderGeometry args={[0.6, 0.6, deckY, 6]} />
+            <meshStandardMaterial color="#4a5058" roughness={0.9} />
+          </mesh>
+        )
+      })}
+      {/* JCR (Jetty Control Room) near the shore (north / -Z) end. */}
+      <group position={[cx + clamp(span * 0.03, 8, 40), deckY, shoreZ]}>
+        <mesh position={[0, 5, 0]}>
+          <boxGeometry args={[14, 10, 10]} />
+          <meshStandardMaterial color="#d7dde3" roughness={0.7} />
+        </mesh>
+        <mesh position={[0, 10.6, 0]}>
+          <boxGeometry args={[15, 1.2, 11]} />
+          <meshStandardMaterial color="#2b6ca3" roughness={0.6} />
+        </mesh>
+        <Html position={[0, 15, 0]} center distanceFactor={clamp(span * 0.5, 30, 90)} occlude={false}>
+          <div style={{ color: '#e2e8f0', background: 'rgba(15,23,42,0.8)', padding: '2px 8px', borderRadius: 6, fontSize: 12, whiteSpace: 'nowrap' }}>
+            JCR (Jetty Control Room)
+          </div>
+        </Html>
+      </group>
+      {/* A berthed LNG carrier alongside the pier (east / +X side). */}
+      <group position={[eastX, deckY - 3, cz + spineLen * 0.1]}>
+        <mesh>
+          <boxGeometry args={[shipBeam, 9, shipLen]} />
+          <meshStandardMaterial color="#3a4653" roughness={0.75} />
+        </mesh>
+        <mesh position={[0, 7, -shipLen * 0.32]}>
+          <boxGeometry args={[shipBeam * 0.8, 5, shipLen * 0.16]} />
+          <meshStandardMaterial color="#c23b3b" roughness={0.7} />
+        </mesh>
+        {/* Spherical LNG tanks on deck (Moss-type carrier silhouette). */}
+        {[-0.12, 0.08, 0.28].map((f, i) => (
+          <mesh key={`tank-${i}`} position={[0, 5 + tankR * 0.6, shipLen * f]}>
+            <sphereGeometry args={[tankR, 16, 12]} />
+            <meshStandardMaterial color="#e6e9ec" roughness={0.5} metalness={0.2} />
+          </mesh>
+        ))}
+      </group>
+    </group>
+  )
+}
+
 interface Solar3DSceneProps {
   panels: Panel[]
   tiltDeg: number
@@ -1098,12 +1256,13 @@ interface Solar3DSceneProps {
   // knows about; a future zone with its own real structure type would need
   // this widened, not a reason to invent an abstraction for one case today.
   zone: string
-  // 'grid' (default): the dark grid-line floor. 'satellite': also attempts
-  // SatelliteGroundPlane using satelliteTileUrl (falls back to the grid
-  // floor showing through if the tile fetch fails/is blocked - see that
-  // component's own docstring). satelliteTileUrl is required when
-  // groundStyle is 'satellite' (Solar3DPage computes it from the zone's
-  // real centroid via lib/satelliteTile.ts).
+  // 'grid': the grid-line floor over the NaturalGround base. 'satellite'
+  // (default): stitches a grid of real Esri tiles over the zone's own centroid
+  // (built inside this component from irradianceOrigin* + the array span, see
+  // the satelliteTiles memo), falling back to the NaturalGround base showing
+  // through when tiles fail/are blocked. `satelliteTileUrl` is retained for
+  // backward compatibility with existing callers but no longer used - the
+  // multi-tile grid is derived internally now.
   groundStyle: 'grid' | 'satellite'
   satelliteTileUrl?: string
   // 0-1: the zone's current output vs. its rated AC capacity (from
@@ -1158,7 +1317,6 @@ export function Solar3DScene({
   precipIntensity,
   zone,
   groundStyle,
-  satelliteTileUrl,
   zoneOutputRatio = 1,
   irradianceGrid = [],
   irradianceOriginLat = 0,
@@ -1237,6 +1395,19 @@ export function Solar3DScene({
   // GIS/ISB's tens-of-meters block up to Jetty's ~1.25km trestle.
   const irradianceMarkerRadiusM = Math.max(4, bounds.full.span * 0.06)
 
+  // A grid of real Esri satellite tiles centered on the zone's own centroid
+  // (irradianceOrigin*, i.e. local scene origin [0,0]), sized to cover the
+  // whole array footprint - so a long zone like Jetty gets its full ~1.25 km
+  // trestle tiled, not just the central 300 m single tile (2026-07-23). Capped
+  // at 5x5 tiles to bound the fetch count. Empty unless satellite ground is
+  // selected and a real centroid was passed.
+  const satelliteTiles = useMemo<SatelliteTile[]>(() => {
+    if (groundStyle !== 'satellite' || !irradianceOriginLat) return []
+    const footprint = tileFootprintMeters(irradianceOriginLat, DEFAULT_SATELLITE_ZOOM)
+    const n = Math.min(5, Math.max(1, Math.ceil((bounds.full.span * 1.6) / footprint)))
+    return esriWorldImageryTileGrid(irradianceOriginLat, irradianceOriginLon, n, n)
+  }, [groundStyle, irradianceOriginLat, irradianceOriginLon, bounds.full.span])
+
   const sunPathLine = useMemo(
     () => sunPathPoints.map((p) => sunPositionVector(p.azimuth_deg, p.elevation_deg, sunOrbitRadius)),
     [sunPathPoints, sunOrbitRadius],
@@ -1307,8 +1478,8 @@ export function Solar3DScene({
           infiniteGrid={false}
         />
       )}
-      {groundStyle === 'satellite' && satelliteTileUrl && (
-        <SatelliteGroundPlane tileUrl={satelliteTileUrl} center={bounds.full.center} size={bounds.full.span * 1.5} />
+      {groundStyle === 'satellite' && satelliteTiles.length > 0 && (
+        <SatelliteGroundPlane tiles={satelliteTiles} center={[0, 0]} />
       )}
 
       <IrradianceGroundOverlay
@@ -1323,9 +1494,20 @@ export function Solar3DScene({
         <BuildingMass key={f.blockId} minEast={f.minEast} maxEast={f.maxEast} minNorth={f.minNorth} maxNorth={f.maxNorth} mountType={mountType} />
       ))}
 
-      {/* Land-only: trees/houses belong around the land zones, not floating on
-          Jetty's sea. Marine gets the water surface + pier instead. */}
+      {/* Land-only: trees/houses/fence/road belong around the land zones, not
+          floating on Jetty's sea. Marine gets the water surface + pier + the
+          jetty structures (JCR, berthed carrier) instead. */}
       <SiteEnvironment center={focusCenterScene} span={bounds.focus.span} visible={showEnvironment && mountType !== 'pier'} />
+      <SitePerimeter center={focusCenterScene} span={bounds.focus.span} visible={showEnvironment && mountType !== 'pier'} />
+      {/* Jetty structures scale to the FULL array extent (the whole ~1.25km
+          trestle), not one small sub-array block, so the JCR + berthed carrier
+          read against the full-width sea rather than shrinking to specks. */}
+      <JettyStructures
+        center={[bounds.full.center[0], -bounds.full.center[1]]}
+        span={bounds.full.span}
+        deckY={panelBaseY}
+        visible={showEnvironment && mountType === 'pier'}
+      />
 
       {panels.map((panel) => (
         <PanelMesh

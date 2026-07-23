@@ -62,3 +62,58 @@ export function esriWorldImageryTileUrl(lat: number, lon: number, zoom: number =
   const { x, y, z } = latLonToTile(lat, lon, zoom)
   return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`
 }
+
+export interface SatelliteTile {
+  url: string
+  /** meters east of the grid center - where to place this tile's plane. */
+  offsetEastM: number
+  /** meters north of the grid center. */
+  offsetNorthM: number
+  /** this tile's real-world footprint size (meters, square). */
+  sizeM: number
+}
+
+/** A `cols` x `rows` grid of Esri tiles centered on (lat, lon), for covering an
+ * area larger than one tile - e.g. Jetty's long north-south trestle, which at a
+ * single z17 tile (~300 m) can't span the array's ~1.25 km extent. `cols` is
+ * the east-west count, `rows` the north-south count; both are clamped to a sane
+ * odd >= 1 so the grid stays centered on the middle tile. Each returned tile
+ * carries its own scene offset in meters (east/north) so the caller can lay the
+ * planes out edge-to-edge. Pure math (same "documented approximation, not
+ * survey-grade georeferencing" bar as the single-tile helpers above) - the
+ * actual image fetch still pends a deploy with real egress (see this module's
+ * top docstring; tile providers are blocked in the dev sandbox). */
+export function esriWorldImageryTileGrid(
+  lat: number,
+  lon: number,
+  cols: number,
+  rows: number,
+  zoom: number = DEFAULT_SATELLITE_ZOOM,
+): SatelliteTile[] {
+  const oddClamp = (v: number) => {
+    const n = Math.max(1, Math.floor(v))
+    return n % 2 === 0 ? n + 1 : n
+  }
+  const c = oddClamp(cols)
+  const r = oddClamp(rows)
+  const { x: cx, y: cy, z } = latLonToTile(lat, lon, zoom)
+  const footprint = tileFootprintMeters(lat, zoom)
+  const maxIndex = 2 ** z - 1
+  const tiles: SatelliteTile[] = []
+  for (let j = 0; j < r; j++) {
+    for (let i = 0; i < c; i++) {
+      const di = i - (c - 1) / 2
+      const dj = j - (r - 1) / 2
+      const tileX = Math.max(0, Math.min(maxIndex, cx + di))
+      const tileY = Math.max(0, Math.min(maxIndex, cy + dj))
+      tiles.push({
+        url: `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${tileY}/${tileX}`,
+        offsetEastM: di * footprint,
+        // Tile y grows southward, so a higher dj means further south (-north).
+        offsetNorthM: -dj * footprint,
+        sizeM: footprint,
+      })
+    }
+  }
+  return tiles
+}

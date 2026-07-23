@@ -146,11 +146,21 @@ zones:
       UR: { lat: 12.67843611, lon: 101.11702222, elevation_m: 6.9 }
       LL: { lat: 12.66719167, lon: 101.11469722, elevation_m: 0.0, note: "over water (pier) - Google Maps ground elevation reads 0m here" }
       LR: { lat: 12.66710833, lon: 101.11528333, elevation_m: 0.0, note: "over water (pier) - Google Maps ground elevation reads 0m here" }
-    span_north_south_km: 1.25
+    span_north_south_km: 1.25  # the panel-array corners measured above; NOT the full trestle (see jetty_structure)
     tilt_deg: null
     azimuth_deg: null
     sld_available: "phase1"
-    notes: "trestle runs north-south ~1.25km; cloud shadow sweep travels along its length"
+    notes: "trestle runs north-south; cloud shadow sweep travels along its length"
+    # Real facility facts about the full jetty structure, supplied by the user
+    # 2026-07-23 (not re-measured from satellite here - attributed, kept
+    # separate from the Google-Maps-measured panel-array corners above, which
+    # only span the ~1.25km section relevant to the solar array). The full jetty
+    # is a much longer marine loading trestle than the array footprint.
+    jetty_structure:
+      full_length_km: 5.66            # full trestle out to sea (user-stated, 2026-07-23)
+      receives_ships: true            # LNG-carrier berthing jetty
+      jetty_control_room: "JCR"       # Jetty Control Room on the structure
+      source: "user-stated 2026-07-23 (not satellite-remeasured)"
 
     module_detail:
       name: "Trina Vertex N TSM-NEG21C.20"

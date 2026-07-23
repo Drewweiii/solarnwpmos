@@ -2928,3 +2928,27 @@ Live-verified in Chromium at 13:00 ICT: GIS shows a grass yard with trees/
 houses, Jetty shows the sea with its pier deck; the only console errors are the
 expected blocked satellite-tile fetches (graceful fallback). tsc + full web
 suite (375) pass, oxlint clean.
+
+### 2026-07-23 - 3D realism round 2: roads/fences, multi-tile satellite, Jetty structures
+
+- **Multi-tile satellite ground**: `SatelliteGroundPlane` now stitches a grid of
+  Esri tiles (lib/satelliteTile.ts `esriWorldImageryTileGrid`, +4 unit tests)
+  sized from the array span, so a long zone like Jetty is covered end-to-end
+  rather than one central 300 m tile. Visual load still pends a real-egress
+  deploy (sandbox blocks tile providers -> graceful fallback to NaturalGround).
+- **Roads + fence** (`SitePerimeter`) around land zones (GIS/ISB): a perimeter
+  fence (posts + rails) and an access road. Illustrative site furniture, not a
+  surveyed boundary; never touches the physics.
+- **Jetty structures** (`JettyStructures`, marine only): the long trestle spine
+  with support pilings, a Jetty Control Room (JCR, labelled), and a berthed
+  LNG carrier with Moss-type spherical tanks - informed by the real facility
+  facts the user supplied (recorded in config/assets.yaml `jetty_structure`:
+  full length ~5.66 km, receives ships, has a JCR; attributed, kept separate
+  from the Google-Maps-measured ~1.25 km panel-array corners). Sizes clamped to
+  real-world scale (carrier ~300 m).
+- Two-tier tree canopies retained from round 1.
+
+Live-verified in Chromium at 13:00 ICT: GIS shows a fenced grass yard with a
+road, Jetty shows the long trestle over the sea with the LNG carrier's spheres
++ JCR; only console errors are the expected blocked satellite-tile fetches.
+tsc + full web suite (379) pass, oxlint clean.
