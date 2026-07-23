@@ -65,9 +65,14 @@ export interface LngTerminal {
 
 export interface SiteInfo {
   name: string
+  project_code: string
   facility_code: string
   street_address: string
   lng_terminal: LngTerminal | null
+  // PLACEHOLDER facility electrical demand (kW), NOT metered - drives the Energy
+  // Management panel's "% of facility load offset" and is always shown with an
+  // assumption caveat. null when the backend omits it.
+  facility_electrical_load_kw: number | null
 }
 
 export interface AssetRegistry {

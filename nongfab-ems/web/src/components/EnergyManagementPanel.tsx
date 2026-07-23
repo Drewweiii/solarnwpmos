@@ -1,0 +1,101 @@
+// Energy Management panel (2026-07-23) - the EMS headline view the user asked to
+// emphasize. Three parts, all built from data the Energy Report already returns
+// (no new fetch) except the facility-load offset, which uses a documented
+// PLACEHOLDER load (config/assets.yaml site.facility_electrical_load_kw) and is
+// labeled as an assumption:
+//   1. KPI strip: annual energy, PR, specific yield, capacity factor, CO2.
+//   2. Solar-vs-facility-load offset gauge (placeholder load).
+//   3. Energy accounting roll-up (day/month/year kWh) tied to the PPA code.
+import type { EnergyReportResponse } from '../lib/types'
+import { buildEnergyKpis, formatEnergy, solarOffsetPct } from '../lib/energyManagement'
+
+export interface EnergyManagementPanelProps {
+  report: EnergyReportResponse
+  facilityLoadKw: number | null | undefined
+  ppaCode?: string
+}
+
+// The Energy Report only carries annual + monthly energy, so derive the
+// day/month roll-up from the annual figure (an even split) rather than invent
+// separate numbers - honest about being a breakdown of the same annual total.
+function accountingRows(report: EnergyReportResponse): Array<{ label: string; value: string }> {
+  const annual = report.annual.ac_energy_kwh
+  // Prefer the real month-by-month estimates when present (they already vary by
+  // rainy season); fall back to a flat 1/12 only if monthly is empty.
+  const monthlyAvg =
+    report.monthly.length > 0
+      ? report.monthly.reduce((s, m) => s + m.ac_energy_kwh, 0) / report.monthly.length
+      : annual / 12
+  return [
+    { label: 'ต่อวัน (เฉลี่ย)', value: formatEnergy(annual / 365) },
+    { label: 'ต่อเดือน (เฉลี่ย)', value: formatEnergy(monthlyAvg) },
+    { label: 'ต่อปี', value: formatEnergy(annual) },
+  ]
+}
+
+export function EnergyManagementPanel({ report, facilityLoadKw, ppaCode }: EnergyManagementPanelProps) {
+  const kpis = buildEnergyKpis({
+    annualAcEnergyKwh: report.annual.ac_energy_kwh,
+    acCapacityKw: report.system_summary.ac_capacity_kw,
+    performanceRatio: report.annual.performance_ratio,
+    specificYieldKwhPerKwp: report.annual.specific_yield_kwh_per_kwp,
+    co2SavedKgPerYear: report.co2_saved_kg_per_year,
+  })
+  const offsetPct = solarOffsetPct(report.annual.ac_energy_kwh, facilityLoadKw)
+  const rows = accountingRows(report)
+
+  return (
+    <section className="ems-panel" aria-label="Energy management">
+      <h3 className="ems-panel-title">⚡ Energy Management</h3>
+
+      {/* 1. KPI strip */}
+      <div className="ems-kpi-grid">
+        {kpis.map((k) => (
+          <div className="ems-kpi" key={k.key}>
+            <span className="ems-kpi-label">{k.label}</span>
+            <span className="ems-kpi-value">{k.value}</span>
+            {k.hint && <span className="ems-kpi-hint">{k.hint}</span>}
+          </div>
+        ))}
+      </div>
+
+      {/* 2. Solar offset of facility load (placeholder) */}
+      <div className="ems-offset">
+        <div className="ems-offset-head">
+          <span className="ems-offset-label">โซลาร์ครอบคลุมโหลดไฟฟ้าของคลัง (Solar offset of facility load)</span>
+          <span className="ems-offset-value">{offsetPct == null ? '—' : `${offsetPct.toFixed(offsetPct < 1 ? 2 : 1)}%`}</span>
+        </div>
+        {offsetPct != null && (
+          <div className="ems-offset-bar" role="img" aria-label={`Solar offsets about ${offsetPct.toFixed(2)} percent of facility load`}>
+            <div className="ems-offset-bar-fill" style={{ width: `${Math.max(0.5, Math.min(100, offsetPct))}%` }} />
+          </div>
+        )}
+        <p className="ems-caption">
+          {facilityLoadKw == null
+            ? 'ยังไม่มีค่าโหลดไฟฟ้าของคลัง — ใส่ค่าจริงเพื่อคำนวณสัดส่วนนี้'
+            : `เทียบกับโหลดไฟฟ้าคลังโดยประมาณ ${Math.round(facilityLoadKw).toLocaleString('en-US')} kW`}{' '}
+          <strong>(ค่าสมมติ / placeholder — ยังไม่ใช่ค่าที่วัดจริง)</strong>
+        </p>
+      </div>
+
+      {/* 3. Energy accounting */}
+      <div className="ems-accounting">
+        <div className="ems-accounting-head">
+          <span>บัญชีพลังงานที่ผลิต (Energy delivered)</span>
+          {ppaCode && <span className="ems-ppa">PPA: {ppaCode}</span>}
+        </div>
+        <dl className="ems-accounting-grid">
+          {rows.map((r) => (
+            <div className="ems-accounting-row" key={r.label}>
+              <dt>{r.label}</dt>
+              <dd>{r.value}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="ems-caption">
+          ประมาณการจากพลังงานรายปี (แยกรายเดือนตามฤดูฝน/แล้งจากโมเดลจำลอง) — ดูรายละเอียดต่อเดือนในกราฟด้านล่าง
+        </p>
+      </div>
+    </section>
+  )
+}

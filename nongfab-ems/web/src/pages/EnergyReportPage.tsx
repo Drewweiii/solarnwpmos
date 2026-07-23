@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { EnergySavingsTable } from '../components/EnergySavingsTable'
+import { EnergyManagementPanel } from '../components/EnergyManagementPanel'
 import { SLDViewer } from '../components/SLDViewer'
 import { ZoneSelector } from '../components/ZoneSelector'
-import { useEnergyReport } from '../lib/queries'
+import { useEnergyReport, useZones } from '../lib/queries'
 import type { MonthlyEnergyEstimate } from '../lib/types'
 import './EnergyReportPage.css'
 
@@ -44,6 +45,8 @@ const LOSS_ORDER = Object.keys(LOSS_LABELS)
 export function EnergyReportPage() {
   const [zone, setZone] = useState<string>(REAL_ZONE_IDS[0])
   const report = useEnergyReport(zone)
+  const zones = useZones()
+  const site = zones.data?.site
 
   return (
     <div className="energy-report-page">
@@ -59,6 +62,15 @@ export function EnergyReportPage() {
           {report.data.simulated_zone && (
             <p className="energy-report-simulated-badge">Simulated zone - no panels installed yet</p>
           )}
+
+          {/* Energy Management headline panel (2026-07-23) - KPI strip, solar
+              offset of the facility's (placeholder) load, and an energy-delivered
+              roll-up tied to the PPA code. See EnergyManagementPanel. */}
+          <EnergyManagementPanel
+            report={report.data}
+            facilityLoadKw={site?.facility_electrical_load_kw}
+            ppaCode={site?.project_code}
+          />
 
           <section className="energy-report-section" aria-label="System summary">
             <h2>System summary</h2>

@@ -20,6 +20,17 @@ site:
   facility_code: "LMPT2"
   street_address: "Rong Pui Alley, Mueang Rayong District, Rayong"
 
+  # PLACEHOLDER, not a metered figure (2026-07-23). The LNG terminal's own
+  # electrical demand is not published in any public source we found, so this is
+  # a documented stand-in - like the Financial module's cost/tariff defaults -
+  # used ONLY to express the solar array's output as a rough "% of facility load
+  # offset" on the Energy Management panel. It is labeled as an assumption
+  # everywhere it's shown, and the next session should ask the user for the real
+  # site electrical load (kW) and replace this. 5,000 kW = a conservative
+  # order-of-magnitude guess for a 7.5-MMTPA regas terminal that reuses LNG cold
+  # energy (so lower pump/heater load than a seawater-ORV design); NOT confirmed.
+  facility_electrical_load_kw: 5000  # PLACEHOLDER - see comment above; ask user for real value
+
   # Public facts about the host LNG terminal the solar array sits on - PTT LNG's
   # Nong Fab receiving terminal, officially renamed "Map Ta Phut LNG Terminal 2"
   # (Thailand's 2nd onshore LNG import terminal). These describe the LNG FACILITY

@@ -186,6 +186,10 @@ def test_real_repo_assets_yaml_loads_and_validates():
     assert lng.jetty_length_km_user_stated == pytest.approx(5.66)
     assert len(lng.sources) >= 1
 
+    # Placeholder facility electrical load (drives the Energy Management panel's
+    # solar-offset metric) - present, positive, and clearly a stand-in.
+    assert registry.site.facility_electrical_load_kw == pytest.approx(5000)
+
 
 def test_lng_terminal_optional_when_omitted(minimal_registry_path):
     """The minimal fixture omits site.lng_terminal entirely - it must still load,

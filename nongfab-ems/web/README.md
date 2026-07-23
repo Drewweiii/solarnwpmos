@@ -3121,3 +3121,29 @@ solar array but almost no context about the LNG facility it sits on:
 
 Python `nongfab_common` tests (7, +1) pass; full web suite (414, +2) passes; tsc
 + oxlint clean; prod build succeeds.
+
+### 2026-07-23 - Energy Management panel on the Energy Report page
+
+Per the user's ask to emphasize energy-management data, added an
+`EnergyManagementPanel` at the top of the Energy Report, built from data the
+report already returns (no new fetch):
+
+- **KPI strip** (`lib/energyManagement.ts`, pure + unit-tested): annual energy,
+  Performance Ratio, Specific Yield, **Capacity Factor** (= annual energy /
+  (rated AC x 8760 h)), and CO₂ saved.
+- **Solar offset of facility load**: solar annual energy as a % of the LNG
+  terminal's own demand, with a green gauge. This uses a **PLACEHOLDER** facility
+  load (`config/assets.yaml` `site.facility_electrical_load_kw` = 5,000 kW, +
+  `nongfab_common` `Site.facility_electrical_load_kw`) - the terminal's real
+  electricity draw isn't public - so it's labeled "ค่าสมมติ / placeholder" every
+  time it's shown, and when the load is absent the panel says so instead of
+  fabricating a number. The next session should ask the user for the real load
+  and replace it (same pattern as the Financial module's cost defaults).
+- **Energy accounting roll-up**: per-day / per-month / per-year kWh (a breakdown
+  of the same annual total, month values from the report's seasonal monthly
+  estimates), tagged with the project's PPA code (`site.project_code`).
+
+Pure KPI math is unit-tested (capacity factor, offset %, energy formatting, KPI
+builder) and the panel has a render test (incl. the placeholder caveat + the
+"no load given" path). Python `nongfab_common` (7) passes; full web suite (423,
++9) passes; tsc + oxlint clean; prod build succeeds.

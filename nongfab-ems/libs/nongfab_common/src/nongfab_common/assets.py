@@ -180,6 +180,12 @@ class Site(BaseModel):
     # Public LNG-terminal context (2026-07-23) - None where the YAML omits it,
     # so older fixtures/tests keep validating. See LngTerminal.
     lng_terminal: LngTerminal | None = None
+    # PLACEHOLDER facility electrical demand (kW), NOT metered - see the matching
+    # comment in config/assets.yaml. Used only to express solar output as a rough
+    # "% of facility load offset" on the Energy Management panel, always labeled
+    # as an assumption. None when the YAML omits it. Ask the user for the real
+    # value and replace the placeholder.
+    facility_electrical_load_kw: float | None = None
 
 
 class CloudTileConfig(BaseModel):
