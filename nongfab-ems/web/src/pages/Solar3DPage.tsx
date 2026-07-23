@@ -46,7 +46,14 @@ function utcMinutesOfDay(iso: string): number {
 
 export function Solar3DPage() {
   const [zone, setZone] = useState<string>(REAL_ZONE_IDS[0])
-  const [groundStyle, setGroundStyle] = useState<'grid' | 'satellite'>('grid')
+  // Default to the real Esri satellite photo of the zone's actual coordinates
+  // for maximum realism (2026-07-22) - on a deploy with real network egress
+  // this shows the genuine aerial image of Nong Fab under the panels; where
+  // tile providers are blocked (e.g. this sandbox) the scene's NaturalGround
+  // base (water for Jetty, land for GIS/ISB) shows through instead of a bare
+  // plane. Switch to 'grid' from the ground-style control for a clean
+  // engineering view.
+  const [groundStyle, setGroundStyle] = useState<'grid' | 'satellite'>('satellite')
   const [date, setDate] = useState(todayIso())
   // Seeded to local noon UTC-minutes as a harmless placeholder before the
   // sun-path response arrives - overwritten by the effect below (once per

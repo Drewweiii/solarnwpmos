@@ -2908,3 +2908,23 @@ external-shading known gap). Objects are absolute human-scale meters (a ~5 m
 tree beside the ~2 m panels), positioned by a seeded RNG so they never jitter.
 Tested: `Solar3DPage.test.tsx` +1 (toggle on/off); live-verified in Chromium at
 13:00 ICT. `tsc` + full web suite (375) pass, `oxlint` clean.
+
+### 2026-07-23 - Realistic 3D ground: real satellite default + water/land base
+
+Made the 3D View reference the site's real geography for maximum realism:
+- **Ground defaults to the real Esri satellite photo** of the zone's actual
+  lat/lon (Solar3DPage groundStyle default 'satellite'). On a deploy with real
+  network egress this puts the genuine aerial image of Nong Fab under the
+  panels; in a sandbox that blocks tile providers it falls back gracefully.
+- **`NaturalGround` base** replaces the flat dark-slate plane with real-data-
+  driven surfaces: **water for Jetty** (config/assets.yaml documents it as a
+  1.5 km trestle over the sea, corner elevations 0 m "over water"), **land
+  (grass on earth) for GIS/ISB** (measured ~6-11 m ground elevations). Marine
+  gets a gentle water shimmer; the illustrative tree/house props are now
+  land-only (they no longer float on Jetty's sea).
+- Richer illustrative props: two-tier tree canopies with varied greens.
+
+Live-verified in Chromium at 13:00 ICT: GIS shows a grass yard with trees/
+houses, Jetty shows the sea with its pier deck; the only console errors are the
+expected blocked satellite-tile fetches (graceful fallback). tsc + full web
+suite (375) pass, oxlint clean.

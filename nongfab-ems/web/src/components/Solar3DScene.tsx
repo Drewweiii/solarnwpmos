@@ -873,18 +873,29 @@ interface EnvProp {
   scale: number
 }
 
+// Alternating canopy greens so a cluster of trees doesn't read as one flat
+// colour - picked by the tree's own scale (deterministic, no per-frame state).
+const ENV_FOLIAGE_GREENS = ['#2f7d4f', '#3f8a45', '#276b46', '#4a9152']
+
 function EnvTree({ scale }: { scale: number }) {
   const h = ENV_TREE_HEIGHT_M * scale
-  const trunk = h * 0.35
+  const trunk = h * 0.3
+  const canopy = h - trunk
+  const green = ENV_FOLIAGE_GREENS[Math.floor(scale * 7) % ENV_FOLIAGE_GREENS.length]
   return (
     <group>
       <mesh position={[0, trunk / 2, 0]}>
-        <cylinderGeometry args={[0.18 * scale, 0.24 * scale, trunk, 6]} />
-        <meshStandardMaterial color="#6b4f2a" />
+        <cylinderGeometry args={[0.16 * scale, 0.26 * scale, trunk, 6]} />
+        <meshStandardMaterial color="#6b4f2a" roughness={0.9} />
       </mesh>
-      <mesh position={[0, trunk + (h - trunk) / 2, 0]}>
-        <coneGeometry args={[1.3 * scale, h - trunk, 8]} />
-        <meshStandardMaterial color="#2f7d4f" />
+      {/* Two stacked cones for a fuller, layered canopy. */}
+      <mesh position={[0, trunk + canopy * 0.32, 0]}>
+        <coneGeometry args={[1.45 * scale, canopy * 0.7, 8]} />
+        <meshStandardMaterial color={green} roughness={0.85} />
+      </mesh>
+      <mesh position={[0, trunk + canopy * 0.72, 0]}>
+        <coneGeometry args={[1.05 * scale, canopy * 0.55, 8]} />
+        <meshStandardMaterial color={green} roughness={0.85} />
       </mesh>
     </group>
   )
@@ -981,6 +992,61 @@ function SiteEnvironment({ center, span, visible }: SiteEnvironmentProps) {
           {p.kind === 'cabinet' && <EnvCabinet scale={p.scale} />}
         </group>
       ))}
+    </group>
+  )
+}
+
+// Realistic base ground (2026-07-22): a natural land or sea surface under the
+// array, replacing the flat dark-slate placeholder plane. Which one is REAL
+// data, not decoration: Jetty is a trestle/pier over the sea (config/assets.
+// yaml: "trestle 1.5 km", corner elevations 0 m "over water (pier)"), so its
+// base is water; GIS/ISB sit on measured land (corner elevations ~6-11 m), so
+// theirs is ground. On a deployment with real network egress this stays under
+// the real Esri satellite photo (SatelliteGroundPlane); in a sandbox that
+// blocks tile providers it is what shows instead of a bare dark plane.
+interface NaturalGroundProps {
+  center: [number, number]
+  span: number
+  marine: boolean
+}
+
+function NaturalGround({ center, span, marine }: NaturalGroundProps) {
+  const size = span * 1.6
+  const groupRef = useRef<Group>(null)
+  // Gentle water shimmer for the marine base - a slow sway, not a literal wave
+  // sim (same "evocative, not physical" bar as CloudLayer/RainLayer).
+  useFrame(({ clock }) => {
+    if (marine && groupRef.current) {
+      groupRef.current.position.y = -0.05 + Math.sin(clock.elapsedTime * 0.6) * 0.06
+    }
+  })
+  if (marine) {
+    return (
+      <group ref={groupRef}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center[0], -0.05, -center[1]]}>
+          <planeGeometry args={[size, size]} />
+          <meshStandardMaterial color="#1b4f73" metalness={0.55} roughness={0.25} />
+        </mesh>
+        {/* A lighter sheen layer just above, for depth/reflection feel. */}
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center[0], -0.02, -center[1]]}>
+          <planeGeometry args={[size, size]} />
+          <meshStandardMaterial color="#2e79a6" metalness={0.6} roughness={0.2} transparent opacity={0.35} />
+        </mesh>
+      </group>
+    )
+  }
+  return (
+    <group>
+      {/* Earth base + a slightly raised grass patch under/around the array so
+          the land reads as a real yard rather than one flat colour. */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center[0], -0.06, -center[1]]}>
+        <planeGeometry args={[size, size]} />
+        <meshStandardMaterial color="#6b5a3e" roughness={1} />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center[0], -0.04, -center[1]]}>
+        <planeGeometry args={[span * 1.15, span * 1.15]} />
+        <meshStandardMaterial color="#4f7a3a" roughness={0.95} />
+      </mesh>
     </group>
   )
 }
@@ -1220,15 +1286,13 @@ export function Solar3DScene({
     >
       <ambientLight intensity={0.6} />
 
-      {/* Dark ground plane, always rendered as the base/fallback - either
-          under the grid overlay (groundStyle="grid") or under the
-          satellite texture, which stays transparent-until-loaded and
-          simply never covers this if its fetch fails/is blocked (see
+      {/* Realistic base ground (water for Jetty's over-sea trestle, land for
+          GIS/ISB - see NaturalGround's docstring for why that split is real
+          data). Always rendered as the base/fallback: under the grid overlay,
+          or under the satellite texture (which stays transparent-until-loaded
+          and never covers this if its fetch fails/is blocked - see
           SatelliteGroundPlane's own docstring). */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[bounds.full.center[0], -0.05, -bounds.full.center[1]]}>
-        <planeGeometry args={[bounds.full.span * 1.5, bounds.full.span * 1.5]} />
-        <meshStandardMaterial color="#0f172a" />
-      </mesh>
+      <NaturalGround center={bounds.full.center} span={bounds.full.span} marine={mountType === 'pier'} />
       {groundStyle === 'grid' && (
         <Grid
           position={[bounds.full.center[0], 0, -bounds.full.center[1]]}
@@ -1259,7 +1323,9 @@ export function Solar3DScene({
         <BuildingMass key={f.blockId} minEast={f.minEast} maxEast={f.maxEast} minNorth={f.minNorth} maxNorth={f.maxNorth} mountType={mountType} />
       ))}
 
-      <SiteEnvironment center={focusCenterScene} span={bounds.focus.span} visible={showEnvironment} />
+      {/* Land-only: trees/houses belong around the land zones, not floating on
+          Jetty's sea. Marine gets the water surface + pier instead. */}
+      <SiteEnvironment center={focusCenterScene} span={bounds.focus.span} visible={showEnvironment && mountType !== 'pier'} />
 
       {panels.map((panel) => (
         <PanelMesh
