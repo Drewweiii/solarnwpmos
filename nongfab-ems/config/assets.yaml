@@ -20,16 +20,16 @@ site:
   facility_code: "LMPT2"
   street_address: "Rong Pui Alley, Mueang Rayong District, Rayong"
 
-  # PLACEHOLDER, not a metered figure (2026-07-23). The LNG terminal's own
-  # electrical demand is not published in any public source we found, so this is
-  # a documented stand-in - like the Financial module's cost/tariff defaults -
-  # used ONLY to express the solar array's output as a rough "% of facility load
-  # offset" on the Energy Management panel. It is labeled as an assumption
-  # everywhere it's shown, and the next session should ask the user for the real
-  # site electrical load (kW) and replace this. 5,000 kW = a conservative
-  # order-of-magnitude guess for a 7.5-MMTPA regas terminal that reuses LNG cold
-  # energy (so lower pump/heater load than a seawater-ORV design); NOT confirmed.
-  facility_electrical_load_kw: 5000  # PLACEHOLDER - see comment above; ask user for real value
+  # REAL figures, user-stated 2026-07-23 (no longer a placeholder). Terminal 2's
+  # average daily electrical load is 13-14 MW; we take the 13.5 MW midpoint as
+  # the single load figure driving the Energy Management panel's "% of facility
+  # load offset". The facility's average annual electricity cost is ~300 million
+  # THB/yr - used to express the solar array's output as an approximate baht/yr
+  # bill saving (solar kWh valued at the facility's own implied average tariff,
+  # = annual cost / annual load energy ~ 2.5 THB/kWh). Both are user-provided
+  # operating figures for this site, not public-source estimates.
+  facility_electrical_load_kw: 13500          # 13.5 MW (avg daily 13-14 MW, user-stated 2026-07-23)
+  facility_annual_electricity_cost_thb: 300000000  # ~300 MTHB/yr (user-stated 2026-07-23)
 
   # Public facts about the host LNG terminal the solar array sits on - PTT LNG's
   # Nong Fab receiving terminal, officially renamed "Map Ta Phut LNG Terminal 2"

@@ -69,10 +69,13 @@ export interface SiteInfo {
   facility_code: string
   street_address: string
   lng_terminal: LngTerminal | null
-  // PLACEHOLDER facility electrical demand (kW), NOT metered - drives the Energy
-  // Management panel's "% of facility load offset" and is always shown with an
-  // assumption caveat. null when the backend omits it.
+  // Facility average electrical demand (kW), user-stated real figure (~13.5 MW).
+  // Drives the Energy Management panel's "% of facility load offset". null when
+  // the backend omits it.
   facility_electrical_load_kw: number | null
+  // Facility average annual electricity cost (THB/yr), user-stated (~300 MTHB).
+  // Lets the panel show the solar output as an approximate baht/yr bill saving.
+  facility_annual_electricity_cost_thb: number | null
 }
 
 export interface AssetRegistry {

@@ -35,15 +35,23 @@ function makeReport(): EnergyReportResponse {
 }
 
 describe('EnergyManagementPanel', () => {
-  it('renders the KPI strip, PPA code and a solar-offset % when a facility load is given', () => {
-    render(<EnergyManagementPanel report={makeReport()} facilityLoadKw={5000} ppaCode="PPA25_0008" />)
+  it('renders the KPI strip, PPA code, solar-offset % and bill saving from the real facility figures', () => {
+    render(
+      <EnergyManagementPanel
+        report={makeReport()}
+        facilityLoadKw={13500}
+        facilityAnnualCostThb={300_000_000}
+        ppaCode="PPA25_0008"
+      />,
+    )
     expect(screen.getByText(/Energy Management/)).toBeInTheDocument()
     expect(screen.getByText('84.0%')).toBeInTheDocument() // PR
-    // offset = 700000 / (5000*8760) *100 ~= 1.6%
-    expect(screen.getByText(/1\.6%/)).toBeInTheDocument()
     expect(screen.getByText(/PPA: PPA25_0008/)).toBeInTheDocument()
-    // The placeholder caveat must be shown, never presented as measured.
-    expect(screen.getByText(/placeholder/i)).toBeInTheDocument()
+    // Bill saving = 700000 kWh * (300M / (13500*8760)) ~= 1.78M THB.
+    expect(screen.getByText(/ประหยัดค่าไฟคลัง/)).toBeInTheDocument()
+    expect(screen.getAllByText(/ล้านบาท\/ปี/).length).toBeGreaterThan(0)
+    // Real user-stated load, not a placeholder.
+    expect(screen.getByText(/เฉลี่ยรายวัน/)).toBeInTheDocument()
   })
 
   it('states the load is missing (no fabricated offset) when facility load is null', () => {

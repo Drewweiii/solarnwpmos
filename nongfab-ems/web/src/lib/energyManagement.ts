@@ -30,6 +30,50 @@ export function solarOffsetPct(annualAcEnergyKwh: number, facilityLoadKw: number
   return (annualAcEnergyKwh / facilityAnnualLoadKwh(facilityLoadKw)) * 100
 }
 
+/** The facility's implied average electricity tariff (THB/kWh) = annual cost /
+ * annual load energy. Both inputs are user-stated real figures, so this is an
+ * internally-consistent blended rate, not a published tariff. Returns null when
+ * either input is missing/zero. */
+export function impliedTariffThbPerKwh(
+  annualCostThb: number | null | undefined,
+  facilityLoadKw: number | null | undefined,
+): number | null {
+  if (annualCostThb == null || annualCostThb <= 0) return null
+  if (facilityLoadKw == null || facilityLoadKw <= 0) return null
+  return annualCostThb / facilityAnnualLoadKwh(facilityLoadKw)
+}
+
+/** Approximate annual bill saving (THB) from the solar output, valuing each
+ * solar kWh at the facility's own implied average tariff. Returns null when the
+ * tariff can't be derived. */
+export function solarBillSavingThbPerYear(
+  annualAcEnergyKwh: number,
+  annualCostThb: number | null | undefined,
+  facilityLoadKw: number | null | undefined,
+): number | null {
+  const tariff = impliedTariffThbPerKwh(annualCostThb, facilityLoadKw)
+  if (tariff == null) return null
+  return annualAcEnergyKwh * tariff
+}
+
+/** That bill saving as a % of the facility's total annual electricity cost. */
+export function solarBillSavingPct(
+  annualAcEnergyKwh: number,
+  annualCostThb: number | null | undefined,
+  facilityLoadKw: number | null | undefined,
+): number | null {
+  const saving = solarBillSavingThbPerYear(annualAcEnergyKwh, annualCostThb, facilityLoadKw)
+  if (saving == null || annualCostThb == null || annualCostThb <= 0) return null
+  return (saving / annualCostThb) * 100
+}
+
+/** Format a THB figure into a compact ฿ / พัน / ล้าน string (Thai scale). */
+export function formatThb(thb: number): string {
+  if (thb >= 1_000_000) return `${(thb / 1_000_000).toFixed(2)} ล้านบาท`
+  if (thb >= 1_000) return `${(thb / 1_000).toFixed(0)} พันบาท`
+  return `${Math.round(thb).toLocaleString('en-US')} บาท`
+}
+
 export interface EnergyKpi {
   key: string
   label: string

@@ -7,11 +7,19 @@
 //   2. Solar-vs-facility-load offset gauge (placeholder load).
 //   3. Energy accounting roll-up (day/month/year kWh) tied to the PPA code.
 import type { EnergyReportResponse } from '../lib/types'
-import { buildEnergyKpis, formatEnergy, solarOffsetPct } from '../lib/energyManagement'
+import {
+  buildEnergyKpis,
+  formatEnergy,
+  formatThb,
+  solarBillSavingPct,
+  solarBillSavingThbPerYear,
+  solarOffsetPct,
+} from '../lib/energyManagement'
 
 export interface EnergyManagementPanelProps {
   report: EnergyReportResponse
   facilityLoadKw: number | null | undefined
+  facilityAnnualCostThb?: number | null
   ppaCode?: string
 }
 
@@ -33,7 +41,7 @@ function accountingRows(report: EnergyReportResponse): Array<{ label: string; va
   ]
 }
 
-export function EnergyManagementPanel({ report, facilityLoadKw, ppaCode }: EnergyManagementPanelProps) {
+export function EnergyManagementPanel({ report, facilityLoadKw, facilityAnnualCostThb, ppaCode }: EnergyManagementPanelProps) {
   const kpis = buildEnergyKpis({
     annualAcEnergyKwh: report.annual.ac_energy_kwh,
     acCapacityKw: report.system_summary.ac_capacity_kw,
@@ -42,6 +50,8 @@ export function EnergyManagementPanel({ report, facilityLoadKw, ppaCode }: Energ
     co2SavedKgPerYear: report.co2_saved_kg_per_year,
   })
   const offsetPct = solarOffsetPct(report.annual.ac_energy_kwh, facilityLoadKw)
+  const billSaving = solarBillSavingThbPerYear(report.annual.ac_energy_kwh, facilityAnnualCostThb, facilityLoadKw)
+  const billSavingPct = solarBillSavingPct(report.annual.ac_energy_kwh, facilityAnnualCostThb, facilityLoadKw)
   const rows = accountingRows(report)
 
   return (
@@ -73,10 +83,25 @@ export function EnergyManagementPanel({ report, facilityLoadKw, ppaCode }: Energ
         <p className="ems-caption">
           {facilityLoadKw == null
             ? 'ยังไม่มีค่าโหลดไฟฟ้าของคลัง — ใส่ค่าจริงเพื่อคำนวณสัดส่วนนี้'
-            : `เทียบกับโหลดไฟฟ้าคลังโดยประมาณ ${Math.round(facilityLoadKw).toLocaleString('en-US')} kW`}{' '}
-          <strong>(ค่าสมมติ / placeholder — ยังไม่ใช่ค่าที่วัดจริง)</strong>
+            : `เทียบกับโหลดไฟฟ้าเฉลี่ยของคลัง ~${(facilityLoadKw / 1000).toFixed(1)} MW (เฉลี่ยรายวัน 13–14 MW, ข้อมูลผู้ใช้)`}
         </p>
       </div>
+
+      {/* Solar bill saving vs the facility's real annual electricity cost */}
+      {billSaving != null && facilityAnnualCostThb != null && (
+        <div className="ems-billsave">
+          <div className="ems-offset-head">
+            <span className="ems-offset-label">โซลาร์ช่วยประหยัดค่าไฟคลัง (Bill saving)</span>
+            <span className="ems-offset-value">
+              ~{formatThb(billSaving)}/ปี{billSavingPct != null && ` (${billSavingPct.toFixed(billSavingPct < 1 ? 2 : 1)}%)`}
+            </span>
+          </div>
+          <p className="ems-caption">
+            คิดจากพลังงานโซลาร์ต่อปี × ค่าไฟเฉลี่ยของคลังเอง (~{(facilityAnnualCostThb / 1_000_000).toFixed(0)} ล้านบาท/ปี ÷ พลังงานที่คลังใช้ ≈{' '}
+            {((facilityAnnualCostThb / (facilityLoadKw! * 8760))).toFixed(2)} บาท/kWh) — ประมาณการจากตัวเลขจริงที่ผู้ใช้ให้มา
+          </p>
+        </div>
+      )}
 
       {/* 3. Energy accounting */}
       <div className="ems-accounting">

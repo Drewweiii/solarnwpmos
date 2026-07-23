@@ -69,6 +69,7 @@ export function EnergyReportPage() {
           <EnergyManagementPanel
             report={report.data}
             facilityLoadKw={site?.facility_electrical_load_kw}
+            facilityAnnualCostThb={site?.facility_annual_electricity_cost_thb}
             ppaCode={site?.project_code}
           />
 

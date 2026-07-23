@@ -3147,3 +3147,20 @@ Pure KPI math is unit-tested (capacity factor, offset %, energy formatting, KPI
 builder) and the panel has a render test (incl. the placeholder caveat + the
 "no load given" path). Python `nongfab_common` (7) passes; full web suite (423,
 +9) passes; tsc + oxlint clean; prod build succeeds.
+
+### 2026-07-23 - Real facility figures + solar bill-saving
+
+The user supplied the real operating figures, replacing the placeholder:
+`site.facility_electrical_load_kw` = **13,500 kW** (avg daily 13-14 MW) and a new
+`site.facility_annual_electricity_cost_thb` = **~300 MTHB/yr** (both on
+`nongfab_common.Site` + `SiteInfo`). The Energy Management panel now:
+- uses the real load for the "% of facility load offset" (caption now says "avg
+  daily 13-14 MW, user data" instead of the placeholder wording), and
+- adds a **solar bill-saving** line: solar annual energy valued at the facility's
+  own implied average tariff (`= annual cost / annual load energy` ≈ 2.5 THB/kWh,
+  `impliedTariffThbPerKwh`), shown as ~฿/yr and as a % of the 300 MTHB bill
+  (`solarBillSavingThbPerYear` / `solarBillSavingPct`, pure + unit-tested).
+
+Both inputs are user-stated real figures, so the derivation is internally
+consistent (not a public-source estimate). Python `nongfab_common` (7) passes;
+full web suite (427, +4) passes; tsc + oxlint clean; prod build succeeds.

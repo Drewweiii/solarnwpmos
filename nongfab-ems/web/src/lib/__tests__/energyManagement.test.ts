@@ -4,6 +4,10 @@ import {
   capacityFactorPct,
   facilityAnnualLoadKwh,
   formatEnergy,
+  formatThb,
+  impliedTariffThbPerKwh,
+  solarBillSavingPct,
+  solarBillSavingThbPerYear,
   solarOffsetPct,
 } from '../energyManagement'
 
@@ -32,6 +36,37 @@ describe('facilityAnnualLoadKwh / solarOffsetPct', () => {
   it('returns null when the (placeholder) facility load is missing/zero', () => {
     expect(solarOffsetPct(700_000, null)).toBeNull()
     expect(solarOffsetPct(700_000, 0)).toBeNull()
+  })
+})
+
+describe('implied tariff + bill saving (real user-stated facility figures)', () => {
+  const cost = 300_000_000 // THB/yr
+  const loadKw = 13500 // 13.5 MW
+
+  it('implied tariff = annual cost / annual load energy', () => {
+    const t = impliedTariffThbPerKwh(cost, loadKw)
+    expect(t).toBeCloseTo(cost / (13500 * 8760), 9) // ~2.54 THB/kWh
+  })
+
+  it('bill saving = solar annual energy x implied tariff, and its % of total cost', () => {
+    const solar = 700_000
+    const tariff = cost / (13500 * 8760)
+    expect(solarBillSavingThbPerYear(solar, cost, loadKw)).toBeCloseTo(solar * tariff, 3)
+    expect(solarBillSavingPct(solar, cost, loadKw)).toBeCloseTo(((solar * tariff) / cost) * 100, 6)
+  })
+
+  it('returns null when the cost or load is missing', () => {
+    expect(impliedTariffThbPerKwh(null, loadKw)).toBeNull()
+    expect(solarBillSavingThbPerYear(700_000, cost, null)).toBeNull()
+    expect(solarBillSavingPct(700_000, null, loadKw)).toBeNull()
+  })
+})
+
+describe('formatThb', () => {
+  it('scales THB -> พันบาท -> ล้านบาท', () => {
+    expect(formatThb(500)).toMatch(/บาท$/)
+    expect(formatThb(12_000)).toBe('12 พันบาท')
+    expect(formatThb(1_780_000)).toBe('1.78 ล้านบาท')
   })
 })
 
