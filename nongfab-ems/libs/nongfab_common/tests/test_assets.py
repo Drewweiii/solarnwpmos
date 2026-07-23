@@ -185,6 +185,12 @@ def test_real_repo_assets_yaml_loads_and_validates():
     assert lng.jetty_length_km_public == pytest.approx(5.5)
     assert lng.jetty_length_km_user_stated == pytest.approx(5.66)
     assert len(lng.sources) >= 1
+    # Expanded Terminal-2 dataset (2026-07-23 research pass).
+    assert lng.investment_cost_billion_thb == pytest.approx(38.5)
+    assert lng.epc_contract_value_musd == pytest.approx(925)
+    assert lng.land_area_total_ha == pytest.approx(29.7)
+    assert lng.first_cargo_date == "2022-06-18"
+    assert lng.is_thailand_second_onshore_terminal is True
 
     # Real user-stated facility figures driving the Energy Management panel.
     assert registry.site.facility_electrical_load_kw == pytest.approx(13500)

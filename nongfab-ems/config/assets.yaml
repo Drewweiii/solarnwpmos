@@ -43,25 +43,57 @@ site:
   # for this service"); the user stated 5.66 km (see zone Jetty's jetty_structure)
   # - both are recorded honestly rather than silently reconciled to one number.
   lng_terminal:
+    # --- Identity ---
     official_name: "Map Ta Phut LNG Terminal 2 (Nong Fab)"
+    also_known_as: "Nong Fab LNG Receiving Terminal (LMPT2)"
+    is_thailand_second_onshore_terminal: true   # Thailand's 2nd onshore LNG import terminal
     owner: "PTT LNG Company Limited (PTTLNG)"
     epc_contractors: "Saipem + CTCI"
-    operational_since_year: 2022
+    owners_engineer: "Artelia"
+    location: "Nong Fab, Mueang Rayong District, Rayong, Thailand"
+
+    # --- Capacity & storage ---
     regas_capacity_mmtpa: 7.5            # nominal regasification capacity
     peak_capacity_mmtpa: 9.0             # peak send-out capacity
     storage_tank_count: 2
     storage_tank_capacity_m3: 250000     # each; full-containment type
     storage_tank_type: "full-containment"
+    storage_claim: "largest LNG tank capacity ever executed in Thailand (per Saipem)"
+
+    # --- Marine / jetty ---
     jetty_length_km_public: 5.5          # public "longest jetty for this service"
     jetty_length_km_user_stated: 5.66    # user-stated (see zone Jetty.jetty_structure)
+    trestle_length_km: 6.0               # trestle unloading facility (EPC scope)
+    jetty_claim: "world's longest trestle in the LNG sector (per Saipem)"
     lng_carrier_min_m3: 125000           # smallest carrier the jetty berths
     lng_carrier_max_m3: 266000           # largest (Q-Max class)
+
+    # --- Project & investment ---
+    contract_awarded_year: 2018          # PTT LNG awarded EPC to Saipem + CTCI, mid-2018
+    epc_contract_value_musd: 925         # EPC contract value (USD, Saipem)
+    investment_cost_billion_thb: 38.5    # total estimated project cost (THB)
+    operational_since_year: 2022
+    first_cargo_date: "2022-06-18"       # first commissioning cargo offloaded
+    first_cargo_carrier: "Al Oraiq (210,100 m³ Q-Flex)"
+    first_cargo_origin: "Qatar (Qatargas)"
+
+    # --- Land use ---
+    land_area_total_ha: 29.7             # total site
+    land_area_terminal_ha: 21.6          # receiving/storage/regas zone (shoreline)
+    land_area_office_ha: 8.1             # office zone
+
+    # --- Sustainability ---
     cold_energy_reuse: true              # LNG cold-energy recovery runs admin HVAC
     seawater_recycling: true             # seawater recycled via underwater tunnels
+    landscape_award: "Landezine International Landscape Award (LILA) - PTTLNG Receiving Terminal II"
+
     sources:
       - "https://www.offshore-technology.com/projects/nong-fab-lng-receiving-terminal/"
       - "https://www.saipem.com/en/saipem-worldwide-projects/pttlng-nong"
-      - "https://lngprime.com/asia/saipem-and-ctci-wrap-up-work-on-ptts-nong-fab-lng-terminal-in-thailand/75287/"
+      - "https://www.saipem.com/en/media/press-releases/2022-06-24/saipem-offloading-first-lng-begins-nong-fab-terminal"
+      - "https://lngprime.com/asia/ptts-nong-fab-lng-terminal-gets-first-cargo/55455/"
+      - "https://www.gem.wiki/Map_Ta_Phut_LNG_Terminal_2"
+      - "https://landezine-award.com/pttlng-receiving-terminal-ii/"
 
 zones:
   - id: GIS

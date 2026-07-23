@@ -605,6 +605,28 @@
   font-weight: 700;
   color: var(--text-h);
   margin: 10px 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.facility-info-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(43, 108, 163, 0.2);
+  color: #60a5fa;
+}
+.facility-info-section {
+  margin: 12px 0;
+}
+.facility-info-section-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-h);
+  opacity: 0.9;
 }
 .facility-info-grid {
   display: grid;

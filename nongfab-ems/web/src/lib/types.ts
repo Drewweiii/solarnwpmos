@@ -45,21 +45,44 @@ export interface Zone {
 // read-only in the "About this facility" card. All fields optional/nullable
 // since the backend defaults them to None when the YAML omits the block.
 export interface LngTerminal {
+  // Identity
   official_name: string
+  also_known_as: string
+  is_thailand_second_onshore_terminal: boolean
   owner: string
   epc_contractors: string
-  operational_since_year: number | null
+  owners_engineer: string
+  location: string
+  // Capacity & storage
   regas_capacity_mmtpa: number | null
   peak_capacity_mmtpa: number | null
   storage_tank_count: number | null
   storage_tank_capacity_m3: number | null
   storage_tank_type: string
+  storage_claim: string
+  // Marine / jetty
   jetty_length_km_public: number | null
   jetty_length_km_user_stated: number | null
+  trestle_length_km: number | null
+  jetty_claim: string
   lng_carrier_min_m3: number | null
   lng_carrier_max_m3: number | null
+  // Project & investment
+  contract_awarded_year: number | null
+  epc_contract_value_musd: number | null
+  investment_cost_billion_thb: number | null
+  operational_since_year: number | null
+  first_cargo_date: string
+  first_cargo_carrier: string
+  first_cargo_origin: string
+  // Land use
+  land_area_total_ha: number | null
+  land_area_terminal_ha: number | null
+  land_area_office_ha: number | null
+  // Sustainability
   cold_energy_reuse: boolean
   seawater_recycling: boolean
+  landscape_award: string
   sources: string[]
 }
 

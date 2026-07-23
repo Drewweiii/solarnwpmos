@@ -3164,3 +3164,31 @@ The user supplied the real operating figures, replacing the placeholder:
 Both inputs are user-stated real figures, so the derivation is internally
 consistent (not a public-source estimate). Python `nongfab_common` (7) passes;
 full web suite (427, +4) passes; tsc + oxlint clean; prod build succeeds.
+
+### 2026-07-23 - Expanded Terminal-2 facility dataset (research pass)
+
+Per the user's ask to put as much **Terminal 2** (Nong Fab only, not Terminal 1)
+data on the site as possible, researched the public record and expanded the
+facility dataset end to end:
+
+- **`config/assets.yaml` `site.lng_terminal`** (+ matching `LngTerminal` fields
+  on `nongfab_common.Site` and the `SiteInfo`/`LngTerminal` frontend types) now
+  carries the full Terminal-2 profile: identity (also-known-as, owner PTT LNG,
+  EPC Saipem+CTCI, owner's engineer Artelia, "Thailand's 2nd onshore terminal"),
+  capacity/storage (7.5 MMTPA / peak 9, 2×250,000 m³ full-containment + the
+  "largest tank in Thailand" claim), marine/jetty (~5.5 km jetty, 6 km trestle,
+  "world's longest trestle in LNG" claim, 125k-266k m³ carriers), project &
+  investment (EPC awarded 2018, ~US$925 M EPC / ~38.5 bn THB total, first cargo
+  18 Jun 2022 on the *Al Oraiq* Q-Flex from Qatar), land use (29.7 ha total =
+  21.6 terminal + 8.1 office), and sustainability (cold-energy HVAC reuse,
+  seawater recycling, Landezine LILA award). Six cited sources.
+- **`FacilityInfoCard`** was rebuilt to render that data in labeled sections
+  (Overview / Capacity & Storage / Marine / Project & Investment / Land use /
+  Sustainability), with a "2nd onshore terminal in Thailand" badge. Superlative
+  claims are shown as *attributed* ("per Saipem"), and the disclaimer states the
+  data is public, Terminal-2-only (not Terminal 1), and not the solar plant's
+  own numbers.
+
+All figures are public/cited, not measured here. Every `LngTerminal` field is
+optional so older YAML/fixtures still validate. Python `nongfab_common` (7)
+passes; full web suite (427) passes; tsc + oxlint clean; prod build succeeds.

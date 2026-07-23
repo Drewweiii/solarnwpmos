@@ -146,21 +146,44 @@ class LngTerminal(BaseModel):
     omit the whole block still validate.
     """
 
+    # Identity
     official_name: str = ""
+    also_known_as: str = ""
+    is_thailand_second_onshore_terminal: bool = False
     owner: str = ""
     epc_contractors: str = ""
-    operational_since_year: int | None = None
+    owners_engineer: str = ""
+    location: str = ""
+    # Capacity & storage
     regas_capacity_mmtpa: float | None = None
     peak_capacity_mmtpa: float | None = None
     storage_tank_count: int | None = None
     storage_tank_capacity_m3: float | None = None
     storage_tank_type: str = ""
+    storage_claim: str = ""
+    # Marine / jetty
     jetty_length_km_public: float | None = None
     jetty_length_km_user_stated: float | None = None
+    trestle_length_km: float | None = None
+    jetty_claim: str = ""
     lng_carrier_min_m3: float | None = None
     lng_carrier_max_m3: float | None = None
+    # Project & investment
+    contract_awarded_year: int | None = None
+    epc_contract_value_musd: float | None = None
+    investment_cost_billion_thb: float | None = None
+    operational_since_year: int | None = None
+    first_cargo_date: str = ""
+    first_cargo_carrier: str = ""
+    first_cargo_origin: str = ""
+    # Land use
+    land_area_total_ha: float | None = None
+    land_area_terminal_ha: float | None = None
+    land_area_office_ha: float | None = None
+    # Sustainability
     cold_energy_reuse: bool = False
     seawater_recycling: bool = False
+    landscape_award: str = ""
     sources: list[str] = Field(default_factory=list)
 
 
