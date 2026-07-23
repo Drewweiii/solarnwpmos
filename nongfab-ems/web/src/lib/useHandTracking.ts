@@ -12,9 +12,12 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   DEFAULT_HAND_CONTROL_CONFIG,
-  NEUTRAL_SIGNAL,
+  createHandSignalFilter,
+  detectGesture,
+  filterHandSignal,
   mapHandToSignal,
-  smoothSignal,
+  type HandGesture,
+  type Landmark,
   type HandSignal,
 } from './handControl'
 
@@ -23,11 +26,11 @@ const WASM_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAP
 const HAND_MODEL_URL =
   'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task'
 
-// How fast the raw hand signal is pre-smoothed each detection frame. Kept LIGHT
-// in Phase 2 (was 0.18) because the heavy, frame-rate-independent easing now
-// lives on the RENDER side (Solar3DScene's HandCameraDriver dampens toward this
-// target every render frame). Over-smoothing here would just add lag on top.
-const SMOOTHING_FACTOR = 0.5
+// The raw per-detection signal is de-jittered with a One-Euro filter (see
+// lib/handControl.ts) - speed-adaptive, so it's rock-steady when the hand is
+// still yet snappy when it moves, which a fixed-alpha EMA can't be. The heavy,
+// frame-rate-independent camera easing still lives on the RENDER side
+// (Solar3DScene's HandCameraDriver).
 
 // Ask the camera for 60fps at a modest resolution: hand landmarking doesn't
 // need full-res frames, and a smaller frame keeps per-frame inference fast
@@ -59,6 +62,13 @@ export interface UseHandTrackingResult {
   // The scene reads this every frame (in useFrame) - a ref so hand motion never
   // triggers React re-renders. Holds the smoothed signal, or null when idle.
   signalRef: React.MutableRefObject<HandSignal | null>
+  // The current control-mode gesture (open=control / fist=hold / V=recenter),
+  // read by the camera driver + shown in the sync indicator. Also a ref to
+  // avoid per-frame re-renders.
+  gestureRef: React.MutableRefObject<HandGesture>
+  // The raw 21 landmarks of the tracked hand (image-normalized 0..1), for the
+  // live preview overlay (components/HandPreview.tsx). null when no hand.
+  landmarksRef: React.MutableRefObject<Landmark[] | null>
   // Attach to a (hidden) <video> element the webcam stream feeds.
   videoRef: React.RefObject<HTMLVideoElement | null>
 }
@@ -67,11 +77,15 @@ export function useHandTracking(enabled: boolean): UseHandTrackingResult {
   const [status, setStatus] = useState<HandTrackingStatus>('idle')
   const [error, setError] = useState<string | null>(null)
   const signalRef = useRef<HandSignal | null>(null)
+  const gestureRef = useRef<HandGesture>('none')
+  const landmarksRef = useRef<Landmark[] | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
 
   useEffect(() => {
     if (!enabled) {
       signalRef.current = null
+      gestureRef.current = 'none'
+      landmarksRef.current = null
       setStatus('idle')
       setError(null)
       return
@@ -84,7 +98,7 @@ export function useHandTracking(enabled: boolean): UseHandTrackingResult {
     let raf = 0
     let rvfc = 0
     let lastDetectTs = -1
-    let smoothed: HandSignal = NEUTRAL_SIGNAL
+    const signalFilter = createHandSignalFilter()
 
     async function start() {
       try {
@@ -139,12 +153,17 @@ export function useHandTracking(enabled: boolean): UseHandTrackingResult {
             // A transient detect error shouldn't kill the loop.
           }
           if (hands && hands.length > 0) {
-            const target = mapHandToSignal(hands[0] as { x: number; y: number }[], DEFAULT_HAND_CONTROL_CONFIG)
-            smoothed = smoothSignal(smoothed, target, SMOOTHING_FACTOR)
-            signalRef.current = smoothed
+            const landmarks = hands[0] as Landmark[]
+            landmarksRef.current = landmarks
+            gestureRef.current = detectGesture(landmarks)
+            const target = mapHandToSignal(landmarks, DEFAULT_HAND_CONTROL_CONFIG)
+            // One-Euro de-jitter, timestamped in seconds (adaptive to hand speed).
+            signalRef.current = filterHandSignal(signalFilter, target, ts / 1000)
             setStatus((s) => (s === 'tracking' ? s : 'tracking'))
           } else {
             signalRef.current = null
+            landmarksRef.current = null
+            gestureRef.current = 'none'
             setStatus((s) => (s === 'no-hand' ? s : 'no-hand'))
           }
         }
@@ -201,7 +220,7 @@ export function useHandTracking(enabled: boolean): UseHandTrackingResult {
     }
   }, [enabled])
 
-  return { status, error, signalRef, videoRef }
+  return { status, error, signalRef, gestureRef, landmarksRef, videoRef }
 }
 
 function errorMessage(e: unknown): string {

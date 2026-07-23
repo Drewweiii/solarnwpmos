@@ -27,7 +27,7 @@ import {
   tileFootprintMeters,
   type SatelliteTile,
 } from '../lib/satelliteTile'
-import { damp, dampAngle, signalToCameraTarget, type HandSignal } from '../lib/handControl'
+import { damp, dampAngle, signalToCameraTarget, type HandGesture, type HandSignal } from '../lib/handControl'
 import type { IrradianceGridPoint, MoonPathPoint, Panel, PrecipitationIntensity, SunPathPoint } from '../lib/types'
 
 // Exposed to Solar3DPage's icon rail "reset camera" button - React 19 takes
@@ -1228,12 +1228,13 @@ const HAND_MAX_DT = 0.05
 
 interface HandCameraDriverProps {
   signalRef?: React.MutableRefObject<HandSignal | null>
+  gestureRef?: React.MutableRefObject<HandGesture>
   active: boolean
   controlsRef: React.MutableRefObject<OrbitControlsImpl | null>
   span: number
 }
 
-function HandCameraDriver({ signalRef, active, controlsRef, span }: HandCameraDriverProps) {
+function HandCameraDriver({ signalRef, gestureRef, active, controlsRef, span }: HandCameraDriverProps) {
   const st = useRef({ azimuth: 0, polar: 0.9, distance: 50, synced: false })
   useFrame((state, delta) => {
     const s = st.current
@@ -1244,6 +1245,7 @@ function HandCameraDriver({ signalRef, active, controlsRef, span }: HandCameraDr
     const controls = controlsRef.current
     if (!controls) return
     const sig = signalRef.current
+    const gesture = gestureRef?.current ?? 'control'
     // (Re)adopt the current camera pose when first activated or whenever the
     // hand isn't visible this frame - keeps everything continuous with the
     // mouse and avoids any snap on (re)acquire.
@@ -1256,13 +1258,23 @@ function HandCameraDriver({ signalRef, active, controlsRef, span }: HandCameraDr
       s.synced = true
       if (!sig) return
     }
-    const target = signalToCameraTarget(sig, {
-      minDistance: Math.max(span * 0.5, 8),
-      maxDistance: Math.max(span * 2.8, 40),
-      minPolar: 0.15,
-      maxPolar: 1.45,
-      azimuthSpan: Math.PI,
-    })
+    // Fist = HOLD: freeze the camera exactly where it is this frame so the user
+    // can rest their hand without the view drifting. Keep synced so releasing
+    // the fist resumes smoothly from here.
+    if (gesture === 'hold') return
+    const homeDistance = Math.max(span * 1.4, 24)
+    const target =
+      // "V" sign = RECENTER: ease back to a neutral 3/4 overhead home pose,
+      // ignoring the hand's position this frame.
+      gesture === 'recenter'
+        ? { azimuth: 0, polar: 0.9, distance: homeDistance }
+        : signalToCameraTarget(sig, {
+            minDistance: Math.max(span * 0.5, 8),
+            maxDistance: Math.max(span * 2.8, 40),
+            minPolar: 0.15,
+            maxPolar: 1.45,
+            azimuthSpan: Math.PI,
+          })
     const dt = Math.min(Math.max(delta, 0), HAND_MAX_DT)
     s.azimuth = dampAngle(s.azimuth, target.azimuth, HAND_DAMP_LAMBDA, dt)
     s.polar = damp(s.polar, target.polar, HAND_DAMP_LAMBDA, dt)
@@ -1367,6 +1379,10 @@ interface Solar3DSceneProps {
   // existing caller renders exactly as before. See lib/useHandTracking.ts.
   handControlActive?: boolean
   handSignalRef?: React.MutableRefObject<HandSignal | null>
+  // The current control-mode gesture (open=control / fist=hold / V=recenter),
+  // read every render frame by HandCameraDriver. Optional so existing callers
+  // (and the mock in tests) keep working; defaults to plain 'control'.
+  handGestureRef?: React.MutableRefObject<HandGesture>
 }
 
 export function Solar3DScene({
@@ -1399,6 +1415,7 @@ export function Solar3DScene({
   showEnvironment = true,
   handControlActive = false,
   handSignalRef,
+  handGestureRef,
   ref,
 }: Solar3DSceneProps & { ref?: Ref<Solar3DSceneHandle> }) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null)
@@ -1653,7 +1670,7 @@ export function Solar3DScene({
       <RainLayer center={bounds.full.center} span={bounds.full.span} precipMm={precipMm} intensity={precipIntensity} />
 
       <OrbitControls ref={controlsRef} target={[focusCenterScene[0], panelBaseY, focusCenterScene[1]]} />
-      <HandCameraDriver active={handControlActive} signalRef={handSignalRef} controlsRef={controlsRef} span={bounds.full.span} />
+      <HandCameraDriver active={handControlActive} signalRef={handSignalRef} gestureRef={handGestureRef} controlsRef={controlsRef} span={bounds.full.span} />
     </Canvas>
   )
 }

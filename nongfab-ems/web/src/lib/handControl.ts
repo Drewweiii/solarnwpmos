@@ -40,6 +40,28 @@ const INDEX_MCP = 5
 const INDEX_TIP = 8
 const MIDDLE_MCP = 9
 
+// The four non-thumb fingers as [pip, tip] pairs (proximal-interphalangeal
+// joint and fingertip). A finger reads "extended" when its tip is farther from
+// the wrist than its pip joint - orientation-robust (works whether the hand is
+// upright or sideways), unlike a raw y-coordinate test.
+const FINGER_PIP_TIP: ReadonlyArray<readonly [number, number]> = [
+  [6, 8], // index
+  [10, 12], // middle
+  [14, 16], // ring
+  [18, 20], // pinky
+]
+
+// The 21-point hand skeleton as landmark-index pairs, for drawing the live
+// preview overlay (see components/HandPreview.tsx). Standard MediaPipe topology.
+export const HAND_CONNECTIONS: ReadonlyArray<readonly [number, number]> = [
+  [0, 1], [1, 2], [2, 3], [3, 4], // thumb
+  [0, 5], [5, 6], [6, 7], [7, 8], // index
+  [9, 10], [10, 11], [11, 12], // middle
+  [13, 14], [14, 15], [15, 16], // ring
+  [0, 17], [17, 18], [18, 19], [19, 20], // pinky
+  [5, 9], [9, 13], [13, 17], // palm knuckle bridge
+]
+
 function dist(a: Landmark, b: Landmark): number {
   return Math.hypot(a.x - b.x, a.y - b.y)
 }
@@ -174,5 +196,133 @@ export function signalToCameraTarget(signal: HandSignal, range: CameraRange): Ca
     azimuth: signal.azimuthNorm * range.azimuthSpan,
     polar: range.minPolar + clamp01(signal.polarNorm) * (range.maxPolar - range.minPolar),
     distance: range.maxDistance + clamp01(signal.zoomNorm) * (range.minDistance - range.maxDistance),
+  }
+}
+
+// --- Hand gestures / control modes (2026-07-23, "godlike" round) ------------
+// On top of the continuous rotate/zoom signal, a few discrete POSES switch the
+// control MODE so the camera does what the hand means, not just where it is:
+//   - 'control'  : a normal open/relaxed hand - camera follows the signal.
+//   - 'hold'     : a closed fist - freeze the camera where it is (rest your
+//                  hand without the view drifting).
+//   - 'recenter' : a two-finger "V"/peace sign - ease the camera back to a
+//                  neutral home pose.
+// 'none' means no usable hand this frame.
+export type HandGesture = 'control' | 'hold' | 'recenter' | 'none'
+
+/** Which of the four non-thumb fingers are extended, as [index, middle, ring,
+ * pinky]. A finger is extended when its fingertip sits farther from the wrist
+ * than its pip joint - orientation-independent, so it holds whether the palm
+ * faces the camera upright or turned sideways. */
+export function fingersExtended(landmarks: Landmark[]): boolean[] {
+  const wrist = landmarks[WRIST]
+  if (!wrist) return [false, false, false, false]
+  return FINGER_PIP_TIP.map(([pip, tip]) => {
+    const p = landmarks[pip]
+    const t = landmarks[tip]
+    if (!p || !t) return false
+    // A small margin so a half-curled finger doesn't flicker between states.
+    return dist(t, wrist) > dist(p, wrist) * 1.05
+  })
+}
+
+/** Classify one hand's pose into a control-mode gesture. */
+export function detectGesture(landmarks: Landmark[] | null | undefined): HandGesture {
+  if (!landmarks || landmarks.length < 21) return 'none'
+  const [index, middle, ring, pinky] = fingersExtended(landmarks)
+  const extendedCount = [index, middle, ring, pinky].filter(Boolean).length
+  // Peace/"V" sign: index + middle up, ring + pinky down -> recenter.
+  if (index && middle && !ring && !pinky) return 'recenter'
+  // Fist: nothing (or almost nothing) extended -> hold/freeze.
+  if (extendedCount === 0) return 'hold'
+  return 'control'
+}
+
+// --- One-Euro filter (2026-07-23) -------------------------------------------
+// Replaces the plain fixed-alpha EMA for de-jittering the raw hand signal. The
+// One-Euro filter (Casiez, Roussel & Vogel, 2012 - the de-facto standard for
+// interactive hand/pointer input) adapts its smoothing to hand SPEED: it
+// smooths hard when the hand is nearly still (killing sensor jitter) but barely
+// at all when the hand moves fast (killing lag). That "still = steady, moving =
+// responsive" behavior is exactly what a plain EMA can't do with one constant.
+
+export interface OneEuroParams {
+  // Baseline cutoff frequency (Hz) at zero speed - lower = smoother-but-laggier
+  // when still.
+  minCutoff: number
+  // How much the cutoff opens up with speed - higher = less lag when moving.
+  beta: number
+  // Cutoff for the internal speed (derivative) estimate.
+  dCutoff: number
+}
+
+export const DEFAULT_ONE_EURO_PARAMS: OneEuroParams = { minCutoff: 1.5, beta: 0.03, dCutoff: 1.0 }
+
+export interface OneEuroState {
+  xPrev: number
+  dxPrev: number
+  tPrev: number
+  started: boolean
+}
+
+export function createOneEuroState(): OneEuroState {
+  return { xPrev: 0, dxPrev: 0, tPrev: 0, started: false }
+}
+
+// Smoothing factor for a first-order low-pass at cutoff `fc` over timestep `dt`.
+function oneEuroAlpha(fc: number, dt: number): number {
+  const tau = 1 / (2 * Math.PI * fc)
+  return 1 / (1 + tau / dt)
+}
+
+/** Advance a One-Euro filter by one sample. `t` is a timestamp in SECONDS.
+ * Mutates and returns the filtered value. The first sample seeds the state and
+ * passes through unchanged. */
+export function oneEuroStep(
+  state: OneEuroState,
+  x: number,
+  t: number,
+  params: OneEuroParams = DEFAULT_ONE_EURO_PARAMS,
+): number {
+  if (!state.started) {
+    state.started = true
+    state.xPrev = x
+    state.dxPrev = 0
+    state.tPrev = t
+    return x
+  }
+  let dt = t - state.tPrev
+  if (dt <= 0) dt = 1e-3
+  const dx = (x - state.xPrev) / dt
+  const dxHat = state.dxPrev + oneEuroAlpha(params.dCutoff, dt) * (dx - state.dxPrev)
+  const cutoff = params.minCutoff + params.beta * Math.abs(dxHat)
+  const xHat = state.xPrev + oneEuroAlpha(cutoff, dt) * (x - state.xPrev)
+  state.xPrev = xHat
+  state.dxPrev = dxHat
+  state.tPrev = t
+  return xHat
+}
+
+/** A One-Euro filter over a whole HandSignal (one channel each). */
+export interface HandSignalFilter {
+  azimuth: OneEuroState
+  polar: OneEuroState
+  zoom: OneEuroState
+}
+
+export function createHandSignalFilter(): HandSignalFilter {
+  return { azimuth: createOneEuroState(), polar: createOneEuroState(), zoom: createOneEuroState() }
+}
+
+export function filterHandSignal(
+  filter: HandSignalFilter,
+  signal: HandSignal,
+  t: number,
+  params: OneEuroParams = DEFAULT_ONE_EURO_PARAMS,
+): HandSignal {
+  return {
+    azimuthNorm: oneEuroStep(filter.azimuth, signal.azimuthNorm, t, params),
+    polarNorm: oneEuroStep(filter.polar, signal.polarNorm, t, params),
+    zoomNorm: oneEuroStep(filter.zoom, signal.zoomNorm, t, params),
   }
 }

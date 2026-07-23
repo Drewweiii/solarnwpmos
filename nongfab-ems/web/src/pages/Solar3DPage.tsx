@@ -6,6 +6,7 @@ import { Solar3DScene } from '../components/Solar3DScene'
 import { Solar3DIconRail } from '../components/Solar3DIconRail'
 import { Solar3DAssistants } from '../components/Solar3DAssistants'
 import { HandSyncIndicator } from '../components/HandSyncIndicator'
+import { HandPreview } from '../components/HandPreview'
 import { ZoneSelector } from '../components/ZoneSelector'
 import { nearestToTimestamp } from '../lib/chartData'
 import { moonPhaseName, zenithAngleDeg } from '../lib/solar3d'
@@ -386,6 +387,7 @@ export function Solar3DPage() {
               showEnvironment={showEnvironment}
               handControlActive={handControlActive}
               handSignalRef={hand.signalRef}
+              handGestureRef={hand.gestureRef}
             />
           </>
         )}
@@ -453,8 +455,22 @@ export function Solar3DPage() {
         </button>
 
         {/* Live connection/sync readout - shows the hand is actually locked on,
-            with live movement bars while tracking (see HandSyncIndicator). */}
-        <HandSyncIndicator enabled={handControlEnabled} status={hand.status} signalRef={hand.signalRef} />
+            with live movement bars + the active gesture while tracking. */}
+        <HandSyncIndicator
+          enabled={handControlEnabled}
+          status={hand.status}
+          signalRef={hand.signalRef}
+          gestureRef={hand.gestureRef}
+        />
+
+        {/* Live camera preview with the detected hand skeleton overlaid, so you
+            can see exactly what the tracker sees (see HandPreview). */}
+        <HandPreview
+          active={handControlActive}
+          videoRef={hand.videoRef}
+          landmarksRef={hand.landmarksRef}
+          gestureRef={hand.gestureRef}
+        />
 
         {handControlEnabled && hand.status !== 'error' && HAND_STATUS_LABEL[hand.status] && (
           <p className="forecast-status forecast-status-caption">{HAND_STATUS_LABEL[hand.status]}</p>
@@ -462,6 +478,11 @@ export function Solar3DPage() {
         {handControlEnabled && hand.error && (
           <p className="forecast-status forecast-status-caption" role="alert">
             {hand.error}
+          </p>
+        )}
+        {handControlEnabled && (
+          <p className="forecast-status forecast-status-caption">
+            ท่ามือ: ✋ กางมือ = ควบคุม (ขยับ=หมุน, หนีบนิ้ว=ซูม) · ✊ กำหมัด = หยุดค้างมุมกล้อง · ✌️ ชู 2 นิ้ว = รีเซ็ตมุมกล้อง
           </p>
         )}
         <p className="forecast-status forecast-status-caption">

@@ -551,6 +551,41 @@
   }
 }
 
+/* Live gesture badge inside the sync pill (which pose is active). */
+.solar3d-hand-sync-gesture {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.25);
+  color: #e2e8f0;
+}
+.solar3d-hand-sync-gesture-control {
+  background: rgba(34, 211, 238, 0.22);
+  color: #67e8f9;
+}
+.solar3d-hand-sync-gesture-hold {
+  background: rgba(245, 158, 11, 0.22);
+  color: #fbbf24;
+}
+.solar3d-hand-sync-gesture-recenter {
+  background: rgba(168, 85, 247, 0.22);
+  color: #c4b5fd;
+}
+
+/* Live hand-skeleton preview window. */
+.solar3d-hand-preview {
+  border: 1px solid var(--border, #334155);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0b1220;
+  width: fit-content;
+  line-height: 0;
+}
+.solar3d-hand-preview canvas {
+  display: block;
+}
+
 /* --- Mobile (iOS/Android) responsiveness for the 3D View (2026-07-23) --- */
 @media (max-width: 640px) {
   .solar3d-canvas-wrapper {

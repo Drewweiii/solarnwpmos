@@ -4,16 +4,46 @@ import {
   NEUTRAL_SIGNAL,
   clamp01,
   clampSym,
+  createHandSignalFilter,
+  createOneEuroState,
   damp,
   dampAngle,
+  detectGesture,
+  filterHandSignal,
+  fingersExtended,
   handCentroid,
   mapHandToSignal,
+  oneEuroStep,
   pinchRatio,
   signalToCameraTarget,
   smoothSignal,
   wrapAngle,
   type Landmark,
 } from '../handControl'
+
+// Build a full 21-point hand as a fist (all fingertips curled near the palm),
+// then let callers "extend" specific fingers by pushing their tip out past the
+// pip joint along -y (up). Wrist at bottom center; fingers point up.
+function fistHand(): Landmark[] {
+  const lm: Landmark[] = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.6 }))
+  lm[0] = { x: 0.5, y: 0.9 } // wrist, low
+  // pip joints sit mid-palm; tips default curled BELOW their pip (still low).
+  for (const [pip, tip] of [
+    [6, 8],
+    [10, 12],
+    [14, 16],
+    [18, 20],
+  ]) {
+    lm[pip] = { x: 0.5, y: 0.55 }
+    lm[tip] = { x: 0.5, y: 0.62 } // tip closer to wrist than pip -> curled
+  }
+  return lm
+}
+
+function extendFinger(lm: Landmark[], pip: number, tip: number): void {
+  lm[pip] = { x: lm[pip].x, y: 0.5 }
+  lm[tip] = { x: lm[tip].x, y: 0.2 } // tip well above pip, far from wrist
+}
 
 // A minimal 21-point hand where every landmark defaults to the palm center,
 // then we override just the ones the mapping reads (wrist 0, thumb tip 4,
@@ -172,5 +202,81 @@ describe('wrapAngle / dampAngle', () => {
 
   it('dt<=0 holds the angle', () => {
     expect(dampAngle(1, -1, 8, 0)).toBe(1)
+  })
+})
+
+describe('fingersExtended / detectGesture', () => {
+  it('reads a fist as all fingers curled', () => {
+    expect(fingersExtended(fistHand())).toEqual([false, false, false, false])
+  })
+
+  it('reads an open hand as all four fingers extended', () => {
+    const lm = fistHand()
+    extendFinger(lm, 6, 8)
+    extendFinger(lm, 10, 12)
+    extendFinger(lm, 14, 16)
+    extendFinger(lm, 18, 20)
+    expect(fingersExtended(lm)).toEqual([true, true, true, true])
+  })
+
+  it('a fist -> hold, an open hand -> control', () => {
+    expect(detectGesture(fistHand())).toBe('hold')
+    const open = fistHand()
+    extendFinger(open, 6, 8)
+    extendFinger(open, 10, 12)
+    extendFinger(open, 14, 16)
+    extendFinger(open, 18, 20)
+    expect(detectGesture(open)).toBe('control')
+  })
+
+  it('index+middle only (a "V") -> recenter', () => {
+    const v = fistHand()
+    extendFinger(v, 6, 8)
+    extendFinger(v, 10, 12)
+    expect(detectGesture(v)).toBe('recenter')
+  })
+
+  it('a missing/degenerate hand -> none', () => {
+    expect(detectGesture(null)).toBe('none')
+    expect(detectGesture([])).toBe('none')
+  })
+})
+
+describe('One-Euro filter', () => {
+  it('passes the first sample through unchanged, then eases toward new values', () => {
+    const s = createOneEuroState()
+    expect(oneEuroStep(s, 5, 0)).toBe(5)
+    const next = oneEuroStep(s, 10, 1 / 60)
+    expect(next).toBeGreaterThan(5)
+    expect(next).toBeLessThan(10)
+  })
+
+  it('converges to a held value over time', () => {
+    const s = createOneEuroState()
+    let v = oneEuroStep(s, 0, 0)
+    for (let i = 1; i <= 400; i++) v = oneEuroStep(s, 1, i / 60)
+    expect(v).toBeCloseTo(1, 2)
+  })
+
+  it('is more responsive (less lag) when the input moves fast - the whole point', () => {
+    // Same one-step jump, but with a high beta the cutoff opens with speed, so
+    // it should land CLOSER to the target than a low-beta (steadier) filter.
+    const slow = createOneEuroState()
+    const fast = createOneEuroState()
+    oneEuroStep(slow, 0, 0, { minCutoff: 1, beta: 0, dCutoff: 1 })
+    oneEuroStep(fast, 0, 0, { minCutoff: 1, beta: 5, dCutoff: 1 })
+    const slowV = oneEuroStep(slow, 1, 1 / 60, { minCutoff: 1, beta: 0, dCutoff: 1 })
+    const fastV = oneEuroStep(fast, 1, 1 / 60, { minCutoff: 1, beta: 5, dCutoff: 1 })
+    expect(fastV).toBeGreaterThan(slowV)
+  })
+
+  it('filters all three signal channels together', () => {
+    const f = createHandSignalFilter()
+    const first = filterHandSignal(f, { azimuthNorm: 0.5, polarNorm: 0.3, zoomNorm: 0.8 }, 0)
+    expect(first).toEqual({ azimuthNorm: 0.5, polarNorm: 0.3, zoomNorm: 0.8 })
+    const second = filterHandSignal(f, { azimuthNorm: 1, polarNorm: 0, zoomNorm: 0 }, 1 / 60)
+    expect(second.azimuthNorm).toBeGreaterThan(0.5)
+    expect(second.polarNorm).toBeLessThan(0.3)
+    expect(second.zoomNorm).toBeLessThan(0.8)
   })
 })

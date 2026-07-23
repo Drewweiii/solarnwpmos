@@ -3059,3 +3059,38 @@ hand is actually connected:
 
 tsc clean, oxlint clean, full web suite (401, +1 sync test) passes, prod build
 succeeds.
+
+### 2026-07-23 - Hand control "godlike" round: preview + One-Euro + gestures
+
+Three upgrades that make the webcam hand tracking far more precise and legible
+(the user picked all three):
+
+- **Live hand-skeleton preview** (`components/HandPreview.tsx`): a small mirrored
+  camera window with MediaPipe's 21 landmarks + bone connections drawn on top,
+  colored by the active gesture, so the user sees exactly what the tracker sees
+  and how well it's locked on. Runs its own `requestAnimationFrame` draw loop
+  reading the same on-device `videoRef`/`landmarksRef` the tracker already fills
+  - nothing new leaves the browser, and it never re-renders React.
+- **One-Euro filter** (`lib/handControl.ts`: `oneEuroStep`/`createHandSignalFilter`/
+  `filterHandSignal`): replaces the fixed-alpha EMA that de-jittered the raw
+  signal. The One-Euro filter (Casiez et al. 2012, the de-facto standard for
+  interactive pointer/hand input) adapts smoothing to hand SPEED - rock-steady
+  when the hand is still (kills sensor jitter) yet barely smoothed when it moves
+  fast (kills lag). That "still = steady, moving = responsive" behavior is
+  exactly what one EMA constant can't do. It feeds the render-side damper, so
+  the pipeline is One-Euro (detect) -> frame-rate-independent damp (render).
+- **Control-mode gestures** (`lib/handControl.ts`: `detectGesture`/
+  `fingersExtended`, honored in `Solar3DScene`'s `HandCameraDriver`): on top of
+  the continuous rotate/zoom, three poses switch what the camera does -
+  **✋ open hand = control**, **✊ fist = hold** (freeze the view so you can rest
+  your hand), **✌️ two-finger V = recenter** (ease back to a neutral home pose).
+  Finger-extension is detected by tip-vs-pip distance from the wrist, so it's
+  orientation-robust. The active gesture shows as a live badge in the sync pill
+  and tints the preview skeleton.
+
+All pure logic (gesture classification, finger extension, the One-Euro filter)
+is unit-tested (fist/open/V/none, first-sample passthrough, convergence, and the
+speed-responsiveness property). tsc clean, oxlint clean, full web suite (412,
++11) passes, prod build succeeds. Live hand tracking still needs a real deploy
+to exercise (sandbox has no webcam + blocks the MediaPipe CDN); the graceful
+off/error paths and all the math are covered by tests.
