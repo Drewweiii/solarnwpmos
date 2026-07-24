@@ -27,7 +27,6 @@ from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
-
 from nongfab_features import soiling
 
 from . import pv_conversion

@@ -1,6 +1,6 @@
 from datetime import timezone
 
-from nongfab_api.openmeteo_aq import AerosolPoint, SOURCE_NAME, parse_aerosol_response
+from nongfab_api.openmeteo_aq import SOURCE_NAME, AerosolPoint, parse_aerosol_response
 
 
 def _payload():
