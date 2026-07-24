@@ -80,6 +80,48 @@ NOMINAL_AMBIENT_TEMP_C = 30.0
 _UNKNOWN_CLOUD_INDEX_DEFAULT = 0.3
 _CLOUD_INDEX_MAX_AGE_MINUTES = 60.0
 
+# Aerosol features (2026-07-24, CAMS-backed via openmeteo_aq). Keyed to the
+# *future* valid_time (aerosol forecast at the instant being predicted). Where no
+# aerosol reading is within _AEROSOL_MAX_AGE_MINUTES, each falls back to a
+# documented clean-tropical-coast default (a mild, non-zero background, not a
+# measurement) so the feature is always finite - same "neutral fallback rather
+# than InsufficientHistoryError" pattern as the cloud index above.
+_UNKNOWN_AOD_DEFAULT = 0.15  # total aerosol optical depth at 550nm, clean-ish
+_UNKNOWN_DUST_DEFAULT = 5.0  # near-surface mineral dust, ug/m3
+_UNKNOWN_PM25_DEFAULT = 15.0  # ug/m3
+_UNKNOWN_PM10_DEFAULT = 25.0  # ug/m3
+_AEROSOL_MAX_AGE_MINUTES = 180.0
+_AEROSOL_DEFAULTS = {
+    "aod_550nm": _UNKNOWN_AOD_DEFAULT,
+    "dust": _UNKNOWN_DUST_DEFAULT,
+    "pm2_5": _UNKNOWN_PM25_DEFAULT,
+    "pm10": _UNKNOWN_PM10_DEFAULT,
+}
+
+
+def _aerosol_features_nearest_to(store: RealDataStore, valid_times) -> dict[str, np.ndarray]:
+    """The four aerosol features (aod_550nm/dust/pm2_5/pm10) nearest each
+    of `valid_times`, from store.aerosol_history_df(). Missing/thin coverage
+    falls back to the documented _AEROSOL_DEFAULTS rather than raising, so the
+    marine-aerosol features degrade gracefully to a neutral background when the
+    external CAMS ingestion hasn't run (e.g. egress-blocked dev sandbox)."""
+    valid_times = pd.DatetimeIndex(valid_times)
+    n = len(valid_times)
+    aero = store.aerosol_history_df()
+    if len(aero) == 0:
+        return {k: np.full(n, v) for k, v in _AEROSOL_DEFAULTS.items()}
+    keep = ["valid_time"] + [c for c in _AEROSOL_DEFAULTS if c in aero.columns]
+    aero = aero[keep].sort_values("valid_time")
+    left = pd.DataFrame({"valid_time": valid_times, "_order": range(n)}).sort_values("valid_time")
+    merged = pd.merge_asof(
+        left, aero, on="valid_time", direction="nearest",
+        tolerance=pd.Timedelta(minutes=_AEROSOL_MAX_AGE_MINUTES),
+    ).sort_values("_order")
+    return {
+        k: (merged[k].fillna(default).to_numpy() if k in merged.columns else np.full(n, default))
+        for k, default in _AEROSOL_DEFAULTS.items()
+    }
+
 
 class InsufficientHistoryError(RuntimeError):
     """Real history exists but hasn't reached this builder's minimum row count yet."""
@@ -211,6 +253,7 @@ def real_hour_frame_kstep(zone: str, store: RealDataStore, lead_hour: int) -> tu
     v = _numeric_col_or_zeros(at_lead, "wind10m_v_ms")
     rh = _numeric_col_or_zeros(at_lead, "relative_humidity_pct")
     precip = _numeric_col_or_zeros(at_lead, "precip_mm")
+    aero = _aerosol_features_nearest_to(store, at_lead["valid_time"])
     X = pd.DataFrame(
         {
             "ssrd_w_m2": at_lead["ssrd_w_m2"].to_numpy(),
@@ -222,6 +265,10 @@ def real_hour_frame_kstep(zone: str, store: RealDataStore, lead_hour: int) -> tu
             "relative_humidity_pct": rh,
             "precip_mm": precip,
             "salt_soiling_index": soiling.salt_soiling_index(u, v, rh),
+            "aod_550nm": aero["aod_550nm"],
+            "dust": aero["dust"],
+            "pm2_5": aero["pm2_5"],
+            "pm10": aero["pm10"],
         }
     )
     y = pd.Series(power.to_numpy(), name="power_kw")
@@ -257,6 +304,7 @@ def current_hour_conditions_kstep(zone: str, store: RealDataStore, lead_hour: in
     v = _numeric_val_or_zero(row, "wind10m_v_ms")
     rh = _numeric_val_or_zero(row, "relative_humidity_pct")
     precip = _numeric_val_or_zero(row, "precip_mm")
+    aero = _aerosol_features_nearest_to(store, [row["valid_time"]])
     return pd.DataFrame(
         {
             "ssrd_w_m2": [row["ssrd_w_m2"]],
@@ -268,6 +316,10 @@ def current_hour_conditions_kstep(zone: str, store: RealDataStore, lead_hour: in
             "relative_humidity_pct": [rh],
             "precip_mm": [precip],
             "salt_soiling_index": [float(soiling.salt_soiling_index(u, v, rh))],
+            "aod_550nm": [float(aero["aod_550nm"][0])],
+            "dust": [float(aero["dust"][0])],
+            "pm2_5": [float(aero["pm2_5"][0])],
+            "pm10": [float(aero["pm10"][0])],
         }
     )
 

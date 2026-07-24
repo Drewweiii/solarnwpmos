@@ -104,6 +104,22 @@ caller/test that doesn't pass one sees zero behavior change.
   `feature_names` from `X.columns`), and training/serving build the *identical*
   columns from the same pure functions, so there is no train/serve skew. All
   `soiling.*` functions are pure, vectorized and unit-tested.
+- **Atmospheric-aerosol features (2026-07-24, external CAMS ingestion)**: four
+  more hour-ahead features from a new `aerosol_history` store table -
+  `aod_550nm` (total aerosol optical depth), `dust`, `pm2_5`, `pm10` - joined
+  to each row's *future* valid_time (aerosol forecast at the predicted instant)
+  by `_aerosol_features_nearest_to`, within a 180-min tolerance, falling back
+  to documented clean-tropical-coast defaults when coverage is thin (so the
+  feature is always finite - same graceful-neutral pattern as the cloud index,
+  no `InsufficientHistoryError`). Source: **Open-Meteo Air-Quality API, powered
+  by CAMS** (ECMWF Copernicus), free/key-less, queried at Nong Fab's real
+  Thailand coordinates (same Thailand-first exception already accepted for the
+  UV source). The datasource lives in `api/openmeteo_aq.py` (parser unit-tested
+  offline), backfilled best-effort at startup (`_backfill_aerosol`, non-fatal -
+  the egress-blocked dev sandbox just falls back to the neutral defaults). The
+  salt-spray driver is NOT this - that's the wind/humidity `salt_soiling_index`
+  above; Open-Meteo AQ exposes no sea-salt-specific AOD, so this stores only the
+  variables CAMS actually returns.
 - **No real generated-power telemetry exists anywhere in this system**
   (Jetty is a simulated capacity projection with no panels installed;
   GIS/ISB have no SCADA tap wired in - and the user who requested this pass

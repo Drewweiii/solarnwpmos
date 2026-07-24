@@ -56,6 +56,15 @@ CREATE TABLE IF NOT EXISTS uv_history (
     source TEXT NOT NULL,
     PRIMARY KEY (observation_date, source)
 );
+CREATE TABLE IF NOT EXISTS aerosol_history (
+    valid_time TEXT NOT NULL,
+    aod_550nm REAL,
+    dust REAL,
+    pm2_5 REAL,
+    pm10 REAL,
+    source TEXT NOT NULL,
+    PRIMARY KEY (valid_time, source)
+);
 CREATE TABLE IF NOT EXISTS uv_hourly_history (
     observed_at TEXT NOT NULL,
     uv_index REAL NOT NULL,
@@ -234,6 +243,42 @@ class RealDataStore:
             )
             conn.commit()
         return len(rows)
+
+    def insert_aerosol_points(self, points: Iterable) -> int:
+        """Upsert hourly aerosol readings keyed by (valid_time, source). Each item
+        exposes valid_time (tz-aware UTC datetime), and optionally aod_550nm,
+        dust, pm2_5, pm10 (any may be None) - see openmeteo_aq.AerosolPoint.
+        Atmospheric-aerosol drivers for the coastal PV forecast (total aerosol
+        optical depth, mineral dust, particulate matter)."""
+        rows = [
+            (
+                p.valid_time.isoformat(),
+                float(p.aod_550nm) if getattr(p, "aod_550nm", None) is not None else None,
+                float(p.dust) if getattr(p, "dust", None) is not None else None,
+                float(p.pm2_5) if getattr(p, "pm2_5", None) is not None else None,
+                float(p.pm10) if getattr(p, "pm10", None) is not None else None,
+                p.source,
+            )
+            for p in points
+        ]
+        if not rows:
+            return 0
+        with self._connect() as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO aerosol_history "
+                "(valid_time, aod_550nm, dust, pm2_5, pm10, source) VALUES (?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+            conn.commit()
+        return len(rows)
+
+    def aerosol_history_df(self) -> pd.DataFrame:
+        with self._connect() as conn:
+            df = pd.read_sql_query("SELECT * FROM aerosol_history ORDER BY valid_time", conn)
+        if len(df):
+            # format="ISO8601" - same mixed-precision reasoning as nwp_history_df.
+            df["valid_time"] = pd.to_datetime(df["valid_time"], utc=True, format="ISO8601")
+        return df
 
     def nwp_history_df(self) -> pd.DataFrame:
         with self._connect() as conn:

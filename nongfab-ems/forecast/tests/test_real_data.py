@@ -128,14 +128,46 @@ def test_real_hour_frame_kstep_builds_expected_columns_above_minimum():
     assert list(X.columns) == [
         "ssrd_w_m2", "temp2m_c", "power_lag1", "clear_sky_ssrd_w_m2", "cloud_index",
         "wind_speed_ms", "relative_humidity_pct", "precip_mm", "salt_soiling_index",
+        "aod_550nm", "dust", "pm2_5", "pm10",
     ]
     assert len(X) == len(y) == real_data.MIN_HOUR_ROWS_PER_LEAD + 2
+    # No aerosol history seeded -> every row falls back to the documented default.
+    assert (X["aod_550nm"] == real_data._UNKNOWN_AOD_DEFAULT).all()
     assert (X["clear_sky_ssrd_w_m2"] >= 0).all()
     # no cloud history seeded - every row falls back to the documented neutral default
     assert (X["cloud_index"] == real_data._UNKNOWN_CLOUD_INDEX_DEFAULT).all()
     # Marine features (2026-07-24) are present, finite and in-range.
     assert (X["salt_soiling_index"] >= 0).all() and (X["salt_soiling_index"] <= 1).all()
     assert (X["wind_speed_ms"] >= 0).all()
+
+
+@dataclass
+class _FakeAerosolPoint:
+    valid_time: datetime
+    aod_550nm: float
+    dust: float
+    pm2_5: float
+    pm10: float
+    source: str = "test-aq"
+
+
+def test_real_hour_frame_kstep_joins_real_aerosol_by_valid_time():
+    store = RealDataStore()
+    lead_hour = 3
+    base_issue = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    _seed_nwp_history_kstep(store, n=real_data.MIN_HOUR_ROWS_PER_LEAD + 2, lead_hour=lead_hour, base_issue=base_issue)
+    # Seed one aerosol reading exactly at the first row's own valid_time; later
+    # rows' valid_times are 6h+ apart, outside the 180-min join tolerance.
+    first_valid = base_issue + timedelta(hours=lead_hour)
+    store.insert_aerosol_points(
+        [_FakeAerosolPoint(valid_time=first_valid, aod_550nm=0.42, dust=12.0, pm2_5=30.0, pm10=55.0)]
+    )
+
+    X, _ = real_data.real_hour_frame_kstep("GIS", store, lead_hour=lead_hour)
+    # First row picks up the real reading; the rest fall back to defaults.
+    assert X["aod_550nm"].iloc[0] == pytest.approx(0.42)
+    assert X["pm2_5"].iloc[0] == pytest.approx(30.0)
+    assert X["aod_550nm"].iloc[-1] == real_data._UNKNOWN_AOD_DEFAULT
 
 
 def test_real_hour_frame_kstep_uses_real_cloud_index_near_issue_time():
@@ -172,6 +204,7 @@ def test_current_hour_conditions_kstep_includes_clear_sky_and_cloud_index():
     assert list(row.columns) == [
         "ssrd_w_m2", "temp2m_c", "power_lag1", "clear_sky_ssrd_w_m2", "cloud_index",
         "wind_speed_ms", "relative_humidity_pct", "precip_mm", "salt_soiling_index",
+        "aod_550nm", "dust", "pm2_5", "pm10",
     ]
     assert row.iloc[0]["clear_sky_ssrd_w_m2"] >= 0
     assert row.iloc[0]["cloud_index"] == real_data._UNKNOWN_CLOUD_INDEX_DEFAULT

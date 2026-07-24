@@ -79,6 +79,9 @@ async def run_startup_backfill(store: RealDataStore, lookback_days: int) -> None
     if counts["uv_hourly_history"] == 0:
         await _backfill_uv_hourly(store, lookback_days)
 
+    if len(store.aerosol_history_df()) == 0:
+        await _backfill_aerosol(store, lookback_days)
+
     await _backfill_pvgis(store)
 
 
@@ -210,6 +213,31 @@ async def _backfill_uv_hourly(store: RealDataStore, lookback_days: int) -> None:
         return
     store.insert_hourly_uv_observations(observations)
     logger.info("startup backfill: open-meteo hourly UV done, %d hours ingested", len(observations))
+
+
+async def _backfill_aerosol(store: RealDataStore, lookback_days: int) -> None:
+    """Best-effort aerosol backfill from Open-Meteo Air-Quality (CAMS-backed,
+    2026-07-24) - hourly AOD / dust / PM2.5 / PM10 at Nong Fab's coordinates,
+    the atmospheric-aerosol drivers the hour-ahead model now joins by valid_time
+    (see nongfab_forecast.real_data._aerosol_features_nearest_to). Same non-fatal
+    contract as the UV backfill: unreachable -> log and skip, the hour-ahead
+    model just falls back to the documented neutral aerosol defaults.
+    """
+    from .openmeteo_aq import fetch_aerosol_points
+
+    lat, lon = nong_fab_site_location()
+    logger.info("startup backfill: open-meteo air-quality (aerosol) starting (%d days)", lookback_days)
+    try:
+        async with httpx.AsyncClient() as client:
+            points = await fetch_aerosol_points(client, lat, lon, past_days=lookback_days)
+    except Exception:
+        logger.warning("startup backfill: open-meteo air-quality unreachable, skipping (non-fatal)", exc_info=True)
+        return
+    if not points:
+        logger.info("startup backfill: open-meteo air-quality returned no usable data")
+        return
+    store.insert_aerosol_points(points)
+    logger.info("startup backfill: open-meteo air-quality done, %d hours ingested", len(points))
 
 
 async def _backfill_pvgis(store: RealDataStore) -> None:
