@@ -4,11 +4,50 @@ import pytest
 
 from nongfab_forecast.hour_ahead import (
     HourAheadKStepModel,
+    aggregate_feature_importances,
     predict_hour_ahead,
     predict_hour_ahead_kstep,
     train_hour_ahead_model,
     train_rf_hour_ahead_model,
 )
+
+
+class _FakeEstimator:
+    def __init__(self, importances):
+        self.feature_importances_ = np.array(importances, dtype=float)
+
+
+class _FakeSubModel:
+    def __init__(self, feature_names, importances):
+        self.feature_names = list(feature_names)
+        self.point_model = _FakeEstimator(importances)
+
+
+def test_aggregate_feature_importances_normalizes_and_ranks():
+    names = ["ssrd_w_m2", "salt_soiling_index", "aod_550nm"]
+    model = HourAheadKStepModel(
+        models_by_lead_hour={
+            1: _FakeSubModel(names, [8.0, 1.0, 1.0]),  # -> 0.8/0.1/0.1 after norm
+            2: _FakeSubModel(names, [6.0, 2.0, 2.0]),  # -> 0.6/0.2/0.2
+            3: None,  # a Sum-k LSTM lead - skipped
+        },
+        algorithm_by_lead_hour={1: "lightgbm", 2: "random_forest", 3: "sum_k_lstm"},
+    )
+    items = aggregate_feature_importances(model)
+    # Sums to 1, ranked most-important first, ssrd on top.
+    assert items[0][0] == "ssrd_w_m2"
+    assert sum(v for _, v in items) == pytest.approx(1.0, abs=1e-9)
+    imp = dict(items)
+    assert imp["ssrd_w_m2"] == pytest.approx((0.8 + 0.6) / 2)
+    assert imp["salt_soiling_index"] == pytest.approx((0.1 + 0.2) / 2)
+
+
+def test_aggregate_feature_importances_empty_when_no_tree_model():
+    model = HourAheadKStepModel(
+        models_by_lead_hour={1: None, 2: None},
+        algorithm_by_lead_hour={1: "sum_k_lstm", 2: "sum_k_lstm"},
+    )
+    assert aggregate_feature_importances(model) == []
 
 
 def _synthetic_dataset(n=300, seed=0):

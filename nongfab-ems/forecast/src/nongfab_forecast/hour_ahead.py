@@ -242,6 +242,43 @@ class HourAheadKStepModel:
     sum_k_model: SumKLSTMModel | None = None
 
 
+def aggregate_feature_importances(model: HourAheadKStepModel) -> list[tuple[str, float]]:
+    """Relative feature importance across the k-step hour-ahead model, as
+    (feature, importance) pairs summing to 1.0, most-important first (2026-07-24).
+
+    Each tree-based sub-model (LightGBM point model or Random-Forest) exposes a
+    per-feature importance; we normalize each lead's vector to sum 1 (so a lead
+    with more total splits doesn't dominate) and average across the leads those
+    candidates won. Leads won by the Sum-k LSTM are skipped - a neural net has no
+    comparable split-based importance - so this reflects the tree-based winners
+    only (the frontend labels it as such). Returns [] when no tree-based sub-model
+    exists yet (nothing trained, or every lead went to Sum-k LSTM), so callers can
+    render an honest-empty state rather than a fabricated chart.
+    """
+    per_feature: dict[str, float] = {}
+    n_leads = 0
+    for sub in model.models_by_lead_hour.values():
+        if sub is None:
+            continue
+        estimator = getattr(sub, "point_model", None)
+        if estimator is None:
+            estimator = getattr(sub, "forest", None)
+        importances = getattr(estimator, "feature_importances_", None)
+        if importances is None:
+            continue
+        total = float(np.sum(importances))
+        if total <= 0:
+            continue
+        for name, imp in zip(sub.feature_names, importances):
+            per_feature[name] = per_feature.get(name, 0.0) + float(imp) / total
+        n_leads += 1
+    if n_leads == 0:
+        return []
+    items = [(name, value / n_leads) for name, value in per_feature.items()]
+    items.sort(key=lambda kv: kv[1], reverse=True)
+    return items
+
+
 def predict_hour_ahead_kstep(model: HourAheadKStepModel, X_by_lead_hour: dict[int, pd.DataFrame]) -> pd.DataFrame:
     """`X_by_lead_hour`: {lead_hour: single-row X frame for that lead hour's
     own sub-model}. Returns one row per lead hour present in *both* the model
