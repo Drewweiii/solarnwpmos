@@ -423,6 +423,47 @@ def test_get_current_conditions_returns_all_9_variables(engine, tmp_path, monkey
     # UV - daily, from the separately-inserted observation.
     assert body["uv_index"] == pytest.approx(8.5)
     assert body["uv_observation_date"] == _FIXED_NOW.date().isoformat()
+    # Salt-soiling index (2026-07-24) - derived from the row's wind + humidity,
+    # so it's populated (0..1) whenever those exist, like here.
+    assert body["salt_soiling_index"] is not None
+    assert 0.0 <= body["salt_soiling_index"] <= 1.0
+    # No aerosol history seeded -> aerosol fields honestly None (never the
+    # model's neutral fallback default).
+    assert body["aod_550nm"] is None
+    assert body["pm2_5"] is None
+
+
+def test_get_current_conditions_surfaces_real_aerosol_when_ingested(engine, tmp_path, monkeypatch):
+    from dataclasses import dataclass as _dc
+
+    from nongfab_api.auth import create_access_token
+
+    @_dc
+    class _FakeAerosolPoint:
+        valid_time: datetime
+        aod_550nm: float
+        dust: float
+        pm2_5: float
+        pm10: float
+        source: str = "test-aq"
+
+    monkeypatch.setattr(routes_weather, "datetime", _FixedDatetime)
+    app, settings = _app_with_file_backed_store(engine, tmp_path)
+
+    with TestClient(app) as client:
+        app.state.real_data_store.insert_nwp_points(_real_points_around(_FIXED_NOW, hours_each_side=2))
+        # Aerosol reading at the same hour the nearest NWP row resolves to.
+        app.state.real_data_store.insert_aerosol_points(
+            [_FakeAerosolPoint(valid_time=_FIXED_NOW.replace(minute=0), aod_550nm=0.44, dust=11.0, pm2_5=28.0, pm10=52.0)]
+        )
+        token = create_access_token("tester", "viewer", settings, app.state.deploy_id)
+        resp = client.get("/weather/conditions", headers={"Authorization": f"Bearer {token}"})
+
+    body = resp.json()
+    assert body["aod_550nm"] == pytest.approx(0.44)
+    assert body["dust"] == pytest.approx(11.0)
+    assert body["pm2_5"] == pytest.approx(28.0)
+    assert body["pm10"] == pytest.approx(52.0)
 
 
 def test_get_current_conditions_uv_none_when_no_uv_data(engine, tmp_path, monkeypatch):

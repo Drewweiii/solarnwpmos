@@ -45,6 +45,7 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 from fastapi import APIRouter, Depends, Request
 from nongfab_features.clearsky import compute_clearsky_and_position, nong_fab_site_location
+from nongfab_features.soiling import salt_soiling_index
 from nongfab_forecast.local_store import RealDataStore
 from nongfab_simulation.dev_data import synthetic_temp_at
 from pydantic import BaseModel
@@ -88,6 +89,18 @@ class WeatherStripPoint(BaseModel):
     zenith_deg: float
     cos_zenith: float
     clear_sky_index: float | None = None
+    # Marine/aerosol model inputs (2026-07-24). `salt_soiling_index` (0..1,
+    # wind+humidity) is derived so it's shown for every real point, past OR
+    # future (unlike raw RH/wind, which stay None for future - it's a validated
+    # model feature at the future valid_time). Aerosol (aod_550nm/dust/pm2_5/
+    # pm10) is the real reading nearest each point from aerosol_history, or None
+    # where the CAMS ingestion has no coverage - never the model's neutral
+    # fallback default (this is honest "what was ingested", not a filled value).
+    salt_soiling_index: float | None = None
+    aod_550nm: float | None = None
+    dust: float | None = None
+    pm2_5: float | None = None
+    pm10: float | None = None
 
 
 class WeatherStripResponse(BaseModel):
@@ -126,6 +139,7 @@ def _real_window(store: RealDataStore, now: datetime, hours_each_side: int) -> l
     df = store.nwp_history_df()
     if df.empty:
         return None
+    aero_df = store.aerosol_history_df()
 
     hour_start = now.replace(minute=0, second=0, microsecond=0)
     targets = [hour_start + timedelta(hours=offset) for offset in range(-hours_each_side, hours_each_side + 1)]
@@ -142,6 +156,7 @@ def _real_window(store: RealDataStore, now: datetime, hours_each_side: int) -> l
         # on why (never validated as trained regressors, unlike ssrd/temp).
         is_future = target > now
         rh = row.get("relative_humidity_pct")
+        aero = _aerosol_nearest(aero_df, target)
         points.append(
             WeatherStripPoint(
                 timestamp=target,
@@ -153,6 +168,13 @@ def _real_window(store: RealDataStore, now: datetime, hours_each_side: int) -> l
                 zenith_deg=zenith_deg,
                 cos_zenith=cos_zenith,
                 clear_sky_index=_clear_sky_index(ssrd, clearsky_ghi),
+                # salt index is a validated model feature at the valid_time, so
+                # unlike raw RH/wind it's shown for future points too.
+                salt_soiling_index=_salt_soiling_index(row),
+                aod_550nm=aero["aod_550nm"],
+                dust=aero["dust"],
+                pm2_5=aero["pm2_5"],
+                pm10=aero["pm10"],
             )
         )
 
@@ -405,6 +427,17 @@ class CurrentConditionsResponse(BaseModel):
     # hourly freshness it doesn't have.
     uv_index: float | None = None
     uv_observation_date: date_type | None = None
+    # Marine/aerosol model inputs (2026-07-24) - the coastal salt-spray + CAMS
+    # aerosol drivers the hour-ahead model now trains on. `salt_soiling_index`
+    # (0..1, wind+humidity) is derived so it's populated whenever wind/RH exist;
+    # aerosol (aod_550nm/dust/pm2_5/pm10) is the real reading nearest "now" from
+    # aerosol_history, or None where the CAMS ingestion has no coverage yet
+    # (never the model's neutral fallback - honest "what was ingested").
+    salt_soiling_index: float | None = None
+    aod_550nm: float | None = None
+    dust: float | None = None
+    pm2_5: float | None = None
+    pm10: float | None = None
 
 
 class UvHistoryPoint(BaseModel):
@@ -493,6 +526,41 @@ def _wind_speed_ms(u: float | None, v: float | None) -> float | None:
     return math.hypot(float(u), float(v))
 
 
+# Marine-aerosol columns surfaced on the weather endpoints (2026-07-24), so the
+# Forecast page's real-time variable table + graphs can show the new model
+# inputs. See routes' own docstrings + forecast/README.md's marine-feature note.
+_AEROSOL_COLS = ("aod_550nm", "dust", "pm2_5", "pm10")
+_AEROSOL_MAX_DELTA_HOURS = 3.0
+
+
+def _salt_soiling_index(row: "pd.Series") -> float | None:
+    """The wind+humidity salt-spray proxy (nongfab_features.soiling) for one NWP
+    row, or None when its wind/humidity components are missing. Computed here for
+    display only - the model builds the identical feature in real_data.py."""
+    u = row.get("wind10m_u_ms")
+    v = row.get("wind10m_v_ms")
+    rh = row.get("relative_humidity_pct")
+    if u is None or v is None or rh is None or pd.isna(u) or pd.isna(v) or pd.isna(rh):
+        return None
+    return float(salt_soiling_index(float(u), float(v), float(rh)))
+
+
+def _aerosol_nearest(aero_df: pd.DataFrame, target: datetime) -> dict[str, float | None]:
+    """The four aerosol readings (aod_550nm/dust/pm2_5/pm10) nearest `target`
+    from aerosol_history, or all None when none is within
+    _AEROSOL_MAX_DELTA_HOURS. Real values only - never the model's neutral
+    fallback defaults (this is a display of what was actually ingested)."""
+    empty = {c: None for c in _AEROSOL_COLS}
+    if aero_df.empty:
+        return empty
+    deltas = (aero_df["valid_time"] - target).abs()
+    idx = deltas.idxmin()
+    if deltas.loc[idx].total_seconds() > _AEROSOL_MAX_DELTA_HOURS * 3600:
+        return empty
+    row = aero_df.loc[idx]
+    return {c: (float(row[c]) if pd.notna(row.get(c)) else None) for c in _AEROSOL_COLS}
+
+
 @router.get("/weather/conditions", response_model=CurrentConditionsResponse)
 async def get_current_conditions(request: Request, _user=Depends(require_role("viewer"))) -> CurrentConditionsResponse:
     """Site-wide real-time snapshot of the 9 solar-forecasting input
@@ -542,6 +610,8 @@ async def get_current_conditions(request: Request, _user=Depends(require_role("v
             uv_index = float(latest_uv["uv_index"])
             uv_observation_date = latest_uv["observation_date"]
 
+    aero = _aerosol_nearest(store.aerosol_history_df(), valid_time)
+
     return CurrentConditionsResponse(
         available=True,
         observed_at=valid_time,
@@ -557,4 +627,9 @@ async def get_current_conditions(request: Request, _user=Depends(require_role("v
         forecast_valid_at=forecast_row["valid_time"].to_pydatetime() if forecast_row is not None else None,
         uv_index=uv_index,
         uv_observation_date=uv_observation_date,
+        salt_soiling_index=_salt_soiling_index(row),
+        aod_550nm=aero["aod_550nm"],
+        dust=aero["dust"],
+        pm2_5=aero["pm2_5"],
+        pm10=aero["pm10"],
     )
