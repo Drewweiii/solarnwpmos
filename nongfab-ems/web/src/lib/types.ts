@@ -172,6 +172,15 @@ export interface WeatherStripPoint {
   zenith_deg: number
   cos_zenith: number
   clear_sky_index: number | null
+  // Marine/aerosol model inputs (2026-07-24). salt_soiling_index (0..1) is
+  // derived (wind+humidity) so it's populated for future points too; aerosol
+  // fields are the real reading nearest each point, or null where the CAMS
+  // ingestion has no coverage (never the model's neutral fallback default).
+  salt_soiling_index: number | null
+  aod_550nm: number | null
+  dust: number | null
+  pm2_5: number | null
+  pm10: number | null
 }
 
 // "real" once GET /weather/strip finds real accumulated NWP data covering
@@ -244,6 +253,29 @@ export interface CurrentConditionsResponse {
   forecast_valid_at: string | null
   uv_index: number | null
   uv_observation_date: string | null
+  // Marine/aerosol model inputs (2026-07-24) - see WeatherStripPoint's note.
+  salt_soiling_index: number | null
+  aod_550nm: number | null
+  dust: number | null
+  pm2_5: number | null
+  pm10: number | null
+}
+
+// GET /forecast/{zone}/feature-importance - relative importance of the
+// hour-ahead model's features (2026-07-24), so the dashboard can show how much
+// the new marine/aerosol inputs contribute. available:false + empty items when
+// no tree-based model is trained yet (honest-empty, never a fabricated chart).
+export interface FeatureImportanceItem {
+  feature: string
+  importance: number // 0..1, all items sum to ~1
+  is_new: boolean // one of the 2026-07-24 marine/aerosol features
+}
+
+export interface FeatureImportanceResponse {
+  available: boolean
+  zone: string
+  items: FeatureImportanceItem[]
+  new_features_total: number | null
 }
 
 // GET /weather/uv-history - every real daily UV reading this deployment has

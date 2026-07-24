@@ -107,6 +107,11 @@ function makeWeatherStrip(hourStartIso: string, hoursEachSide: number): WeatherS
       zenith_deg: 35,
       cos_zenith: 0.82,
       clear_sky_index: 0.77,
+      salt_soiling_index: 0.3,
+      aod_550nm: 0.2,
+      dust: 8,
+      pm2_5: 18,
+      pm10: 30,
     })
   }
   return { data_source: 'real', points }
@@ -128,6 +133,11 @@ function makeCurrentConditions(): CurrentConditionsResponse {
     forecast_valid_at: '2026-07-14T13:00:00Z',
     uv_index: 6.5,
     uv_observation_date: '2026-07-14',
+    salt_soiling_index: 0.31,
+    aod_550nm: 0.22,
+    dust: 8.4,
+    pm2_5: 17.6,
+    pm10: 33.9,
   }
 }
 

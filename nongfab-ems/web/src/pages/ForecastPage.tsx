@@ -19,6 +19,7 @@ import {
 } from 'recharts'
 import { ZoneSelector } from '../components/ZoneSelector'
 import { WeatherStrip } from '../components/WeatherStrip'
+import { FeatureImportancePanel } from '../components/FeatureImportancePanel'
 import { useAuth } from '../lib/auth'
 import {
   buildCompetitionRows,
@@ -702,6 +703,10 @@ export function ForecastPage() {
         uvHourlyPoints={uvHourlyHistory.data?.points ?? []}
         uvHourlyLoading={uvHourlyHistory.isLoading}
       />
+
+      {/* How much each input (incl. the new marine/aerosol features) drives the
+          hour-ahead model. Per-zone; "All" resolves to a real zone (GIS). */}
+      <FeatureImportancePanel zone={zoneId === ALL_ZONES_ID ? 'GIS' : zoneId} />
     </div>
   )
 }
@@ -1242,6 +1247,50 @@ function SolarVariablesTable({ conditions, isLoading }: SolarVariablesTableProps
       <p className="forecast-status forecast-status-caption">
         I_wrf ใช้ข้อมูลจาก GFS (โมเดล NWP เดียวกับที่ใช้คำนวณ I) ที่เวลาล่วงหน้าใกล้ที่สุด ไม่ใช่โมเดลอิสระตัวที่สอง - ไม่มีเซนเซอร์วัดจริงหน้างานแยกต่างหาก
       </p>
+
+      {/* Marine/aerosol model inputs (2026-07-24) - the coastal salt-spray +
+          CAMS aerosol variables the hour-ahead model now trains on. */}
+      <h4 className="forecast-marine-title">ตัวแปรทางทะเล/ละอองลอย (Marine &amp; aerosol - ใหม่)</h4>
+      <div className="solar-variables-grid">
+        <VariableCell
+          symbol="Salt"
+          label="ดัชนีละอองเกลือ (salt-spray)"
+          value={formatVar(conditions.salt_soiling_index, 2)}
+          unit=""
+          caption="0–1 · ลมจากทะเล × ความชื้น"
+        />
+        <VariableCell
+          symbol="AOD"
+          label="Aerosol optical depth"
+          value={formatVar(conditions.aod_550nm, 2)}
+          unit=""
+          caption={conditions.aod_550nm == null ? 'ยังไม่มีข้อมูล CAMS' : '550nm'}
+        />
+        <VariableCell
+          symbol="Dust"
+          label="ฝุ่นแร่ (mineral dust)"
+          value={formatVar(conditions.dust, 1)}
+          unit="µg/m³"
+          caption={conditions.dust == null ? 'ยังไม่มีข้อมูล CAMS' : undefined}
+        />
+        <VariableCell
+          symbol="PM2.5"
+          label="ฝุ่นละเอียด PM2.5"
+          value={formatVar(conditions.pm2_5, 1)}
+          unit="µg/m³"
+          caption={conditions.pm2_5 == null ? 'ยังไม่มีข้อมูล CAMS' : undefined}
+        />
+        <VariableCell
+          symbol="PM10"
+          label="ฝุ่นหยาบ PM10"
+          value={formatVar(conditions.pm10, 1)}
+          unit="µg/m³"
+          caption={conditions.pm10 == null ? 'ยังไม่มีข้อมูล CAMS' : undefined}
+        />
+      </div>
+      <p className="forecast-status forecast-status-caption">
+        ละอองเกลือ (Salt) คำนวณจากลม+ความชื้น (แสดงได้เสมอ) · AOD/Dust/PM มาจาก CAMS (Open-Meteo Air-Quality) ดึงที่พิกัดหนองแฟบจริง - แสดง "ยังไม่มีข้อมูล" หากยังไม่ได้ดึง ไม่เติมค่าปลอม
+      </p>
     </section>
   )
 }
@@ -1480,6 +1529,45 @@ function SolarVariablesGraphs({ points, dataSource, isLoading, uvPoints, uvLoadi
                 ไม่มีข้อมูลความเร็วลมในช่วงเวลานี้ (ระบบยังไม่มีข้อมูลจริงเพียงพอ ใช้แบบจำลองฟิสิกส์สำรองซึ่งไม่ได้จำลองลมไว้) - ไม่แสดงกราฟเพื่อไม่ให้ดูเหมือนมีข้อมูลจริง
               </p>
             )}
+          </div>
+
+          {/* Marine/aerosol model inputs (2026-07-24) - the salt-spray + CAMS
+              aerosol drivers the hour-ahead model now trains on. */}
+          <div className="solar-variable-chart">
+            <h4 className="solar-variable-chart-title">Salt / AOD - ดัชนีละอองเกลือ และความหนาแน่นละอองลอย (ใหม่)</h4>
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={points} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <XAxis dataKey="timestamp" tickFormatter={formatDateHourIct} minTickGap={60} />
+                <YAxis width={50} />
+                <Tooltip labelFormatter={VARIABLE_CHART_LABEL_FORMATTER} formatter={VARIABLE_CHART_TOOLTIP_FORMATTER} />
+                <Legend />
+                <Line dataKey="salt_soiling_index" name="Salt index (0–1)" stroke="var(--chart-salt)" strokeWidth={2} dot={false} connectNulls />
+                <Line dataKey="aod_550nm" name="AOD (550nm)" stroke="var(--chart-aod)" strokeWidth={2} strokeDasharray="4 2" dot={false} connectNulls />
+              </LineChart>
+            </ResponsiveContainer>
+            <p className="forecast-status forecast-status-caption">
+              Salt index มาจากลม+ความชื้น (มีค่าเสมอ) · AOD มาจาก CAMS - เส้นจะว่างช่วงที่ยังไม่ได้ดึงข้อมูล aerosol (ไม่เติมค่าปลอม)
+            </p>
+          </div>
+
+          <div className="solar-variable-chart">
+            <h4 className="solar-variable-chart-title">PM2.5 / PM10 / Dust - ฝุ่นละออง (µg/m³, ใหม่)</h4>
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={points} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <XAxis dataKey="timestamp" tickFormatter={formatDateHourIct} minTickGap={60} />
+                <YAxis unit=" µg/m³" width={70} />
+                <Tooltip labelFormatter={VARIABLE_CHART_LABEL_FORMATTER} formatter={VARIABLE_CHART_TOOLTIP_FORMATTER} />
+                <Legend />
+                <Line dataKey="pm2_5" name="PM2.5" stroke="var(--chart-pm25)" strokeWidth={2} dot={false} connectNulls />
+                <Line dataKey="pm10" name="PM10" stroke="var(--chart-pm10)" strokeWidth={2} strokeDasharray="4 2" dot={false} connectNulls />
+                <Line dataKey="dust" name="Dust" stroke="var(--chart-dust)" strokeWidth={2} strokeDasharray="1 3" dot={false} connectNulls />
+              </LineChart>
+            </ResponsiveContainer>
+            <p className="forecast-status forecast-status-caption">
+              ข้อมูลคุณภาพอากาศจาก CAMS (Open-Meteo Air-Quality) ที่พิกัดหนองแฟบจริง - เส้นว่างช่วงที่ยังไม่ได้ดึงข้อมูล
+            </p>
           </div>
 
           <div className="solar-variable-chart">

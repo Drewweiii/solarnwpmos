@@ -3,6 +3,7 @@ import {
   getAssets,
   getCloudConditions,
   getCurrentConditions,
+  getFeatureImportance,
   getEnergyReport,
   getSavingsSummary,
   getFeedback,
@@ -111,6 +112,18 @@ export function useCurrentConditions() {
     queryFn: () => getCurrentConditions(token!),
     enabled: Boolean(token),
     refetchInterval: LIVE_REFETCH_INTERVAL_MS,
+  })
+}
+
+// Per-zone hour-ahead feature importance (2026-07-24) - slow-moving (only
+// changes on a retrain), so a long staleTime, not the 60s live cadence.
+export function useFeatureImportance(zone: string) {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['feature-importance', zone],
+    queryFn: () => getFeatureImportance(token!, zone),
+    enabled: Boolean(token),
+    staleTime: 5 * 60 * 1000,
   })
 }
 

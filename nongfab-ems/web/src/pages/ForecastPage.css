@@ -543,3 +543,26 @@
   font-weight: 600;
   color: var(--text-h);
 }
+
+/* Marine/aerosol variable table sub-heading + feature-importance panel
+   (2026-07-24). */
+.forecast-marine-title {
+  margin: 18px 0 8px;
+  font-size: 15px;
+  color: var(--text-h);
+}
+.feature-importance-panel {
+  margin-top: 20px;
+}
+.feature-importance-headline {
+  font-size: 14px;
+  color: var(--text-h);
+  margin: 4px 0 10px;
+}
+.feature-importance-headline strong {
+  color: #0d9488;
+}
+.feature-importance-legend-new {
+  color: #0d9488;
+  font-weight: 700;
+}

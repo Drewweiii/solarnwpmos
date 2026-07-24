@@ -3192,3 +3192,27 @@ facility dataset end to end:
 All figures are public/cited, not measured here. Every `LngTerminal` field is
 optional so older YAML/fixtures still validate. Python `nongfab_common` (7)
 passes; full web suite (427) passes; tsc + oxlint clean; prod build succeeds.
+
+### 2026-07-24 - Forecast page: marine variables + feature importance
+
+Surface the new marine/aerosol model inputs and how much they matter:
+- **Real-time variable table** (`ForecastPage`'s `SolarVariablesTable`) gains a
+  second "ตัวแปรทางทะเล/ละอองลอย (ใหม่)" row: salt-spray index (0..1, always
+  present - wind+humidity derived) + AOD / dust / PM2.5 / PM10 from CAMS, each
+  showing "ยังไม่มีข้อมูล" honestly where the aerosol ingestion has no coverage
+  rather than a filled value. Backed by the new fields on `/weather/conditions`.
+- **Grouped graphs** (`SolarVariablesGraphs`) gain two charts: Salt+AOD, and
+  PM2.5/PM10/Dust, from the same new fields on `/weather/strip` (five new chart
+  color vars in `index.css`).
+- **`FeatureImportancePanel`** (new): a horizontal bar chart from
+  `GET /forecast/{zone}/feature-importance`, with the 2026-07-24 marine/aerosol
+  features highlighted teal and a headline "the new features contribute X% of
+  the model's decisions". Honest-empty ("ยังไม่มีโมเดลที่เทรนแล้ว") when no
+  tree-based model exists yet - never a fabricated chart.
+
+New frontend types/query/api client wired (`FeatureImportanceResponse`,
+`useFeatureImportance`, `getFeatureImportance`); test fixtures updated for the
+new WeatherStrip/CurrentConditions fields. Full web suite (429, +2 panel tests)
+passes; tsc + oxlint clean; prod build succeeds. (Backend: weather-route + api
+feature-importance route + hour_ahead aggregation, all tested - see their
+commits.)

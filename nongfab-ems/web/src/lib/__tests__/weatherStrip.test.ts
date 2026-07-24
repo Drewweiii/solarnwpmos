@@ -17,6 +17,11 @@ function point(timestamp: string, temp_c: number, ssrd_w_m2: number): WeatherStr
     zenith_deg: 90,
     cos_zenith: 0,
     clear_sky_index: null,
+    salt_soiling_index: null,
+    aod_550nm: null,
+    dust: null,
+    pm2_5: null,
+    pm10: null,
   }
 }
 

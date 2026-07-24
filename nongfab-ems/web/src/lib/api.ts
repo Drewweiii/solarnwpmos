@@ -4,6 +4,7 @@ import type {
   OnlineUser,
   CloudConditionsResponse,
   CurrentConditionsResponse,
+  FeatureImportanceResponse,
   EnergyReportResponse,
   SavingsSummaryResponse,
   FeedbackItem,
@@ -122,6 +123,9 @@ export const getPrecipitationConditions = (token: string): Promise<Precipitation
   request('/weather/precipitation', token)
 
 export const getCurrentConditions = (token: string): Promise<CurrentConditionsResponse> => request('/weather/conditions', token)
+
+export const getFeatureImportance = (token: string, zone: string): Promise<FeatureImportanceResponse> =>
+  request(`/forecast/${zone}/feature-importance`, token)
 
 export const getUvHistory = (token: string): Promise<UvHistoryResponse> => request('/weather/uv-history', token)
 

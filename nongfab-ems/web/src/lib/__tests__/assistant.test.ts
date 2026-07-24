@@ -110,6 +110,11 @@ describe('answerQuestion', () => {
           zenith_deg: 30,
           cos_zenith: 0.87,
           clear_sky_index: null,
+          salt_soiling_index: null,
+          aod_550nm: null,
+          dust: null,
+          pm2_5: null,
+          pm10: null,
         },
       ],
     }

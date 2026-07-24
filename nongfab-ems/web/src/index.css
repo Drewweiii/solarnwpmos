@@ -60,6 +60,12 @@
   --chart-cosz: #4f46e5;
   --chart-khat: #65a30d;
   --chart-uv: #7c3aed;
+  /* Marine/aerosol variable charts (2026-07-24) */
+  --chart-salt: #0d9488;
+  --chart-aod: #b45309;
+  --chart-pm25: #db2777;
+  --chart-pm10: #9333ea;
+  --chart-dust: #a16207;
   --danger: #dc2626;
   --danger-bg: rgba(220, 38, 38, 0.1);
   --ok: #16a34a;
@@ -116,6 +122,11 @@
     --chart-cosz: #818cf8;
     --chart-khat: #a3e635;
     --chart-uv: #a78bfa;
+    --chart-salt: #2dd4bf;
+    --chart-aod: #fbbf24;
+    --chart-pm25: #f472b6;
+    --chart-pm10: #c084fc;
+    --chart-dust: #d6a44a;
     --danger: #f87171;
     --danger-bg: rgba(248, 113, 113, 0.15);
     --ok: #4ade80;
