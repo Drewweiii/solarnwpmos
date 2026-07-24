@@ -28,8 +28,29 @@ from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 
+from nongfab_features import soiling
+
 from . import pv_conversion
 from .local_store import RealDataStore
+
+
+def _numeric_col_or_zeros(df: pd.DataFrame, name: str) -> np.ndarray:
+    """A numeric column as a float array, or zeros if the column is absent/empty.
+    Guards the marine features against thin stores / older rows where the
+    nullable wind/humidity/precip columns may be missing or NaN."""
+    if name in df.columns:
+        return pd.to_numeric(df[name], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    return np.zeros(len(df), dtype=float)
+
+
+def _numeric_val_or_zero(row: "pd.Series", name: str) -> float:
+    """One numeric cell as a float, or 0.0 when missing/NaN (serving path)."""
+    value = row.get(name) if hasattr(row, "get") else None
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return 0.0 if np.isnan(value) else value
 
 MIN_HOUR_ROWS = 24
 MIN_DAY_ROWS = 24 * 3  # a few days of hourly-equivalent coverage - short on purpose, this is cold-start seeding, not a maturity bar
@@ -183,6 +204,13 @@ def real_hour_frame_kstep(zone: str, store: RealDataStore, lead_hour: int) -> tu
 
     params = pv_params_for_zone(zone)
     power = pv_conversion.predict_power_kw(at_lead["ssrd_w_m2"], at_lead["temp2m_c"], params)
+    # Marine features (2026-07-24) - coastal salt-spray/humidity drivers derived
+    # from the already-stored wind/humidity/precip columns (see nongfab_features.
+    # soiling). Serving builds the identical columns in current_hour_conditions_kstep.
+    u = _numeric_col_or_zeros(at_lead, "wind10m_u_ms")
+    v = _numeric_col_or_zeros(at_lead, "wind10m_v_ms")
+    rh = _numeric_col_or_zeros(at_lead, "relative_humidity_pct")
+    precip = _numeric_col_or_zeros(at_lead, "precip_mm")
     X = pd.DataFrame(
         {
             "ssrd_w_m2": at_lead["ssrd_w_m2"].to_numpy(),
@@ -190,6 +218,10 @@ def real_hour_frame_kstep(zone: str, store: RealDataStore, lead_hour: int) -> tu
             "power_lag1": power.shift(1).bfill().to_numpy(),
             "clear_sky_ssrd_w_m2": _clear_sky_ssrd_w_m2(at_lead["valid_time"]),
             "cloud_index": _cloud_index_nearest_to(store, at_lead["issue_time"]),
+            "wind_speed_ms": soiling.wind_speed_ms(u, v),
+            "relative_humidity_pct": rh,
+            "precip_mm": precip,
+            "salt_soiling_index": soiling.salt_soiling_index(u, v, rh),
         }
     )
     y = pd.Series(power.to_numpy(), name="power_kw")
@@ -221,6 +253,10 @@ def current_hour_conditions_kstep(zone: str, store: RealDataStore, lead_hour: in
         prev = at_lead.iloc[pos - 1]
         lag_power = float(pv_conversion.predict_power_kw(prev["ssrd_w_m2"], prev["temp2m_c"], params))
 
+    u = _numeric_val_or_zero(row, "wind10m_u_ms")
+    v = _numeric_val_or_zero(row, "wind10m_v_ms")
+    rh = _numeric_val_or_zero(row, "relative_humidity_pct")
+    precip = _numeric_val_or_zero(row, "precip_mm")
     return pd.DataFrame(
         {
             "ssrd_w_m2": [row["ssrd_w_m2"]],
@@ -228,6 +264,10 @@ def current_hour_conditions_kstep(zone: str, store: RealDataStore, lead_hour: in
             "power_lag1": [lag_power],
             "clear_sky_ssrd_w_m2": _clear_sky_ssrd_w_m2([row["valid_time"]]),
             "cloud_index": _cloud_index_nearest_to(store, [row["issue_time"]]),
+            "wind_speed_ms": [float(soiling.wind_speed_ms(u, v))],
+            "relative_humidity_pct": [rh],
+            "precip_mm": [precip],
+            "salt_soiling_index": [float(soiling.salt_soiling_index(u, v, rh))],
         }
     )
 

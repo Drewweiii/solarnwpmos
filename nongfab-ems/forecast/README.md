@@ -88,6 +88,22 @@ caller/test that doesn't pass one sees zero behavior change.
   (serving) - each raising `InsufficientHistoryError` below its own minimum
   row count (`MIN_HOUR_ROWS=24`, `MIN_DAY_ROWS=72`, `MIN_MINUTE_ROWS=30`)
   rather than degrading silently.
+- **Marine soiling / salt-spray features (2026-07-24)**: the hour-ahead
+  k-step frame (`real_hour_frame_kstep` + its serving twin
+  `current_hour_conditions_kstep`) now also carries four coastal-environment
+  features derived from columns the store already keeps (wind u/v, relative
+  humidity, precip) - **no new data source**: `wind_speed_ms` (module
+  cooling), `relative_humidity_pct` (salt-aerosol hygroscopic growth +
+  adhesion), `precip_mm` (rain washes soiling / correlates with cloud), and a
+  `salt_soiling_index` (0..1, `nongfab_features.soiling`) = onshore
+  (sea->land, Gulf of Thailand is south of Nong Fab) wind speed × humidity, a
+  proxy for how much salt spray is driven onto the array. Nong Fab is a
+  coastal LNG-terminal site, so these marine drivers matter; the literature
+  (CAMS-AOD studies, PM-soiling models) shows coastal PV forecasts improve
+  with them. The models pick these up automatically (they capture
+  `feature_names` from `X.columns`), and training/serving build the *identical*
+  columns from the same pure functions, so there is no train/serve skew. All
+  `soiling.*` functions are pure, vectorized and unit-tested.
 - **No real generated-power telemetry exists anywhere in this system**
   (Jetty is a simulated capacity projection with no panels installed;
   GIS/ISB have no SCADA tap wired in - and the user who requested this pass

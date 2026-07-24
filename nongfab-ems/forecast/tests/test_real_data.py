@@ -125,11 +125,17 @@ def test_real_hour_frame_kstep_builds_expected_columns_above_minimum():
     )
 
     X, y = real_data.real_hour_frame_kstep("GIS", store, lead_hour=3)
-    assert list(X.columns) == ["ssrd_w_m2", "temp2m_c", "power_lag1", "clear_sky_ssrd_w_m2", "cloud_index"]
+    assert list(X.columns) == [
+        "ssrd_w_m2", "temp2m_c", "power_lag1", "clear_sky_ssrd_w_m2", "cloud_index",
+        "wind_speed_ms", "relative_humidity_pct", "precip_mm", "salt_soiling_index",
+    ]
     assert len(X) == len(y) == real_data.MIN_HOUR_ROWS_PER_LEAD + 2
     assert (X["clear_sky_ssrd_w_m2"] >= 0).all()
     # no cloud history seeded - every row falls back to the documented neutral default
     assert (X["cloud_index"] == real_data._UNKNOWN_CLOUD_INDEX_DEFAULT).all()
+    # Marine features (2026-07-24) are present, finite and in-range.
+    assert (X["salt_soiling_index"] >= 0).all() and (X["salt_soiling_index"] <= 1).all()
+    assert (X["wind_speed_ms"] >= 0).all()
 
 
 def test_real_hour_frame_kstep_uses_real_cloud_index_near_issue_time():
@@ -163,9 +169,17 @@ def test_current_hour_conditions_kstep_includes_clear_sky_and_cloud_index():
     )
 
     row = real_data.current_hour_conditions_kstep("GIS", store, lead_hour=lead_hour, now=issue_time)
-    assert list(row.columns) == ["ssrd_w_m2", "temp2m_c", "power_lag1", "clear_sky_ssrd_w_m2", "cloud_index"]
+    assert list(row.columns) == [
+        "ssrd_w_m2", "temp2m_c", "power_lag1", "clear_sky_ssrd_w_m2", "cloud_index",
+        "wind_speed_ms", "relative_humidity_pct", "precip_mm", "salt_soiling_index",
+    ]
     assert row.iloc[0]["clear_sky_ssrd_w_m2"] >= 0
     assert row.iloc[0]["cloud_index"] == real_data._UNKNOWN_CLOUD_INDEX_DEFAULT
+    # wind (1,1) m/s from the SW is partly onshore (sea to the south) + RH 75%
+    # -> a positive-but-modest salt index; wind speed = hypot(1,1) ~ 1.414.
+    assert row.iloc[0]["wind_speed_ms"] == pytest.approx(2**0.5, abs=1e-6)
+    assert row.iloc[0]["relative_humidity_pct"] == pytest.approx(75.0)
+    assert 0.0 <= row.iloc[0]["salt_soiling_index"] <= 1.0
 
 
 def test_real_day_frame_raises_below_minimum_and_builds_indexed_frame_above():
