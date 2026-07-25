@@ -64,7 +64,7 @@ export function EnergyReportPage() {
           )}
 
           {/* Energy Management headline panel (2026-07-23) - KPI strip, solar
-              offset of the facility's (placeholder) load, and an energy-delivered
+              offset of the facility's real 13.5 MW load, and an energy-delivered
               roll-up tied to the PPA code. See EnergyManagementPanel. */}
           <EnergyManagementPanel
             report={report.data}

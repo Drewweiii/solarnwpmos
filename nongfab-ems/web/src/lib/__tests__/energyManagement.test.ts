@@ -33,7 +33,7 @@ describe('facilityAnnualLoadKwh / solarOffsetPct', () => {
     const expected = (solar / (5000 * 8760)) * 100
     expect(solarOffsetPct(solar, loadKw)).toBeCloseTo(expected, 6)
   })
-  it('returns null when the (placeholder) facility load is missing/zero', () => {
+  it('returns null when the facility load is missing/zero', () => {
     expect(solarOffsetPct(700_000, null)).toBeNull()
     expect(solarOffsetPct(700_000, 0)).toBeNull()
   })

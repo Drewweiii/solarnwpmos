@@ -1,6 +1,13 @@
 from datetime import timezone
 
-from nongfab_api.openmeteo_aq import SOURCE_NAME, AerosolPoint, parse_aerosol_response
+from nongfab_api.openmeteo_aq import (
+    DEFAULT_FORECAST_DAYS,
+    MAX_FORECAST_DAYS,
+    SOURCE_NAME,
+    AerosolPoint,
+    fetch_aerosol_points,
+    parse_aerosol_response,
+)
 
 
 def _payload():
@@ -51,3 +58,39 @@ def test_parse_keeps_partial_rows_and_never_fabricates():
 def test_parse_empty_payload_returns_nothing():
     assert parse_aerosol_response({}) == []
     assert parse_aerosol_response({"hourly": {}}) == []
+
+
+class _RecordingClient:
+    """Captures the query params instead of hitting the network."""
+
+    def __init__(self):
+        self.params: dict = {}
+
+    async def get(self, url, params=None, timeout=None):
+        self.params = params or {}
+
+        class _Resp:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {}
+
+        return _Resp()
+
+
+async def test_fetch_requests_more_than_one_forecast_day():
+    """Regression guard for the 2026-07-25 fix: `forecast_days=1` means "today
+    only" in UTC, so late in the UTC day the +1h..+6h hour-ahead leads ran past
+    the end of the response and lost their aerosol values."""
+    client = _RecordingClient()
+    await fetch_aerosol_points(client, 12.7, 101.1, past_days=1)
+    assert client.params["forecast_days"] == DEFAULT_FORECAST_DAYS >= 2
+    assert client.params["timezone"] == "UTC"
+    assert client.params["past_days"] == 1
+
+
+async def test_fetch_clamps_forecast_days_to_the_api_limit():
+    client = _RecordingClient()
+    await fetch_aerosol_points(client, 12.7, 101.1, past_days=1, forecast_days=99)
+    assert client.params["forecast_days"] == MAX_FORECAST_DAYS

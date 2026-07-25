@@ -40,6 +40,14 @@ OPEN_METEO_AQ_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
 SOURCE_NAME = "open-meteo-aq"
 # Open-Meteo Air-Quality caps `past_days` at 92.
 MAX_PAST_DAYS = 92
+# ...and `forecast_days` at 7. Two is the default here (2026-07-25 fix): the
+# hour-ahead model joins aerosol at each *future* valid_time up to +6h, and
+# `forecast_days=1` means "today only" in UTC - so from ~18:00 UTC (01:00 ICT)
+# onward the +1h..+6h leads ran off the end of the response and silently fell
+# back to the neutral aerosol defaults. Asking for tomorrow too keeps at least
+# 24h of forward coverage at every hour of the day.
+MAX_FORECAST_DAYS = 7
+DEFAULT_FORECAST_DAYS = 2
 # The hourly variables requested, in the API's own naming.
 HOURLY_VARS = ("aerosol_optical_depth", "dust", "pm2_5", "pm10")
 
@@ -95,20 +103,24 @@ def parse_aerosol_response(payload: dict) -> list[AerosolPoint]:
 
 
 async def fetch_aerosol_points(
-    client: httpx.AsyncClient, latitude: float, longitude: float, past_days: int = MAX_PAST_DAYS
+    client: httpx.AsyncClient,
+    latitude: float,
+    longitude: float,
+    past_days: int = MAX_PAST_DAYS,
+    forecast_days: int = DEFAULT_FORECAST_DAYS,
 ) -> list[AerosolPoint]:
     """Hourly aerosol/particulate at (latitude, longitude) for the last
-    `past_days` days plus today and the next forecast day. Timestamps requested
-    in UTC and returned tz-aware UTC. Raises on HTTP/transport error - the caller
-    wraps it so one failed refresh never crashes ingestion (same non-fatal
-    contract as every other source)."""
+    `past_days` days plus `forecast_days` days forward (today included).
+    Timestamps requested in UTC and returned tz-aware UTC. Raises on HTTP/
+    transport error - the caller wraps it so one failed refresh never crashes
+    ingestion (same non-fatal contract as every other source)."""
     params = {
         "latitude": latitude,
         "longitude": longitude,
         "hourly": ",".join(HOURLY_VARS),
         "timezone": "UTC",
         "past_days": max(0, min(past_days, MAX_PAST_DAYS)),
-        "forecast_days": 1,
+        "forecast_days": max(1, min(forecast_days, MAX_FORECAST_DAYS)),
     }
     resp = await client.get(OPEN_METEO_AQ_URL, params=params, timeout=30.0)
     resp.raise_for_status()

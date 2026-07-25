@@ -1,10 +1,10 @@
 // Energy Management panel (2026-07-23) - the EMS headline view the user asked to
 // emphasize. Three parts, all built from data the Energy Report already returns
-// (no new fetch) except the facility-load offset, which uses a documented
-// PLACEHOLDER load (config/assets.yaml site.facility_electrical_load_kw) and is
-// labeled as an assumption:
+// (no new fetch). The facility-load offset uses config/assets.yaml
+// site.facility_electrical_load_kw, a REAL user-stated figure (13.5 MW) - only
+// its flat shape is an approximation, and the caption says so:
 //   1. KPI strip: annual energy, PR, specific yield, capacity factor, CO2.
-//   2. Solar-vs-facility-load offset gauge (placeholder load).
+//   2. Solar-vs-facility-load offset gauge.
 //   3. Energy accounting roll-up (day/month/year kWh) tied to the PPA code.
 import type { EnergyReportResponse } from '../lib/types'
 import {
@@ -69,7 +69,7 @@ export function EnergyManagementPanel({ report, facilityLoadKw, facilityAnnualCo
         ))}
       </div>
 
-      {/* 2. Solar offset of facility load (placeholder) */}
+      {/* 2. Solar offset of facility load */}
       <div className="ems-offset">
         <div className="ems-offset-head">
           <span className="ems-offset-label">โซลาร์ครอบคลุมโหลดไฟฟ้าของคลัง (Solar offset of facility load)</span>

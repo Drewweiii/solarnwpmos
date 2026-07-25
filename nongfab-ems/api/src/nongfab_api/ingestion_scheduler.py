@@ -79,7 +79,11 @@ async def run_startup_backfill(store: RealDataStore, lookback_days: int) -> None
     if counts["uv_hourly_history"] == 0:
         await _backfill_uv_hourly(store, lookback_days)
 
-    if len(store.aerosol_history_df()) == 0:
+    # Thresholded like nwp/cloud above rather than "== 0" (2026-07-25): the live
+    # aerosol poll writes a couple of dozen rows per tick, so an exact-zero gate
+    # would let one poll's worth of data permanently block the *deep* history
+    # backfill that hour-ahead training actually needs.
+    if len(store.aerosol_history_df()) < 100:
         await _backfill_aerosol(store, lookback_days)
 
     await _backfill_pvgis(store)
@@ -494,6 +498,34 @@ async def _poll_uv_forever(store: RealDataStore, interval_seconds: float = UV_PO
             await asyncio.sleep(interval_seconds)
 
 
+# CAMS (via Open-Meteo Air-Quality) publishes hourly values and revises the
+# forward hours as new analysis cycles land, so an hourly refresh matches the
+# data's own cadence. This loop is what keeps the aerosol features *alive*:
+# without it (the 2026-07-24 -> 2026-07-25 bug) `_backfill_aerosol` ran once at
+# boot and nothing ever refreshed it, so past `_AEROSOL_MAX_AGE_MINUTES` (180)
+# every lead silently reverted to the neutral aerosol defaults and the Forecast
+# page's AOD/PM cells showed "no CAMS data" forever on a long-lived process.
+# `past_days=1` keeps each tick small (the deep history is the backfill's job);
+# insert-or-replace on ((valid_time, source)) makes it idempotent.
+AEROSOL_POLL_INTERVAL_SECONDS = 3600.0
+
+
+async def _poll_aerosol_forever(store: RealDataStore, interval_seconds: float = AEROSOL_POLL_INTERVAL_SECONDS) -> None:
+    from .openmeteo_aq import fetch_aerosol_points
+
+    lat, lon = nong_fab_site_location()
+    async with httpx.AsyncClient() as client:
+        while True:
+            try:
+                points = await fetch_aerosol_points(client, lat, lon, past_days=1)
+                if points:
+                    store.insert_aerosol_points(points)
+                    logger.debug("aerosol live poll: refreshed %d hours of open-meteo air-quality", len(points))
+            except Exception:
+                logger.warning("aerosol live poll failed, retrying next tick", exc_info=True)
+            await asyncio.sleep(interval_seconds)
+
+
 async def _retrain_forever(store: RealDataStore, cold_interval_seconds: float, warm_interval_seconds: float, warm_threshold_rows: int) -> None:
     """Retrains every (zone, horizon), then sleeps `cold_interval_seconds` if
     real history is still thin or `warm_interval_seconds` once it isn't - see
@@ -547,6 +579,7 @@ def start_background_ingestion(store: RealDataStore, settings) -> list[asyncio.T
             _poll_nwp_forever(store, settings.nwp_poll_interval_seconds, settings.nwp_poll_forecast_hours), name="ingestion-poll-nwp"
         ),
         asyncio.create_task(_poll_uv_forever(store), name="ingestion-poll-uv"),
+        asyncio.create_task(_poll_aerosol_forever(store), name="ingestion-poll-aerosol"),
     ]
     if getattr(settings, "enable_background_retraining", False):
         tasks.append(

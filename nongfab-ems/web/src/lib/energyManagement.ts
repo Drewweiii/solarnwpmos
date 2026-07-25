@@ -1,9 +1,10 @@
 // Pure energy-management KPI calculations (2026-07-23). Kept free of React/DOM
 // so they're fully unit-testable. Everything here is derived from figures the
-// Energy Report / assets registry already provide - no new data source - except
-// the facility-load offset, which depends on a documented PLACEHOLDER load (see
-// config/assets.yaml site.facility_electrical_load_kw) and is therefore always
-// surfaced with an "assumption" caveat in the UI.
+// Energy Report / assets registry already provide - no new data source. The
+// facility-load offset uses config/assets.yaml site.facility_electrical_load_kw,
+// which is a REAL user-stated figure (13.5 MW, the terminal's 13-14 MW daily
+// average) as of 2026-07-23 - not a placeholder. What stays an approximation is
+// only its *shape*: a flat load, since no hourly load profile exists yet.
 
 const HOURS_PER_YEAR = 8760
 
@@ -16,15 +17,16 @@ export function capacityFactorPct(annualAcEnergyKwh: number, acCapacityKw: numbe
 }
 
 /** A rough facility annual electricity demand (kWh) from a constant load (kW).
- * Deliberately simple (flat load x hours) because the input is already a
- * placeholder - a fancier load profile would imply a precision we don't have. */
+ * Deliberately simple (flat load x hours): the load figure itself is real, but
+ * no hourly load *profile* exists for the terminal, so shaping it would imply a
+ * precision we don't have. */
 export function facilityAnnualLoadKwh(facilityLoadKw: number): number {
   return facilityLoadKw * HOURS_PER_YEAR
 }
 
 /** Solar self-supply / offset (%) = annual solar energy / facility annual
  * demand. How much of the terminal's own electricity the array could cover.
- * Returns null when the (placeholder) facility load is unknown/zero. */
+ * Returns null when the facility load is unknown/zero. */
 export function solarOffsetPct(annualAcEnergyKwh: number, facilityLoadKw: number | null | undefined): number | null {
   if (facilityLoadKw == null || facilityLoadKw <= 0) return null
   return (annualAcEnergyKwh / facilityAnnualLoadKwh(facilityLoadKw)) * 100

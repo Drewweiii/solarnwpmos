@@ -79,6 +79,21 @@ async def test_start_background_ingestion_skips_retrain_task_when_disabled():
         await stop_background_ingestion(tasks)
 
 
+async def test_start_background_ingestion_polls_every_live_source():
+    """Regression guard for the 2026-07-25 fix: the aerosol source had a startup
+    backfill but no refresh loop, so on a long-lived process every CAMS reading
+    aged past _AEROSOL_MAX_AGE_MINUTES and the hour-ahead model silently reverted
+    to its neutral aerosol defaults. Every source with a live feed must have a
+    poll task spawned here."""
+    store = RealDataStore()
+    tasks = start_background_ingestion(store, _scheduler_settings())
+    try:
+        names = {t.get_name() for t in tasks}
+        assert {"ingestion-poll-himawari", "ingestion-poll-nwp", "ingestion-poll-uv", "ingestion-poll-aerosol"} <= names
+    finally:
+        await stop_background_ingestion(tasks)
+
+
 async def _no_op_himawari_bounded(store, days):
     pass
 
