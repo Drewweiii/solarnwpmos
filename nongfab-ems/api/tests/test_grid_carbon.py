@@ -79,6 +79,29 @@ class TestBands:
         assert grid_carbon.build_bands(loads, {"natural_gas": 0.0}) == []
         assert grid_carbon.build_bands([], EVEN_MIX) == []
 
+    def test_the_shipped_shares_are_eppos_published_2566_figures(self):
+        """Pins the defaults to the published table rather than to whatever
+        looked plausible. EPPO's 2566 national generation was 219,540.04 GWh and
+        the per-fuel GWh column reconciles to it exactly, which is what makes
+        these usable as defaults at all - so the shares must sum to 100 and
+        match that source."""
+        assert grid_carbon.DEFAULT_MIX == {
+            "natural_gas": 0.5861,
+            "coal_lignite": 0.1310,
+            "imported": 0.1494,
+            "renewables": 0.1042,
+            "hydro": 0.0292,
+            "oil": 0.0001,
+        }
+        assert sum(grid_carbon.DEFAULT_MIX.values()) == pytest.approx(1.0)
+
+    def test_imports_are_the_national_share_not_egats_own_system_share(self):
+        """The trap this avoids: EGAT publishes a second fuel table covering
+        only plant EGAT itself runs, where imports are ~1%. Stacking that
+        against a NATIONAL load curve would push ~14% of clean imported hydro
+        out of the stack and misstate the whole merit order."""
+        assert grid_carbon.DEFAULT_MIX["imported"] > 0.10
+
 
 class TestMargin:
     def test_the_marginal_fuel_never_gets_cleaner_as_the_system_climbs(self):
@@ -92,16 +115,40 @@ class TestMargin:
         ranks = [grid_carbon.marginal_fuel(bands, load).merit_rank for load in loads]  # type: ignore[union-attr]
         assert ranks == sorted(ranks)
 
-    def test_with_thailands_mix_gas_is_marginal_around_the_clock(self):
+    def test_with_thailands_mix_gas_is_marginal_for_essentially_the_whole_day(self):
         """Not a defect - a finding, and the one that makes this panel worth
         having. Thai demand never falls far enough for the gas fleet to come off
-        the margin, so solar here displaces GAS at every hour it produces, not
-        the grid average. That is precisely what the flat annual factor hides."""
+        the margin, so solar here displaces GAS whenever it produces, not the
+        grid average. That is precisely what the flat annual factor hides.
+
+        The only exception is the topmost sliver of the daily peak, where EPPO's
+        0.01% oil share forms a hair-thin band - see the next test for why that
+        sliver is left in rather than rounded away."""
         loads = [p.mw for p in _day_points()]
         bands = grid_carbon.build_bands(loads, grid_carbon.DEFAULT_MIX)
 
-        fuels = {grid_carbon.marginal_fuel(bands, load).key for load in loads}  # type: ignore[union-attr]
-        assert fuels == {"natural_gas"}
+        fuels = [grid_carbon.marginal_fuel(bands, load).key for load in loads]  # type: ignore[union-attr]
+        assert set(fuels) <= {"natural_gas", "oil"}
+        assert fuels.count("natural_gas") / len(fuels) > 0.9
+
+    def test_oils_hair_thin_band_sits_at_the_very_top_of_the_peak(self):
+        """EPPO puts oil at 0.01% of annual generation, so its band is ~80 MW
+        wide at the top of a 36 GW curve and only the daily peak reaches it.
+
+        Left in deliberately, with the caveat stated: applying an ANNUAL share
+        to a SINGLE day implies oil runs a sliver every day, when in reality it
+        runs on a handful of peak days a year. So the peak hour's 'oil' label
+        over-attributes on a typical day. It is kept because dropping the
+        cheapest-to-drop peaker would also drop the model's only ability to show
+        a peaking unit at all, and because it moves the intensity by a hair -
+        not because it is exactly right."""
+        loads = [p.mw for p in _day_points()]
+        bands = grid_carbon.build_bands(loads, grid_carbon.DEFAULT_MIX)
+        oil = next(b for b in bands if b.fuel.key == "oil")
+
+        assert oil.top_mw == pytest.approx(max(loads))
+        assert (oil.top_mw - oil.bottom_mw) / max(loads) < 0.01
+        assert grid_carbon.marginal_fuel(bands, min(loads)).key == "natural_gas"  # type: ignore[union-attr]
 
     def test_a_mix_with_peaking_oil_does_switch_fuels_across_the_day(self):
         """The mechanism itself works; it simply has nothing to switch to under
@@ -166,10 +213,10 @@ class TestCalibration:
         for a, b in zip(low, high):
             assert b.average_kg_per_kwh == pytest.approx(a.average_kg_per_kwh * 2.0, rel=1e-6)
 
-    def test_the_placeholder_mix_still_produces_a_calibrated_curve(self):
-        """The shipped mix is a placeholder, so it must at minimum not break the
-        invariant - a viewer looking at an unconfigured deployment still sees a
-        curve whose average is the official number."""
+    def test_the_shipped_eppo_mix_still_produces_a_calibrated_curve(self):
+        """The invariant must hold for the mix that actually ships, not just for
+        the tidy test one - an unconfigured deployment still shows a curve whose
+        average is the official number."""
         points = _day_points()
         curve = grid_carbon.carbon_curve(points, grid_carbon.DEFAULT_MIX, 0.4758)
         weighted = sum(p.average_kg_per_kwh * p.load_mw for p in curve)
@@ -247,15 +294,16 @@ class TestRoute:
         total = sum(h["load_mw"] for h in body["hours"])
         assert weighted / total == pytest.approx(0.4758, rel=1e-3)
 
-    def test_an_unconfigured_mix_is_labelled_placeholder_on_the_wire(self, app, token_factory, monkeypatch):
-        """A viewer must be able to tell that the fuel split is this module's
-        guess, not an EPPO table - the whole shape of the curve depends on it."""
+    def test_an_unconfigured_mix_is_labelled_annual_on_the_wire(self, app, token_factory, monkeypatch):
+        """A viewer must be able to tell the split is EPPO's YEARLY average
+        rather than the month actually being shown - the shape depends on it,
+        and Thai hydrology and gas availability both move seasonally."""
         monkeypatch.setattr("nongfab_api.routes_grid_carbon._cached_snapshot", _fake_snapshot)
         with TestClient(app) as client:
             body = client.get("/grid/carbon", headers=_auth(token_factory)).json()
 
-        assert body["mix_origin"] == "placeholder"
-        assert "EPPO" in body["mix_note"]
+        assert body["mix_origin"] == "annual"
+        assert "2566" in body["mix_note"]
         assert sum(row["share_pct"] for row in body["mix"]) == pytest.approx(100.0)
 
     def test_solar_only_produces_by_day_so_its_factor_is_the_daytime_one(self, app, token_factory, monkeypatch):
@@ -271,8 +319,8 @@ class TestRoute:
 
     def test_publishing_a_fuel_share_changes_the_curve_and_the_label(self, app, token_factory, monkeypatch):
         """The mix has to be genuinely wired, not merely stored: pushing the
-        grid to all-coal must move the intensity somewhere and flip the origin
-        label away from 'placeholder'."""
+        grid to mostly-coal must move the intensity somewhere and flip the origin
+        label away from the shipped annual figures."""
         monkeypatch.setattr("nongfab_api.routes_grid_carbon._cached_snapshot", _fake_snapshot)
         headers = _auth(token_factory)
         admin = {"Authorization": f"Bearer {token_factory('admin')}"}

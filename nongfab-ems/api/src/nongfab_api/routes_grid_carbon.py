@@ -11,9 +11,9 @@ which pieces are measured, which are cited literature, and which are modelled.
 Honest by construction: the model is calibrated so its load-weighted mean equals
 the published GEF, so this page can only ever redistribute the official number
 across the day - it cannot publish a competing headline. The fuel mix behind the
-shape is a placeholder until EPPO's monthly table is entered, and the response
-says so in `mix_origin` / `mix_note` rather than leaving a viewer to assume the
-split is measured.
+shape is EPPO's real 2566 national split, but an ANNUAL average rather than the
+monthly table that would capture hydrology and gas seasonality - the response
+says which of the two it is in `mix_origin` / `mix_note`.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ router = APIRouter(tags=["grid"])
 METHOD_NOTE = (
     "เส้นโหลดของระบบเป็นข้อมูลจริงรายนาทีจาก กฟผ. (EGAT SysGen) · ค่าการปล่อยคาร์บอนต่อเชื้อเพลิงใช้ค่ากลาง "
     "ตลอดวัฏจักรชีวิตของ IPCC AR5 · ส่วน 'เชื้อเพลิงตัวไหนเดินเครื่องอยู่ชั่วโมงไหน' เป็นแบบจำลอง merit-order "
-    "เพราะไทยไม่เปิดเผยสัดส่วนเชื้อเพลิงรายชั่วโมงแบบเรียลไทม์ (EPPO/กฟผ. เผยแพร่เป็นรายเดือน)"
+    "เพราะไทยไม่เปิดเผยสัดส่วนเชื้อเพลิงรายชั่วโมงแบบเรียลไทม์ (สนพ./กฟผ. เผยแพร่ย้อนหลังเป็นรายเดือน/รายปี)"
 )
 CALIBRATION_NOTE = (
     "ค่าเฉลี่ยถ่วงน้ำหนักของเส้นนี้ถูกตรึงให้เท่ากับ GEF ที่เผยแพร่จริงเสมอ กราฟนี้จึงเป็นการ 'กระจาย' "
@@ -79,8 +79,8 @@ class GridCarbonResponse(BaseModel):
     day: str | None = None
     hours: list[CarbonHourOut] = []
     mix: list[MixShareOut] = []
-    mix_origin: str = grid_carbon.MIX_ORIGIN_PLACEHOLDER
-    mix_note: str = grid_carbon.MIX_PLACEHOLDER_NOTE
+    mix_origin: str = grid_carbon.MIX_ORIGIN_ANNUAL
+    mix_note: str = grid_carbon.MIX_ANNUAL_NOTE
 
     published_ef_kg_per_kwh: float | None = None
     solar_weighted_marginal_kg_per_kwh: float | None = None
@@ -97,9 +97,10 @@ class GridCarbonResponse(BaseModel):
 
 
 def _mix_from_settings() -> dict[str, float]:
-    """The fuel-mix shares as configured, falling back per-fuel to the
-    placeholder. Read per request so publishing a share takes effect without a
-    restart, the same as every other settings-driven figure here."""
+    """The fuel-mix shares as configured, falling back per-fuel to EPPO's
+    published annual figures. Read per request so publishing a share takes
+    effect without a restart, the same as every other settings-driven figure
+    here."""
     shares: dict[str, float] = {}
     for key, fallback in grid_carbon.DEFAULT_MIX.items():
         try:
@@ -110,9 +111,10 @@ def _mix_from_settings() -> dict[str, float]:
 
 
 def _mix_is_published() -> bool:
-    """True once ANY share has been deliberately published - that is the moment
-    the table stops being this module's guess and starts being somebody's
-    entered figure, which is what the origin label is about."""
+    """True once ANY share has been deliberately entered - that is the moment
+    the table stops being the shipped EPPO ANNUAL average and becomes whatever
+    figures somebody put in (ideally a monthly one), which is what the origin
+    label distinguishes."""
     return any(is_overridden(f"gridmix.{key}_pct") for key in grid_carbon.DEFAULT_MIX)
 
 
@@ -203,8 +205,8 @@ async def get_grid_carbon(_user=Depends(require_role("viewer"))) -> GridCarbonRe
             )
             for key, share in sorted(normalised.items(), key=lambda kv: -kv[1])
         ],
-        mix_origin=grid_carbon.MIX_ORIGIN_PUBLISHED if published_mix else grid_carbon.MIX_ORIGIN_PLACEHOLDER,
-        mix_note="สัดส่วนเชื้อเพลิงชุดนี้ถูกกรอกไว้ในระบบแล้ว" if published_mix else grid_carbon.MIX_PLACEHOLDER_NOTE,
+        mix_origin=grid_carbon.MIX_ORIGIN_PUBLISHED if published_mix else grid_carbon.MIX_ORIGIN_ANNUAL,
+        mix_note="สัดส่วนเชื้อเพลิงชุดนี้ถูกกรอกไว้ในระบบเอง (ไม่ใช่ค่าเริ่มต้นรายปีของ สนพ.)" if published_mix else grid_carbon.MIX_ANNUAL_NOTE,
         published_ef_kg_per_kwh=published_ef,
         solar_weighted_marginal_kg_per_kwh=marginal,
         solar_weighted_average_kg_per_kwh=average,

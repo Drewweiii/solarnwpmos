@@ -716,3 +716,52 @@ clean.
 
 **Open, and genuinely blocking better numbers:** EPPO's monthly
 generation-by-fuel table. Everything else in this feature is real.
+
+### 2026-07-25 - The fuel mix is no longer a placeholder: EPPO's real 2566 split (Track 1)
+
+Went looking for the data the previous entry said was blocking, and found it.
+Thailand's whole-system generation for 2566/2023, from สำนักงานนโยบายและแผนพลังงาน
+(EPPO), 219,540.04 GWh total:
+
+| fuel | GWh | share |
+|---|---|---|
+| natural gas | 128,678.77 | 58.61% |
+| imported (mostly Lao hydro) | 32,805.15 | 14.94% |
+| coal / lignite | 28,758.06 | 13.10% |
+| renewables | 22,867.18 | 10.42% |
+| hydro (domestic) | 6,421.04 | 2.92% |
+| oil | 9.85 | 0.01% |
+
+Shipped as the defaults because the GWh column **reconciles to the stated total
+exactly** and two independent searches returned the same breakdown - that is
+what separates a usable published figure from a plausible-looking one. Origin
+moves `placeholder` -> `literature`, and the API's label moves `placeholder` ->
+`annual`.
+
+**The trap avoided.** EGAT publishes a second, similar-looking fuel table - "in
+EGAT's system" - where imports are ~1% rather than ~15%, because it covers only
+plant EGAT itself runs. Stacking that against a NATIONAL load curve would push
+about 14% of clean imported hydro out of the merit order entirely. A test pins
+imports above 10% specifically to stop a future edit from swapping in the wrong
+table.
+
+**Still caveated, just differently.** These are real figures at the wrong time
+resolution: an annual average, when Thai hydrology and gas availability both
+move seasonally. The panel now says exactly that instead of "this is a guess",
+and the origin flips to `published` the moment somebody enters a monthly table.
+
+**A consequence worth recording.** With the real mix, oil's 0.01% share becomes
+a band ~80 MW wide at the top of a 36 GW stack, so the daily peak now reads as
+oil-marginal where the old round-numbers mix said gas all day. Applying an
+ANNUAL share to a SINGLE day implies oil runs a sliver every day, when really it
+runs on a handful of peak days a year - so that label over-attributes on a
+typical day. Kept, because it is the model's only representation of a peaking
+unit and it barely moves the intensity; documented, because it is not exactly
+right. The earlier "gas is marginal at every hour" claim is now "gas for
+essentially the whole day", which is what the tests assert.
+
+api 326 / web 498 pass; ruff clean; `npm run build` clean.
+
+Sources: [EPPO electricity statistics](https://www.eppo.go.th/index.php/en/en-energystatistics/electricity-statistic) ·
+[DEDE PV status 1.1](https://pvstatus.dede.go.th/th/section_1-1.php) ·
+[EGAT fuel-usage share](https://www.egat.co.th/home/en/statistics-fuel-usage/) (the EGAT-system table, deliberately NOT used)

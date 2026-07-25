@@ -20,19 +20,22 @@ WHAT IS REAL HERE AND WHAT IS MODELLED - read this before quoting any number.
          Energy Report does.
   CITED  Per-fuel emission factors: IPCC AR5 WG3 Annex III lifecycle medians
          (gCO2eq/kWh). Literature values, not measurements of Thai plant.
+  REAL   The fuel mix shares. `DEFAULT_MIX` below is EPPO's published 2566
+         national generation split (219,540.04 GWh; the GWh column reconciles
+         to that total exactly). But it is an ANNUAL average - Thai hydrology
+         and gas availability both move seasonally, so a monthly table would
+         sharpen the shape. The API labels which of the two is in force, and
+         the shares are editable settings (`gridmix.*`) so entering a monthly
+         table needs no code change.
   MODEL  Which fuel is on the margin at a given load. Thailand does not publish
-         real-time generation by fuel type - EPPO and EGAT publish it monthly,
-         in reports, after the fact - so the split across the day is inferred
-         from a merit-order stack against the day's own load-duration curve.
-  PLACEHOLDER  The fuel mix shares themselves. `DEFAULT_MIX` below is an
-         approximation, NOT a figure taken from an EPPO table, and it is
-         labelled as such everywhere it surfaces. Replace it with EPPO's real
-         monthly generation-by-fuel numbers; the shares are editable settings
-         (`gridmix.*`) precisely so that can happen without a code change.
+         real-time generation by fuel type - EPPO and EGAT publish it monthly
+         and yearly, in reports, after the fact - so the split across the day is
+         inferred from a merit-order stack against the day's own load-duration
+         curve.
 
-So: the LEVEL of this curve is real (calibrated to กกพ), its SHAPE is a model,
-and the mix driving the shape is a placeholder awaiting real monthly data. The
-API response carries those labels so a viewer sees them too.
+So: the LEVEL of this curve is real (calibrated to กกพ), the mix driving it is
+real but yearly, and only the intra-day SHAPE is modelled. The API response
+carries those labels so a viewer sees them too.
 
 The method. Stack the fuels in merit order (cheapest dispatched first) as
 horizontal bands under the day's load-duration curve, sized so each band's area
@@ -49,18 +52,24 @@ kind of analysis.
 
 WHAT THE MODEL ACTUALLY SAYS FOR THAILAND, and it is not what you might expect.
 Thai demand never falls far enough overnight for the gas fleet to come off the
-margin - the trough is roughly two-thirds of the peak, and gas alone is around
-60% of generation - so the marginal fuel comes out as NATURAL GAS at every hour
-of the day. The marginal curve is therefore nearly flat, which looks like a bug
-and is not: it is the finding. Every kWh this array makes displaces gas at
-roughly 0.49 kgCO2eq/kWh, not the 0.4758 grid-average the Energy Report credits
-it with, so the flat annual factor slightly UNDERSTATES the site. The average
-curve does still vary across the day, because more of the gas band is in use at
-the peak than at the trough.
+margin - the trough is roughly two-thirds of the peak, and gas alone is 58.61%
+of generation - so NATURAL GAS is the marginal fuel for essentially the entire
+day. The marginal curve is therefore nearly flat, which looks like a bug and is
+not: it is the finding. Every kWh this array makes displaces gas at roughly
+0.49 kgCO2eq/kWh, not the 0.4758 grid-average the Energy Report credits it
+with, so the flat annual factor slightly UNDERSTATES the site. The average curve
+does still vary across the day, because more of the gas band is in use at the
+peak than at the trough.
 
-That also means the interesting variation would only appear in a system with a
-distinct peaking fuel above gas. `oil` is in the merit order for exactly that
-reason, at a share of zero by default.
+One caveat on the very top of the curve. EPPO puts oil at 0.01% of annual
+generation, which here becomes a band roughly 80 MW wide at the top of a 36 GW
+stack - so the daily peak reads as oil-marginal. Applying an ANNUAL share to a
+SINGLE day implies oil runs a sliver every day, whereas in reality it runs on a
+handful of peak days a year, so that label over-attributes on a typical day. It
+is kept because it is the model's only representation of a peaking unit and
+because it barely moves the intensity - not because it is exactly right. A real
+MONTHLY mix would size that band far better, which is the main reason to want
+one.
 
 Thailand-first (CLAUDE.md): load data is EGAT's own, the calibration target is
 กกพ's own, timestamps are ICT. The only non-Thai input is the IPCC per-fuel
@@ -131,26 +140,44 @@ FUELS: tuple[Fuel, ...] = (
 
 BY_KEY: dict[str, Fuel] = {f.key: f for f in FUELS}
 
-# PLACEHOLDER, not an EPPO figure. Shares of national ELECTRICITY GENERATION,
-# in the ballpark of Thailand's published annual mix but never reconciled
-# against a specific EPPO monthly table. Every surface that shows a number
-# derived from these must say so; `MIX_ORIGIN_PLACEHOLDER` is what carries that
-# label through the API.
+# REAL published figures (2026-07-25). Thailand's WHOLE-SYSTEM electricity
+# generation for 2566/2023, from สำนักงานนโยบายและแผนพลังงาน (EPPO), total
+# 219,540.04 GWh:
+#
+#   natural gas   128,678.77 GWh   58.61%
+#   coal/lignite   28,758.06 GWh   13.10%
+#   imported       32,805.15 GWh   14.94%   (predominantly Lao hydro)
+#   renewables     22,867.18 GWh   10.42%
+#   hydro           6,421.04 GWh    2.92%
+#   oil                 9.85 GWh    0.01%
+#
+# The GWh column reconciles to the stated total exactly, which is why these
+# replaced the earlier guesswork: they are not a plausible-looking set, they are
+# the published set. Note "imported" is ~15% here, unlike EGAT's own-system
+# table where it is ~1% - EGAT's table covers only plant EGAT itself runs, and
+# using it against a NATIONAL load curve would badly misstate the stack.
+#
+# Still an ANNUAL average, not the monthly split: Thailand's mix moves with
+# hydrology and gas availability, so a monthly table would sharpen the shape.
+# `MIX_ORIGIN_ANNUAL` carries that caveat through the API.
 DEFAULT_MIX: dict[str, float] = {
-    "natural_gas": 0.60,
-    "coal_lignite": 0.16,
-    "imported": 0.14,
-    "renewables": 0.09,
-    "hydro": 0.01,
-    "oil": 0.00,
+    "natural_gas": 0.5861,
+    "coal_lignite": 0.1310,
+    "imported": 0.1494,
+    "renewables": 0.1042,
+    "hydro": 0.0292,
+    "oil": 0.0001,
 }
 
-MIX_ORIGIN_PLACEHOLDER = "placeholder"
+# The shipped EPPO annual figures - real, but a yearly average.
+MIX_ORIGIN_ANNUAL = "annual"
+# Somebody entered their own shares (e.g. an actual monthly table).
 MIX_ORIGIN_PUBLISHED = "published"
 
-MIX_PLACEHOLDER_NOTE = (
-    "สัดส่วนเชื้อเพลิงชุดนี้เป็นค่าประมาณ ยังไม่ได้ยืนยันกับตารางรายเดือนของ EPPO/กฟผ. "
-    "รูปร่างของกราฟจึงเป็นแบบจำลอง ส่วนระดับค่าเฉลี่ยถูกตรึงไว้กับ GEF ที่เผยแพร่จริง"
+MIX_ANNUAL_NOTE = (
+    "สัดส่วนเชื้อเพลิงเป็นค่าจริงทั้งประเทศปี 2566 จากสำนักงานนโยบายและแผนพลังงาน (สนพ./EPPO) "
+    "รวม 219,540.04 GWh — แต่เป็นค่าเฉลี่ยทั้งปี ไม่ใช่รายเดือน "
+    "ถ้ามีตารางรายเดือนมากรอกทับ รูปกราฟจะละเอียดขึ้นตามฤดูกาล (น้ำ/ก๊าซ)"
 )
 
 

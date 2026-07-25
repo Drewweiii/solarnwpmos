@@ -969,7 +969,8 @@ export interface GridCarbonResponse {
   day: string | null
   hours: GridCarbonHour[]
   mix: GridCarbonMixShare[]
-  /** 'placeholder' until somebody enters EPPO's real monthly fuel split. */
+  /** 'annual' = EPPO's real but yearly-average split (the shipped default);
+   * 'published' = somebody entered their own, ideally a monthly table. */
   mix_origin: string
   mix_note: string
   published_ef_kg_per_kwh: number | null

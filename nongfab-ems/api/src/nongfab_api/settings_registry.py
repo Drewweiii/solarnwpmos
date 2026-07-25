@@ -888,11 +888,15 @@ SPECS: tuple[SettingSpec, ...] = (
     ),
     # --- J. national grid fuel mix, for the hourly carbon curve (2026-07-25) -
     #
-    # Shares of Thailand's ELECTRICITY GENERATION, in percent. Every default is
-    # a PLACEHOLDER, not a figure read off an EPPO table - they exist so the
-    # /grid/carbon curve has a shape to draw at all, and the API labels any
-    # untouched mix as such. Enter EPPO's or กฟผ.'s published monthly
-    # generation-by-fuel numbers here and the label flips to "published".
+    # Shares of Thailand's WHOLE-SYSTEM electricity generation, in percent.
+    # Defaults are EPPO's published 2566/2023 figures (219,540.04 GWh total,
+    # GWh column reconciles exactly) - real, but an ANNUAL average. Enter a
+    # monthly table and the API's origin label flips from "annual" to
+    # "published".
+    #
+    # Deliberately the NATIONAL split, not EGAT's own-system table: the latter
+    # shows imports at ~1% because it only covers plant EGAT itself runs, and
+    # stacking that against a national load curve would misstate the merit order.
     #
     # They are percentages that need not sum to exactly 100: the model
     # normalises whatever it is given, so a published table that rounds to
@@ -902,72 +906,72 @@ SPECS: tuple[SettingSpec, ...] = (
         group=GROUP_GRIDMIX,
         label="ก๊าซธรรมชาติ",
         unit="% ของการผลิตไฟฟ้าทั้งประเทศ",
-        default=60.0,
+        default=58.61,
         minimum=0.0,
         maximum=100.0,
         step=0.1,
-        origin=ORIGIN_PLACEHOLDER,
-        note="ค่าประมาณ ยังไม่ได้ยืนยันกับตาราง EPPO — ก๊าซเป็นเชื้อเพลิงหลักของไทยและมักเป็นตัวที่อยู่ 'ชายขอบ' ช่วงกลางวัน",
+        origin=ORIGIN_LITERATURE,
+        note="สนพ. 2566: 128,678.77 GWh (58.61%) — ก๊าซเป็นเชื้อเพลิงชายขอบเกือบทุกชั่วโมงในไทย",
     ),
     SettingSpec(
         key="gridmix.coal_lignite_pct",
         group=GROUP_GRIDMIX,
         label="ถ่านหิน/ลิกไนต์",
         unit="% ของการผลิตไฟฟ้าทั้งประเทศ",
-        default=16.0,
+        default=13.1,
         minimum=0.0,
         maximum=100.0,
         step=0.1,
-        origin=ORIGIN_PLACEHOLDER,
-        note="ค่าประมาณ · แบบจำลองใช้ค่าคาร์บอนของถ่านหินตาม IPCC (820 gCO₂eq/kWh) ซึ่งต่ำกว่าลิกไนต์จริงของไทย",
+        origin=ORIGIN_LITERATURE,
+        note="สนพ. 2566: 28,758.06 GWh (13.10%) · แบบจำลองใช้ค่าคาร์บอนถ่านหินของ IPCC (820 gCO₂eq/kWh) ซึ่งต่ำกว่าลิกไนต์จริงของไทย",
     ),
     SettingSpec(
         key="gridmix.imported_pct",
         group=GROUP_GRIDMIX,
         label="นำเข้า (ส่วนใหญ่พลังน้ำ สปป.ลาว)",
         unit="% ของการผลิตไฟฟ้าทั้งประเทศ",
-        default=14.0,
+        default=14.94,
         minimum=0.0,
         maximum=100.0,
         step=0.1,
-        origin=ORIGIN_PLACEHOLDER,
-        note="ค่าประมาณ",
+        origin=ORIGIN_LITERATURE,
+        note="สนพ. 2566: 32,805.15 GWh (14.94%) — ส่วนใหญ่พลังน้ำจาก สปป.ลาว",
     ),
     SettingSpec(
         key="gridmix.renewables_pct",
         group=GROUP_GRIDMIX,
         label="พลังงานหมุนเวียนในประเทศ",
         unit="% ของการผลิตไฟฟ้าทั้งประเทศ",
-        default=9.0,
+        default=10.42,
         minimum=0.0,
         maximum=100.0,
         step=0.1,
-        origin=ORIGIN_PLACEHOLDER,
-        note="ค่าประมาณ · แบบจำลองใช้ค่าคาร์บอนของโซลาร์ (48 gCO₂eq/kWh) ซึ่งต่ำกว่าชีวมวลที่เป็นสัดส่วนใหญ่ในไทย",
+        origin=ORIGIN_LITERATURE,
+        note="สนพ. 2566: 22,867.18 GWh (10.42%) · แบบจำลองใช้ค่าคาร์บอนของโซลาร์ (48 gCO₂eq/kWh) ซึ่งต่ำกว่าชีวมวลที่เป็นสัดส่วนใหญ่ในไทย",
     ),
     SettingSpec(
         key="gridmix.hydro_pct",
         group=GROUP_GRIDMIX,
         label="พลังน้ำในประเทศ",
         unit="% ของการผลิตไฟฟ้าทั้งประเทศ",
-        default=1.0,
+        default=2.92,
         minimum=0.0,
         maximum=100.0,
         step=0.1,
-        origin=ORIGIN_PLACEHOLDER,
-        note="ค่าประมาณ",
+        origin=ORIGIN_LITERATURE,
+        note="สนพ. 2566: 6,421.04 GWh (2.92%) — พลังน้ำในประเทศ แยกจากที่นำเข้า",
     ),
     SettingSpec(
         key="gridmix.oil_pct",
         group=GROUP_GRIDMIX,
         label="น้ำมัน/ดีเซล",
         unit="% ของการผลิตไฟฟ้าทั้งประเทศ",
-        default=0.0,
+        default=0.01,
         minimum=0.0,
         maximum=100.0,
         step=0.1,
-        origin=ORIGIN_PLACEHOLDER,
-        note="ค่าประมาณ · ปกติเดินเครื่องเฉพาะช่วงพีค ตั้ง 0 ได้ถ้าไม่ต้องการให้เป็นเชื้อเพลิงชายขอบ",
+        origin=ORIGIN_LITERATURE,
+        note="สนพ. 2566: 9.85 GWh (0.01%) — แทบไม่เดินเครื่องแล้ว แต่คงไว้ในลำดับ merit-order เพราะเป็นโรงพีคที่แพงและสกปรกที่สุด",
     ),
 )
 

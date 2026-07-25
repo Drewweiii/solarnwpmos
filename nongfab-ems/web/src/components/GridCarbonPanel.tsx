@@ -11,9 +11,9 @@ import type { GridCarbonHour } from '../lib/types'
  *
  * The honesty of this panel is the point, so the labels are not decoration:
  * the load curve is measured (EGAT), the per-fuel factors are IPCC AR5, the
- * fuel split behind the shape is a PLACEHOLDER until EPPO's monthly table is
- * entered, and the whole curve is calibrated so its average is exactly the
- * published GEF. See api/grid_carbon.py for the full breakdown.
+ * fuel split is EPPO's real 2566 national figures but an ANNUAL average rather
+ * than the month being shown, and the whole curve is calibrated so its average
+ * is exactly the published GEF. See api/grid_carbon.py for the full breakdown.
  */
 
 const nf0 = new Intl.NumberFormat('th-TH', { maximumFractionDigits: 0 })
@@ -57,7 +57,7 @@ export function GridCarbonPanel() {
   const earned = data.solar_weighted_marginal_kg_per_kwh
   const uplift = data.marginal_uplift_pct
   const dominant = rows.length > 0 ? rows[Math.floor(rows.length / 2)].marginal_fuel_label : null
-  const isPlaceholder = data.mix_origin === 'placeholder'
+  const isAnnualAverage = data.mix_origin === 'annual'
 
   return (
     <section className="forecast-panel">
@@ -149,9 +149,9 @@ export function GridCarbonPanel() {
         {data.mix.map((share) => `${share.label} ${nf1.format(share.share_pct)}%`).join(' · ')}
       </p>
 
-      {isPlaceholder && (
+      {isAnnualAverage && (
         <p className="grid-context-stat-sub" style={{ color: '#b45309' }}>
-          ⚠️ {data.mix_note}
+          ℹ️ {data.mix_note}
         </p>
       )}
 

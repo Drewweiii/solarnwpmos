@@ -6,11 +6,11 @@ import { AuthProvider } from '../../lib/auth'
 import type { GridCarbonResponse } from '../../lib/types'
 import { buildCarbonRows, GridCarbonPanel } from '../GridCarbonPanel'
 
-/** The panel's job is to say an uncomfortable thing accurately: the fuel split
- * driving its shape is a placeholder, the site profile is clear-sky rather than
- * metered, and the headline factor differs from the one the Energy Report
- * publishes. These tests pin those labels, because losing one of them would
- * turn an honest model into a fabricated measurement.
+/** The panel's job is to say uncomfortable things accurately: the fuel split is
+ * a YEARLY average rather than the month on screen, the site profile is
+ * clear-sky rather than metered, and the headline factor differs from the one
+ * the Energy Report publishes. These tests pin those labels, because losing one
+ * of them would turn a caveated model into an apparent measurement.
  */
 function makeCarbon(overrides: Partial<GridCarbonResponse> = {}): GridCarbonResponse {
   return {
@@ -53,8 +53,8 @@ function makeCarbon(overrides: Partial<GridCarbonResponse> = {}): GridCarbonResp
       { key: 'natural_gas', label: 'ก๊าซธรรมชาติ', share_pct: 60, ef_kg_per_kwh: 0.49 },
       { key: 'coal_lignite', label: 'ถ่านหิน/ลิกไนต์', share_pct: 16, ef_kg_per_kwh: 0.82 },
     ],
-    mix_origin: 'placeholder',
-    mix_note: 'สัดส่วนเชื้อเพลิงชุดนี้เป็นค่าประมาณ ยังไม่ได้ยืนยันกับตารางรายเดือนของ EPPO/กฟผ.',
+    mix_origin: 'annual',
+    mix_note: 'สัดส่วนเชื้อเพลิงเป็นค่าจริงทั้งประเทศปี 2566 จาก สนพ. — แต่เป็นค่าเฉลี่ยทั้งปี ไม่ใช่รายเดือน',
     published_ef_kg_per_kwh: 0.4758,
     solar_weighted_marginal_kg_per_kwh: 0.502,
     solar_weighted_average_kg_per_kwh: 0.468,
@@ -110,24 +110,26 @@ describe('GridCarbonPanel', () => {
     expect(screen.getByText('+5.5%')).toBeInTheDocument()
   })
 
-  it('warns on screen that the fuel split is a placeholder, not an EPPO table', async () => {
+  it('says on screen that the fuel split is a yearly average, not this month', async () => {
+    // The figures are real EPPO data, so the caveat is no longer "this is a
+    // guess" - it is "this is the wrong time resolution", which is the thing a
+    // viewer could otherwise not tell from the chart.
     vi.spyOn(api, 'getGridCarbon').mockResolvedValue(makeCarbon())
     renderPanel()
 
-    expect(await screen.findByText(/EPPO/)).toBeInTheDocument()
+    expect(await screen.findByText(/ค่าเฉลี่ยทั้งปี/)).toBeInTheDocument()
   })
 
-  it('drops the placeholder warning once a real mix has been entered', async () => {
-    // The warning is the only thing gated on origin - the mix itself is always
-    // listed, so a published deployment still shows what it is running on, just
-    // without the caveat.
+  it('drops the yearly-average caveat once a real mix has been entered', async () => {
+    // The caveat is the only thing gated on origin - the mix itself is always
+    // listed, so a configured deployment still shows what it is running on.
     vi.spyOn(api, 'getGridCarbon').mockResolvedValue(
-      makeCarbon({ mix_origin: 'published', mix_note: 'สัดส่วนเชื้อเพลิงชุดนี้ถูกกรอกไว้ในระบบแล้ว' }),
+      makeCarbon({ mix_origin: 'published', mix_note: 'สัดส่วนเชื้อเพลิงชุดนี้ถูกกรอกไว้ในระบบเอง' }),
     )
     renderPanel()
 
     expect(await screen.findByText(/สัดส่วนเชื้อเพลิงที่ใช้จำลอง/)).toBeInTheDocument()
-    expect(screen.queryByText(/EPPO/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/ค่าเฉลี่ยทั้งปี/)).not.toBeInTheDocument()
   })
 
   it('names the marginal fuel rather than only charting a number', async () => {
