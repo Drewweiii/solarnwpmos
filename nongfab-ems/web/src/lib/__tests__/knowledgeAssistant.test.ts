@@ -73,3 +73,49 @@ describe('persona data integrity', () => {
     expect(CLOUD_PERSONA.play.length).toBeGreaterThan(0)
   })
 })
+
+describe('the 2026-07-25 content, which quotes real project figures', () => {
+  // These answers repeat numbers that live in code elsewhere. If one side
+  // moves and the other does not, the site starts telling visitors something
+  // its own model no longer believes - which is worse than saying nothing.
+
+  it('น้อง Cloud quotes the 26-year sun record that the financial model derives from', () => {
+    const reply = answerFromKnowledge(CLOUD_PERSONA, 'แดดที่หนองแฟบแต่ละปีแตกต่างกันเยอะไหม')
+    // financial/interannual.py: mean 1,852.6 kWh/m2/yr, CV 2.11%, 26 years,
+    // worst 2011 = 1,792.1, best 2004 = 1,939.1.
+    expect(reply.text).toContain('1,853')
+    expect(reply.text).toContain('26 ปี')
+    expect(reply.text).toContain('1,792')
+    expect(reply.text).toContain('1,939')
+  })
+
+  it('น้อง Cloud states the rain thresholds the soiling model actually uses', () => {
+    const reply = answerFromKnowledge(CLOUD_PERSONA, 'ฝนตกแค่ไหนถึงจะล้างฝุ่นบนแผงโซลาร์ออกได้')
+    // features/soiling_dynamics.py: RAIN_CLEAN_THRESHOLD_MM 0.25, RAIN_FULL_CLEAN_MM 5.
+    expect(reply.text).toContain('0.25')
+    expect(reply.text).toContain('5 มม.')
+    // Must not promise a perfectly clean array - RESIDUAL_AFTER_RAIN_PCT > 0.
+    expect(reply.text).toContain('100%')
+  })
+
+  it('น้อง Moon does not round the leap-year effect away', () => {
+    const reply = answerFromKnowledge(
+      MOON_PERSONA,
+      'ปีอธิกสุรทินที่มี 366 วัน โรงไฟฟ้าโซลาร์ผลิตไฟได้มากกว่าจริงไหม',
+    )
+    expect(reply.text).toContain('366')
+    expect(reply.text).toContain('0.27%')
+  })
+
+  it('น้อง Moon explains solar noon by the site\'s real longitude, not a round number', () => {
+    const reply = answerFromKnowledge(MOON_PERSONA, 'ทำไมแดดแรงที่สุดไม่ตรงกับเที่ยงตามนาฬิกา')
+    expect(reply.text).toContain('105°')
+    expect(reply.text).toContain('101°')
+  })
+
+  it('both new groups are reachable from a bare keyword, not only by full question', () => {
+    // A visitor types "ฝุ่น" or "ฤดูกาล" - the clarify menu has to catch it.
+    expect(answerFromKnowledge(CLOUD_PERSONA, 'ฝุ่น').suggestions.map((s) => s.id)).toContain('pm10_soiling')
+    expect(answerFromKnowledge(MOON_PERSONA, 'ฤดูกาล').suggestions.map((s) => s.id)).toContain('solar_noon')
+  })
+})

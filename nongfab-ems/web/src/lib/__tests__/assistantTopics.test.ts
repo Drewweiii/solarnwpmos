@@ -39,6 +39,42 @@ describe('assistantTopics/assistantContent consistency', () => {
   })
 })
 
+describe('the data-provenance group added 2026-07-25', () => {
+  // The site labels where every displayed number came from; these answers are
+  // the assistant's version of the same promise. They exist to be honest about
+  // limits, so the test guards the admissions rather than the marketing.
+
+  it('admits there is no on-site sensor instead of implying measured data', () => {
+    expect(TOPIC_ANSWERS.data_no_sensor).toMatch(/ไม่มีสถานีตรวจอากาศ|SCADA/)
+  })
+
+  it('separates the values GFS supplies from the ones this system computes', () => {
+    const answer = TOPIC_ANSWERS.data_table_source
+    expect(answer).toContain('GFS')
+    expect(answer).toContain('pvlib')
+  })
+
+  it('names the published rate and emission factor rather than stating bare numbers', () => {
+    const answer = TOPIC_ANSWERS.data_official
+    // Must match api/green_savings.py's real constants.
+    expect(answer).toContain('4.1025')
+    expect(answer).toContain('0.4758')
+    expect(answer).toMatch(/กกพ/)
+  })
+
+  it('still says CAPEX and WACC are estimates on the Financial page answer', () => {
+    // These two are the only figures left un-sourced; the page must not read
+    // as fully confirmed just because the tariff and BOI now are.
+    expect(TOPIC_ANSWERS.page_financial).toMatch(/WACC/)
+    expect(TOPIC_ANSWERS.page_financial).toMatch(/ค่าประมาณ/)
+  })
+
+  it('is reachable from a bare keyword a visitor would actually type', () => {
+    expect(findClarifyGroup('ข้อมูลมาจากไหน')?.id).toBe('data_provenance')
+    expect(findClarifyGroup('เชื่อได้ไหม')?.id).toBe('data_provenance')
+  })
+})
+
 describe('findClarifyGroup', () => {
   it('finds the Inverter group from a bare keyword, in Thai or English', () => {
     expect(findClarifyGroup('inverter')?.id).toBe('inverter')

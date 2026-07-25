@@ -223,6 +223,38 @@ export const TOPIC_CATEGORIES: AssistantTopicCategory[] = [
           { id: 'fc_accuracy', label: 'รู้ได้ยังไงว่าแม่นแค่ไหน', question: 'รู้ได้ยังไงว่าพยากรณ์การผลิตไฟแม่นแค่ไหน' },
         ],
       },
+      {
+        // Added 2026-07-25 (Track 1). The site now labels the provenance of
+        // every number it shows (Forecast's 9-variable table, the EGAT panel,
+        // the Settings origin chips), so the assistant needed answers for the
+        // obvious follow-up: "where did this number come from, and is it
+        // measured or computed?" - the honest answer being the point.
+        id: 'data_provenance',
+        title: 'ตัวเลขในเว็บนี้มาจากไหน',
+        keywords: ['ข้อมูลมาจากไหน', 'ที่มาของข้อมูล', 'เชื่อได้ไหม', 'วัดจริงไหม', 'กฟผ', 'egat'],
+        subQuestions: [
+          {
+            id: 'data_table_source',
+            label: 'ตารางสภาพอากาศเอาค่ามาจากไหน',
+            question: 'ตารางสภาพอากาศ 9 ช่องในหน้า Forecast เอาค่ามาจากไหน',
+          },
+          {
+            id: 'data_no_sensor',
+            label: 'ไม่มีเซนเซอร์หน้างาน แล้วเชื่อได้ไหม',
+            question: 'เว็บนี้ไม่มีเซนเซอร์วัดอากาศที่หน้างาน แล้วตัวเลขเชื่อถือได้แค่ไหน',
+          },
+          {
+            id: 'data_egat',
+            label: 'ตัวเลขไฟทั้งประเทศมาจากไหน',
+            question: 'ตัวเลขระบบไฟฟ้าทั้งประเทศที่เอามาเทียบกับหนองแฟบ มาจากไหน',
+          },
+          {
+            id: 'data_official',
+            label: 'ค่าไฟ/ค่าคาร์บอนอ้างอิงจากอะไร',
+            question: 'ค่าไฟต่อหน่วยกับค่าการปล่อยคาร์บอนที่เว็บนี้ใช้ อ้างอิงจากประกาศไหน',
+          },
+        ],
+      },
     ],
   },
   {
