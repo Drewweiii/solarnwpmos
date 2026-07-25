@@ -13,7 +13,7 @@ from nongfab_simulation.loss_model import default_loss_factors
 from nongfab_api import settings_store
 from nongfab_api.config import Settings
 from nongfab_api.main import create_app
-from nongfab_api.settings_registry import BY_KEY, GROUP_LABELS, SPECS, validate
+from nongfab_api.settings_registry import BY_KEY, GROUP_LABELS, ORIGIN_CONFIRMED, SPECS, validate
 from nongfab_api.settings_service import apply_effective_settings
 
 
@@ -422,3 +422,47 @@ def test_publishing_a_carbon_price_changes_the_credit_value(engine, tmp_path):
         body = client.get("/savings/summary", headers=headers).json()
     year = body["zones"][0]["periods"]["year"]
     assert year["carbon_credit_value_thb"] == pytest.approx(year["carbon_credit_units"] * 250.0)
+
+
+# --- BOI: confirmed project figures (2026-07-25) -----------------------------
+
+
+def test_the_boi_holiday_defaults_are_the_users_confirmed_figures():
+    """These stopped being guesses on 2026-07-25: the user confirmed this
+    project holds BOI promotion for 8 years in the general areas and 12 for the
+    Jetty. Pinned because a silent drift back toward 0 would quietly worsen
+    every NPV and payback the site publishes, and because `origin` must now read
+    'confirmed' - a reader has to be able to tell this from an estimate."""
+    general = BY_KEY["financial.boi_tax_holiday_years"]
+    jetty = BY_KEY["financial.boi_tax_holiday_years_jetty"]
+
+    assert general.default == 8.0
+    assert jetty.default == 12.0
+    assert general.origin == ORIGIN_CONFIRMED
+    assert jetty.origin == ORIGIN_CONFIRMED
+
+
+def test_the_shipped_model_default_matches_the_general_area_holiday(engine, tmp_path):
+    """The pure financial package has its own default, and it must agree with
+    the registry's - two sources of truth for a tax holiday is how a report and
+    a playground end up disagreeing about payback."""
+    from nongfab_financial.model import DEFAULT_BOI_TAX_HOLIDAY_YEARS
+
+    assert DEFAULT_BOI_TAX_HOLIDAY_YEARS == BY_KEY["financial.boi_tax_holiday_years"].default
+
+
+def test_a_longer_holiday_shortens_the_payback(engine, tmp_path):
+    """The Jetty's 12 years has to actually reach the arithmetic, not just sit
+    in the registry - so publishing it must move the answer in the right
+    direction against the 8-year general-area case."""
+    from nongfab_api.auth import create_access_token
+
+    app, settings = _file_backed_app(engine, tmp_path)
+    with TestClient(app) as client:
+        token = create_access_token("tester", "admin", settings, app.state.deploy_id)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        eight = client.post("/financial", json={"boi_tax_holiday_years": 8}, headers=headers).json()
+        twelve = client.post("/financial", json={"boi_tax_holiday_years": 12}, headers=headers).json()
+
+    assert twelve["npv_thb"] > eight["npv_thb"]

@@ -272,14 +272,30 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec(
         key="financial.boi_tax_holiday_years",
         group=GROUP_FINANCIAL,
-        label="ปีที่ยกเว้นภาษี (BOI)",
+        label="ปีที่ยกเว้นภาษี BOI — พื้นที่ทั่วไป (GIS, ISB)",
         unit="ปี",
-        default=0.0,
+        default=8.0,
         minimum=0.0,
         maximum=15.0,
         step=1.0,
-        origin=ORIGIN_PLACEHOLDER,
-        note="ตั้งไว้ 0 = สมมติว่าไม่มีสิทธิ BOI · ยังไม่ยืนยันสถานะจริง",
+        origin=ORIGIN_CONFIRMED,
+        note="ผู้ใช้ยืนยัน 2026-07-25: โครงการนี้ได้สิทธิ BOI ยกเว้นภาษีนิติบุคคล 8 ปีในพื้นที่ทั่วไป · Jetty ได้ 12 ปี (ดูค่าถัดไป)",
+    ),
+    SettingSpec(
+        key="financial.boi_tax_holiday_years_jetty",
+        group=GROUP_FINANCIAL,
+        label="ปีที่ยกเว้นภาษี BOI — Jetty",
+        unit="ปี",
+        default=12.0,
+        minimum=0.0,
+        maximum=15.0,
+        step=1.0,
+        origin=ORIGIN_CONFIRMED,
+        note=(
+            "ผู้ใช้ยืนยัน 2026-07-25: Jetty ได้ 12 ปี ยาวกว่าพื้นที่ทั่วไป · "
+            "/financial ตอนนี้วิเคราะห์เฉพาะ GIS+ISB ที่ติดตั้งแล้ว จึงใช้ค่า 8 ปีเป็นหลัก "
+            "ค่านี้จะมีผลเมื่อคิดเฟสที่รวม Jetty — เลือกได้เองจากสไลเดอร์ในหน้า Financial"
+        ),
     ),
     SettingSpec(
         key="financial.degradation_pct_per_year",

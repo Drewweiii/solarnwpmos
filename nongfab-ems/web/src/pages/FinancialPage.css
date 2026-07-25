@@ -109,3 +109,29 @@
   opacity: 0.6;
   cursor: default;
 }
+
+/* BOI preset buttons (2026-07-25). The 8 vs 12 year split is a confirmed fact
+   about this project - general area vs Jetty - so it gets one-click presets
+   next to the slider rather than being a number the reader has to know. */
+.financial-boi-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -4px 0 12px;
+}
+
+.financial-boi-presets button {
+  padding: 5px 10px;
+  font-size: 0.78rem;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.financial-boi-presets button.is-active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+}

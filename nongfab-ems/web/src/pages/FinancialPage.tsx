@@ -14,7 +14,7 @@ const DEFAULT_ASSUMPTIONS: Assumptions = {
   opex_escalation_pct_per_year: 3.0,
   discount_rate_pct: 8.0,
   tax_rate_pct: 20.0,
-  boi_tax_holiday_years: 0,
+  boi_tax_holiday_years: 8,
   degradation_pct_per_year: 0.55,
   lifetime_years: 25,
 }
@@ -57,8 +57,8 @@ export function FinancialPage() {
     <div className="financial-page">
       <div className="financial-placeholder-banner" role="note">
         ⚠ All cost/tariff/rate assumptions below are documented placeholders, not confirmed figures for this project (Thailand's
-        20% corporate tax rate is the one real fact) - adjust the sliders with real CAPEX, PEA tariff, WACC, and BOI figures once
-        available, and confirm the tax/BOI treatment with a finance/tax professional before using this for an investment
+        20% corporate tax rate, the PEA tariff and the BOI holiday are confirmed) - CAPEX and WACC are still estimates, so adjust
+        those sliders with real figures once available, and confirm the tax/BOI treatment with a finance/tax professional before using this for an investment
         decision.
       </div>
 
@@ -139,15 +139,35 @@ export function FinancialPage() {
             value={assumptions.tax_rate_pct}
             onChange={(v) => set('tax_rate_pct', v)}
           />
+          {/* 8 vs 12 is a real, confirmed split for this project (general area
+              vs Jetty, 2026-07-25), not a preference - so the two are one click
+              away rather than something to find on a slider. The slider still
+              reaches 15 for what-if work. */}
           <SliderField
             label="BOI tax holiday"
             unit=" yr"
             min={0}
-            max={8}
+            max={15}
             step={1}
             value={assumptions.boi_tax_holiday_years}
             onChange={(v) => set('boi_tax_holiday_years', v)}
           />
+          <div className="financial-boi-presets">
+            <button
+              type="button"
+              className={assumptions.boi_tax_holiday_years === 8 ? 'is-active' : ''}
+              onClick={() => set('boi_tax_holiday_years', 8)}
+            >
+              8 ปี — พื้นที่ทั่วไป (GIS, ISB)
+            </button>
+            <button
+              type="button"
+              className={assumptions.boi_tax_holiday_years === 12 ? 'is-active' : ''}
+              onClick={() => set('boi_tax_holiday_years', 12)}
+            >
+              12 ปี — Jetty
+            </button>
+          </div>
           <SliderField
             label="Panel degradation"
             unit="%/yr"

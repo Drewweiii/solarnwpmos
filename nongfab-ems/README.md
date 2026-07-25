@@ -765,3 +765,45 @@ api 326 / web 498 pass; ruff clean; `npm run build` clean.
 Sources: [EPPO electricity statistics](https://www.eppo.go.th/index.php/en/en-energystatistics/electricity-statistic) ·
 [DEDE PV status 1.1](https://pvstatus.dede.go.th/th/section_1-1.php) ·
 [EGAT fuel-usage share](https://www.egat.co.th/home/en/statistics-fuel-usage/) (the EGAT-system table, deliberately NOT used)
+
+### 2026-07-25 - BOI is confirmed: 8 years general area, 12 for the Jetty (Track 1)
+
+Went looking for the three outstanding financial figures. Found market
+references for all three, brought them to the user rather than adopting them,
+and the answers split:
+
+- **CAPEX and WACC stay as they are.** Thai C&I solar runs ~฿20,000-25,000/kWp
+  for systems under 1 MWp and IRENA's 2024 global utility-scale average is
+  ~USD 691/kW (≈฿23,500); PTT PCL's WACC is estimated by third parties at
+  ~6.8%. The user chose to keep ฿30,000/kWp and 8% rather than publish numbers
+  that are not this project's own - reasonable, since the references are either
+  vendor marketing, a global average, or an outside estimate of the parent
+  company rather than a project hurdle rate. Worth knowing that ฿30,000 sits
+  ABOVE current Thai market rates, so the payback the site shows is probably
+  pessimistic. Both stay `origin=placeholder`.
+- **BOI is a real answer.** The project holds BOI promotion: **8 years** of
+  corporate income tax exemption in the general areas (GIS, ISB) and **12 years**
+  for the Jetty. Both wired in as `origin=confirmed`, replacing the
+  conservative 0 that had been standing in since the module was written.
+
+The Jetty's longer holiday is why this is two settings rather than one. It only
+bites once a phase including the Jetty is analysed - /financial covers the two
+installed general-area zones today - but the figure belongs in the system now,
+while it is known, not later when somebody has to go ask again.
+
+Selectable, as the user asked: the /financial slider now reaches 15 years and
+has one-click **8 ปี — พื้นที่ทั่วไป** / **12 ปี — Jetty** presets beside it, so
+the real split is one click away instead of a number the reader has to
+remember. The page's own caveat paragraph was rewritten to match - tariff and
+BOI are now confirmed, CAPEX and WACC are what remain estimated.
+
+Tests: api +3 - the two defaults and their `confirmed` origin, that the pure
+`financial` package's own default agrees with the registry (two sources of truth
+for a tax holiday is how a report and a playground end up disagreeing about
+payback), and that 12 years really does produce a better NPV than 8. api 329 /
+web 498 / financial 31 pass; ruff clean.
+
+CLAUDE.md's standing Financial reminder was rewritten: it had been chasing four
+figures, three of which are now real. Only CAPEX and WACC remain, and the note
+records that market benchmarks were already offered and declined so a future
+session does not re-propose them.

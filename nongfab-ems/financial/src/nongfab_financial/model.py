@@ -53,10 +53,15 @@ DEFAULT_OPEX_ESCALATION_PCT_PER_YEAR = 3.0
 DEFAULT_DISCOUNT_RATE_PCT = 8.0
 # Thailand's actual standard corporate income tax rate - not a placeholder.
 THAILAND_STANDARD_CORPORATE_TAX_RATE_PCT = 20.0
-# Conservative default: assume no BOI promotion until the user confirms
+# CONFIRMED by the user 2026-07-25: this project holds BOI promotion - 8 years
+# of corporate income tax exemption in the general areas (GIS, ISB) and 12 years
+# for the Jetty. 8 is the default because the two zones actually built today are
+# both general-area; a Jetty analysis must pass 12 explicitly (the API exposes
+# `financial.boi_tax_holiday_years_jetty` for that, and /financial's own slider
+# reaches 12). Was 0 until then - see git history for the pre-confirmation
 # eligibility/holiday length - overstating a tax holiday would overstate
 # returns.
-DEFAULT_BOI_TAX_HOLIDAY_YEARS = 0
+DEFAULT_BOI_TAX_HOLIDAY_YEARS = 8
 
 
 @dataclass(frozen=True)

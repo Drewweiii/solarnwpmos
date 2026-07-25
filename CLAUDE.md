@@ -76,30 +76,46 @@ picks up the new value. So when a change needs a new env var (e.g.
 `API_ENABLE_BACKGROUND_RETRAINING`), tell the user to set it in the Railway
 dashboard; they don't also need to push or click Deploy separately.
 
-## Standing reminder: the Financial module runs on placeholder assumptions (as of 2026-07-16)
+## Standing reminder: two Financial inputs are still estimates (updated 2026-07-25)
 
 `/financial` (`financial/` module, `POST /financial` API route) computes
-NPV/IRR/LCOE/payback for the solar investment, but **every cost/tariff/rate
-input defaults to a documented placeholder, not a real figure for this
-project** (see `financial/README.md`'s table): CAPEX (฿30,000/kWp
-estimate), the PEA electricity tariff (฿4.0/kWh blended guess), WACC (8%),
-BOI tax-holiday length (assumed 0 = none). Only the 20% corporate tax rate
-is a real fact (Thailand's actual standard rate), not a placeholder.
+NPV/IRR/LCOE/payback for the solar investment. As of 2026-07-25 the four
+inputs this note used to chase are **half resolved** - stop asking about the
+resolved two:
 
-This module exists because the user determined (2026-07-16) that
+- **Corporate tax rate 20%** - real, Thailand's actual standard rate. Was
+  never a placeholder.
+- **PEA tariff** - REAL as of 2026-07-19/25. The normal TOU HV Peak rate
+  (฿4.1025/kWh), the UGT1 premium (฿0.0375) and UGT2 Portfolio A HV
+  (฿4.0423) all come from the published announcements, and the grid emission
+  factor is กกพ's 0.4758 (the user's own choice on 2026-07-25 between that
+  and TGO's 0.4999).
+- **BOI tax holiday** - CONFIRMED by the user on 2026-07-25: this project
+  holds BOI promotion, **8 years** of corporate income tax exemption in the
+  general areas (GIS, ISB) and **12 years** for the Jetty. Both are wired in
+  as defaults (`financial.boi_tax_holiday_years` = 8,
+  `financial.boi_tax_holiday_years_jetty` = 12, both `origin=confirmed`), and
+  the /financial page has one-click 8/12 presets next to the slider.
+- **CAPEX (฿30,000/kWp) and WACC (8%)** - STILL ESTIMATES. On 2026-07-25 the
+  user was shown market references (Thai C&I solar ~฿20,000-25,000/kWp for
+  systems under 1 MWp; IRENA's 2024 global utility-scale average ~USD 691/kW
+  ≈ ฿23,500; PTT PCL's third-party-estimated WACC ~6.8%) and **deliberately
+  chose to keep ฿30,000 and 8%** rather than adopt figures that are not this
+  project's own. Note that ฿30,000 is above current Thai market rates, so the
+  payback the site shows is probably pessimistic.
+
+**So the only remaining ask is CAPEX and WACC**, and only if the user can get
+the project's real numbers - do not re-propose market benchmarks, that was
+already offered and declined. Mention it at natural check-in points if the
+conversation touches `/financial` or investment figures, and include it in
+Handoff Reports (section 2). Drop this note entirely once those two are
+supplied and wired in as defaults with `origin=confirmed`.
+
+Why this module exists: the user determined (2026-07-16) that
 sub-daily/hour-ahead/day-ahead forecasting has little operational value at
 this site (fully grid-tied, no battery, capacity capped by land) - what
 actually matters is whether the investment pays back, which is what this
-module answers, once given real numbers.
-
-**Always include this reminder** in Handoff Reports (section 2, Current
-Context & State) and at natural check-in points if the conversation touches
-`/financial` or investment figures: ask the user whether they can now
-supply the real CAPEX, PEA tariff/contract, WACC, and BOI status, so the
-placeholder defaults in `financial/src/nongfab_financial/model.py` can be
-replaced with confirmed figures. Stop reminding once the user has supplied
-all four and they've been wired in as the new defaults - update this note
-then.
+module answers.
 
 ## Standing policy: Thailand-first for time, weather, and other regional data (as of 2026-07-17)
 
