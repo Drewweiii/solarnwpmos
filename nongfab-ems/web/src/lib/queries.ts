@@ -7,6 +7,7 @@ import {
   getExpansion,
   getGridCarbon,
   getGridToday,
+  getOfficialSources,
   getFeedHealth,
   getForecastVerification,
   getOutputAnomalies,
@@ -164,6 +165,15 @@ export function useGridCarbon() {
     enabled: Boolean(token),
     refetchInterval: 5 * 60 * 1000,
     staleTime: 5 * 60 * 1000,
+export function useOfficialSources() {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['official-sources'],
+    queryFn: () => getOfficialSources(token!),
+    enabled: Boolean(token),
+    // Agency pages move on the scale of months and the API caches for an hour;
+    // this only needs to be fresh per session.
+    staleTime: 60 * 60 * 1000,
   })
 }
 

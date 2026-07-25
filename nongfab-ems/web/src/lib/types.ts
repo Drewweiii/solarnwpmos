@@ -992,4 +992,38 @@ export interface GridCarbonResponse {
   calibration_note: string
   marginal_note: string
   profile_note: string
+// GET /sources - provenance + staleness watch over the four Thai agencies this
+// site quotes (2026-07-25). Deliberately NOT a rate scraper: every Thai tariff
+// announcement is a scanned image, so the figures are transcribed by hand and
+// this endpoint's job is to notice when the agency publishes something new.
+export interface QuotedValue {
+  label: string
+  value: string
+  /** Where in the code the number lives, so a stale value can be found. */
+  code_location: string
+  note: string
+}
+
+export interface OfficialSourceItem {
+  key: string
+  agency: string
+  agency_full: string
+  page_url: string
+  purpose: string
+  quoted: QuotedValue[]
+  watch_documents: boolean
+  /** 'ok' | 'changed' | 'unreachable' */
+  status: string
+  detail: string
+  documents_now: string[]
+  added: string[]
+  removed: string[]
+}
+
+export interface SourcesResponse {
+  overall_status: string
+  checked_at: string | null
+  baseline_captured: string
+  sources: OfficialSourceItem[]
+  method_note: string
 }

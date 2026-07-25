@@ -297,3 +297,159 @@
     position: static;
   }
 }
+
+/* Official-source provenance watch (2026-07-25). Same `.settings-` prefix as
+   the rest of this lazy route - it must not borrow another page's classes. */
+.settings-sources {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 2px solid #e5e7eb;
+}
+
+.settings-sources h2 {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+}
+
+.settings-sources-alert {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-left: 4px solid #f59e0b;
+  border-radius: 0 8px 8px 0;
+  background: #fffbeb;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.settings-sources-checked {
+  margin: 8px 0 14px;
+  font-size: 0.78rem;
+  color: #6b7280;
+}
+
+.settings-sources-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.settings-source {
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+}
+
+/* A new announcement is the one state worth finding by scanning the page. */
+.settings-source-changed {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.settings-source-unreachable {
+  background: #f9fafb;
+}
+
+.settings-source-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-source-agency {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.settings-source-status {
+  font-size: 0.76rem;
+  color: #4b5563;
+}
+
+.settings-source-full {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  color: #6b7280;
+}
+
+.settings-source-purpose {
+  margin: 8px 0;
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+
+.settings-source-link {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.settings-source-detail {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+  color: #4b5563;
+  line-height: 1.6;
+}
+
+.settings-source-docs {
+  margin-top: 8px;
+  font-size: 0.78rem;
+}
+
+.settings-source-docs ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+/* Official filenames are long and must wrap inside the card rather than
+   pushing the grid column wider. */
+.settings-source-docs li {
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.settings-source-quoted {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed #e5e7eb;
+  font-size: 0.8rem;
+}
+
+.settings-source-value {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #f9fafb;
+}
+
+.settings-source-value-flagged {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+.settings-source-value-label {
+  display: block;
+  color: #4b5563;
+}
+
+.settings-source-value-number {
+  display: block;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-source-value-where {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.72rem;
+  color: #6b7280;
+  overflow-wrap: anywhere;
+}
+
+.settings-source-value-note {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: #991b1b;
+}

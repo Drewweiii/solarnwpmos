@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { OfficialSourcesPanel } from '../components/OfficialSourcesPanel'
 import { usePublishSettings, useResetAllSettings, useResetSetting, useSystemSettings } from '../lib/queries'
 import { loadSettingsDraft, saveSettingsDraft } from '../lib/settingsDraft'
 import type { SettingItem } from '../lib/types'
@@ -189,6 +190,12 @@ export function SettingsPage() {
           </section>
         )
       })}
+
+      {/* Where the hand-entered tariff/emission numbers came from, and whether
+          the issuing agency has published anything newer (2026-07-25). Sits
+          below the form because it is about the values' provenance, not about
+          editing them. */}
+      <OfficialSourcesPanel />
     </div>
   )
 }
