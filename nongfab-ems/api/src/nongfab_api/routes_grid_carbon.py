@@ -19,6 +19,7 @@ says which of the two it is in `mix_origin` / `mix_note`.
 from __future__ import annotations
 
 from datetime import datetime
+from functools import lru_cache
 
 import numpy as np
 import pandas as pd
@@ -118,6 +119,27 @@ def _mix_is_published() -> bool:
     return any(is_overridden(f"gridmix.{key}_pct") for key in grid_carbon.DEFAULT_MIX)
 
 
+@lru_cache(maxsize=8)
+def _profile_for_day(day_iso: str) -> tuple[tuple[int, float], ...]:
+    """The cached half of `site_hourly_generation_kwh`, keyed by ICT date.
+
+    Worth caching: this runs pvlib plus a full loss/clipping pass per zone and
+    costs ~90 ms, yet the answer is identical for every viewer and changes only
+    when the date does - so without this, every poll of a shared panel recomputed
+    the same clear-sky day.
+
+    Returned as a tuple of pairs because an lru_cache must not hand out a mutable
+    dict that a caller could edit in place and poison for everyone else.
+
+    CACHE INVALIDATION IS NOT OPTIONAL HERE: the profile depends on each zone's
+    capacity, tilt and loss factors, all of which are user-editable, so
+    `settings_service.apply_effective_settings` clears this the same way it
+    clears `annual_shading_loss_pct`. Forget that and a tilt edit keeps
+    answering with the pre-edit day for the life of the process.
+    """
+    return tuple(_compute_profile(datetime.fromisoformat(day_iso).replace(tzinfo=ICT)).items())
+
+
 def site_hourly_generation_kwh(day: datetime) -> dict[int, float]:
     """Clear-sky AC energy per ICT hour, summed over every zone.
 
@@ -126,6 +148,10 @@ def site_hourly_generation_kwh(day: datetime) -> dict[int, float]:
     monthly estimates use, so the SHAPE - which is all this weighting needs - is
     real astronomy at Nong Fab's own coordinates.
     """
+    return dict(_profile_for_day(day.date().isoformat()))
+
+
+def _compute_profile(day: datetime) -> dict[int, float]:
     index = pd.date_range(day, periods=24, freq="h", tz=ICT)
     lat, lon = nong_fab_site_location()
     solpos = compute_clearsky_and_position(index, lat, lon, tz="Asia/Bangkok")

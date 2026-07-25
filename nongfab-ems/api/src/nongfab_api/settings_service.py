@@ -94,11 +94,16 @@ def loss_override_payload() -> dict[str, float]:
 def apply_effective_settings() -> None:
     """Publish the current effective settings to every injected consumer.
 
-    Also clears `annual_shading_loss_pct`'s cache: it is lru_cached per zone and
-    computes from the array's tilt/azimuth/geometry, so a tilt override would
-    otherwise keep returning the pre-edit answer for the life of the process.
+    Also clears the two lru_caches that are computed FROM these settings and
+    would otherwise keep answering with pre-edit values for the life of the
+    process: `annual_shading_loss_pct` (per zone, from tilt/azimuth/geometry)
+    and `/grid/carbon`'s cached clear-sky day profile (per date, from each
+    zone's capacity, tilt and loss factors).
     """
+    from .routes_grid_carbon import _profile_for_day
+
     set_asset_overrides(asset_override_payload())
     set_loss_overrides(loss_override_payload())
     annual_shading_loss_pct.cache_clear()
+    _profile_for_day.cache_clear()
     logger.debug("settings applied to assets + loss model")

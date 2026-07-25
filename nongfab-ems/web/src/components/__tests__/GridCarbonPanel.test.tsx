@@ -183,3 +183,35 @@ describe('the marginal fuel it names', () => {
     expect(screen.queryByText('ก๊าซธรรมชาติ')).not.toBeInTheDocument()
   })
 })
+
+describe('the peak-hour spike', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.restoreAllMocks()
+  })
+
+  it('explains the spike when a second fuel takes the top of the peak', async () => {
+    // Under Thailand's mix the marginal line is near-flat, so a visible step is
+    // conspicuous. It comes from applying an ANNUAL oil share to a SINGLE day,
+    // which over-attributes - leaving it unexplained would look like a bug or,
+    // worse, like a measurement.
+    const carbon = makeCarbon()
+    carbon.hours = [
+      { ...carbon.hours[0], hour: 12, site_generation_kwh: 320, marginal_fuel_label: 'ก๊าซธรรมชาติ' },
+      { ...carbon.hours[0], hour: 20, site_generation_kwh: 0, marginal_fuel_label: 'น้ำมัน/ดีเซล (เดินเครื่องช่วงพีค)' },
+    ]
+    vi.spyOn(api, 'getGridCarbon').mockResolvedValue(carbon)
+    renderPanel()
+
+    expect(await screen.findByText(/เส้น marginal มีจุดกระโดดช่วงพีค/)).toBeInTheDocument()
+    expect(screen.getByText(/น้ำมัน\/ดีเซล/)).toBeInTheDocument()
+  })
+
+  it('stays quiet when one fuel is marginal all day', async () => {
+    vi.spyOn(api, 'getGridCarbon').mockResolvedValue(makeCarbon())
+    renderPanel()
+
+    expect(await screen.findByText('ก๊าซธรรมชาติ')).toBeInTheDocument()
+    expect(screen.queryByText(/จุดกระโดดช่วงพีค/)).not.toBeInTheDocument()
+  })
+})

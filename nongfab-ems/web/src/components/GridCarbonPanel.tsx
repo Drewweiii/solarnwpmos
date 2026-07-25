@@ -66,6 +66,13 @@ export function GridCarbonPanel() {
   )
   const dominant = peakSolarHour && peakSolarHour.site_generation_kwh > 0 ? peakSolarHour.marginal_fuel_label : null
   const isAnnualAverage = data.mix_origin === 'annual'
+  // The marginal line is near-flat under Thailand's mix (gas is marginal almost
+  // all day), so any visible step comes from a different fuel taking the very
+  // top of the peak. That step is real but over-attributed - an ANNUAL oil share
+  // applied to a SINGLE day implies oil runs a sliver every day, when it really
+  // runs on a handful of peak days a year. Name it rather than leaving a
+  // conspicuous spike unexplained.
+  const otherFuels = [...new Set(rows.map((r) => r.marginal_fuel_label))].filter((label) => label !== dominant)
 
   return (
     <section className="forecast-panel">
@@ -160,6 +167,14 @@ export function GridCarbonPanel() {
       {isAnnualAverage && (
         <p className="grid-context-stat-sub" style={{ color: '#b45309' }}>
           ℹ️ {data.mix_note}
+        </p>
+      )}
+
+      {dominant !== null && otherFuels.length > 0 && (
+        <p className="grid-context-stat-sub" style={{ color: '#b45309' }}>
+          ℹ️ เส้น marginal มีจุดกระโดดช่วงพีค เพราะแบบจำลองให้ {otherFuels.join(' / ')} ขึ้นมาเป็นโรงชายขอบที่ยอดสุด ·
+          เป็นผลจากการเอาสัดส่วนเชื้อเพลิง <strong>รายปี</strong> มาใช้กับ <strong>วันเดียว</strong> ของจริงโรงพีคเดินไม่กี่วันต่อปี
+          จุดนี้จึงเกินจริงไปบ้าง (กระทบค่าเฉลี่ยน้อยมาก) — ถ้ากรอกสัดส่วนรายเดือนจะแม่นขึ้น
         </p>
       )}
 

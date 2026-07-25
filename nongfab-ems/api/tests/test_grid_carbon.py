@@ -363,3 +363,46 @@ async def _none_snapshot() -> None:
 
 async def _fake_snapshot() -> GridSnapshot:
     return GridSnapshot(day="2026-07-25", actual=_day_points(), plan=[], peaks=[])
+
+
+class TestProfileCache:
+    def test_the_second_call_for_a_day_is_served_from_cache(self):
+        """~90 ms of pvlib and loss modelling per call, identical for every
+        viewer, changing only when the date does - so a shared panel polling it
+        must not recompute the same day each time."""
+        from nongfab_api.routes_grid_carbon import _profile_for_day, site_hourly_generation_kwh
+
+        _profile_for_day.cache_clear()
+        first = site_hourly_generation_kwh(DAY)
+        assert _profile_for_day.cache_info().misses == 1
+
+        second = site_hourly_generation_kwh(DAY)
+        assert _profile_for_day.cache_info().hits == 1
+        assert second == first
+
+    def test_callers_cannot_poison_the_cache_for_everyone_else(self):
+        """The cache holds a tuple and each caller gets a fresh dict; handing out
+        the cached mapping itself would let one request's edit leak into every
+        later one."""
+        from nongfab_api.routes_grid_carbon import _profile_for_day, site_hourly_generation_kwh
+
+        _profile_for_day.cache_clear()
+        mine = site_hourly_generation_kwh(DAY)
+        mine[12] = -999.0
+
+        assert site_hourly_generation_kwh(DAY)[12] != -999.0
+
+    def test_publishing_a_setting_invalidates_the_cached_day(self):
+        """The profile is computed FROM zone capacity, tilt and loss factors, all
+        of which are editable - so applying settings must drop it, exactly as it
+        drops annual_shading_loss_pct. Without this a tilt edit would keep
+        answering with the pre-edit day for the life of the process."""
+        from nongfab_api.routes_grid_carbon import _profile_for_day, site_hourly_generation_kwh
+        from nongfab_api.settings_service import apply_effective_settings
+
+        _profile_for_day.cache_clear()
+        site_hourly_generation_kwh(DAY)
+        assert _profile_for_day.cache_info().currsize == 1
+
+        apply_effective_settings()
+        assert _profile_for_day.cache_info().currsize == 0
