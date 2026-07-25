@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { usePublishSettings, useResetAllSettings, useResetSetting, useSystemSettings } from '../lib/queries'
+import { loadSettingsDraft, saveSettingsDraft } from '../lib/settingsDraft'
 import type { SettingItem } from '../lib/types'
 import './SettingsPage.css'
 
@@ -19,24 +20,11 @@ import './SettingsPage.css'
  * placeholder thinking it was measured.
  */
 
-const DRAFT_KEY = 'nongfab_settings_draft'
-
-function loadDraft(): Record<string, number> {
-  try {
-    const raw = localStorage.getItem(DRAFT_KEY)
-    return raw ? (JSON.parse(raw) as Record<string, number>) : {}
-  } catch {
-    return {}
-  }
-}
-
-function saveDraft(draft: Record<string, number>): void {
-  try {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft))
-  } catch {
-    // a full/blocked localStorage must not break the form itself
-  }
-}
+// The draft lives in a shared module (settingsDraft.ts) rather than here: the
+// browser-applied `hand.*` group reads it too, so a viewer tuning hand control
+// sees their trial value take effect in the 3D view straight away.
+const loadDraft = loadSettingsDraft
+const saveDraft = saveSettingsDraft
 
 /** Draft entries that actually differ from the published value - the only
  * ones worth sending, and what the "unsaved" count reflects. */

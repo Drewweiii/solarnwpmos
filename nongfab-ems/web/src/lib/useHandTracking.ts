@@ -16,6 +16,7 @@ import {
   detectGesture,
   filterHandSignal,
   mapHandToSignal,
+  type HandControlConfig,
   type HandGesture,
   type Landmark,
   type HandSignal,
@@ -73,13 +74,20 @@ export interface UseHandTrackingResult {
   videoRef: React.RefObject<HTMLVideoElement | null>
 }
 
-export function useHandTracking(enabled: boolean): UseHandTrackingResult {
+/** `config` (2026-07-25, part 3 of editable system values): the gesture/mapping
+ * tuning from the `hand.*` settings group. Held in a ref rather than an effect
+ * dependency on purpose - a changed value must take effect on the NEXT frame,
+ * never tear down and re-request the camera and re-download the MediaPipe
+ * model. Omitted -> the compiled defaults, exactly as before. */
+export function useHandTracking(enabled: boolean, config: HandControlConfig = DEFAULT_HAND_CONTROL_CONFIG): UseHandTrackingResult {
   const [status, setStatus] = useState<HandTrackingStatus>('idle')
   const [error, setError] = useState<string | null>(null)
   const signalRef = useRef<HandSignal | null>(null)
   const gestureRef = useRef<HandGesture>('none')
   const landmarksRef = useRef<Landmark[] | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const configRef = useRef(config)
+  configRef.current = config
 
   useEffect(() => {
     if (!enabled) {
@@ -155,8 +163,8 @@ export function useHandTracking(enabled: boolean): UseHandTrackingResult {
           if (hands && hands.length > 0) {
             const landmarks = hands[0] as Landmark[]
             landmarksRef.current = landmarks
-            gestureRef.current = detectGesture(landmarks)
-            const target = mapHandToSignal(landmarks, DEFAULT_HAND_CONTROL_CONFIG)
+            gestureRef.current = detectGesture(landmarks, configRef.current)
+            const target = mapHandToSignal(landmarks, configRef.current)
             // One-Euro de-jitter, timestamped in seconds (adaptive to hand speed).
             signalRef.current = filterHandSignal(signalFilter, target, ts / 1000)
             setStatus((s) => (s === 'tracking' ? s : 'tracking'))

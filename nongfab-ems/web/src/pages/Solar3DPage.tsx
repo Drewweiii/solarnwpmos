@@ -23,6 +23,7 @@ import {
   useZones,
 } from '../lib/queries'
 import { esriWorldImageryTileUrl } from '../lib/satelliteTile'
+import { useHandTuning } from '../lib/handSettings'
 import { useHandTracking } from '../lib/useHandTracking'
 import { buildAtIso, minutesToHhMm, todayIso, utcMinutesToIctHhMm } from '../lib/timeScrub'
 import './Solar3DPage.css'
@@ -94,7 +95,11 @@ export function Solar3DPage() {
   // default; the camera is requested only when the user turns it on. All frames
   // are processed on-device (see lib/useHandTracking.ts).
   const [handControlEnabled, setHandControlEnabled] = useState(false)
-  const hand = useHandTracking(handControlEnabled)
+  // Hand-control feel comes from the editable `hand.*` settings (2026-07-25
+  // part 3): the published values, with this browser's local draft on top so
+  // a non-admin can feel a value they're trying before anyone publishes it.
+  const handTuning = useHandTuning()
+  const hand = useHandTracking(handControlEnabled, handTuning.config)
   const handControlActive = handControlEnabled && (hand.status === 'tracking' || hand.status === 'no-hand')
 
   const atIso = useMemo(() => buildAtIso(date, timeOfDayMinutes), [date, timeOfDayMinutes])
@@ -393,6 +398,7 @@ export function Solar3DPage() {
               handControlActive={handControlActive}
               handSignalRef={hand.signalRef}
               handGestureRef={hand.gestureRef}
+              handTuning={handTuning}
               onHandToggleRun={handlePlayToggle}
             />
           </>

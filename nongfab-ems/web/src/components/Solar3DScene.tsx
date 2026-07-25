@@ -37,6 +37,7 @@ import {
   type HandGesture,
   type HandSignal,
 } from '../lib/handControl'
+import { DEFAULT_HAND_TUNING, type HandTuning } from '../lib/handSettings'
 import type { IrradianceGridPoint, MoonPathPoint, Panel, PrecipitationIntensity, SunPathPoint } from '../lib/types'
 
 // Exposed to Solar3DPage's icon rail "reset camera" button - React 19 takes
@@ -1297,9 +1298,8 @@ const HAND_MAX_DT = 0.05
 // a useful amount per second without feeling twitchy: a bit over a quarter turn
 // per second of orbit, and a zoom that roughly halves/doubles the distance per
 // second at full rate.
-const HAND_AZIMUTH_SPEED = 2.0 // rad/s
-const HAND_POLAR_SPEED = 1.1 // rad/s
-const HAND_ZOOM_SPEED = 0.8 // e-folds/s (multiplicative)
+// (These were compiled-in constants until 2026-07-25 part 3; they now come from
+// the `hand.*` settings group via `tuning`, defaulting to exactly these values.)
 
 interface HandCameraDriverProps {
   signalRef?: React.MutableRefObject<HandSignal | null>
@@ -1311,9 +1311,15 @@ interface HandCameraDriverProps {
   // Fired once per 👍 thumbs-up (edge-triggered) so the hand can start/stop the
   // 3D view's time animation without touching the mouse.
   onToggleRun?: () => void
+  /** Camera speeds + latch hold from the editable `hand.*` settings. */
+  tuning?: HandTuning
 }
 
-function HandCameraDriver({ signalRef, gestureRef, active, controlsRef, span, homeTarget, onToggleRun }: HandCameraDriverProps) {
+function HandCameraDriver({ signalRef, gestureRef, active, controlsRef, span, homeTarget, onToggleRun, tuning }: HandCameraDriverProps) {
+  // Read through a ref inside useFrame so a settings change takes effect on the
+  // next frame without re-creating the driver or resetting the camera pose.
+  const tuningRef = useRef(tuning ?? DEFAULT_HAND_TUNING)
+  tuningRef.current = tuning ?? DEFAULT_HAND_TUNING
   const st = useRef({ azimuth: 0, polar: 0.9, distance: 50, synced: false })
   const latch = useRef(createGestureLatch())
   const toggleRef = useRef(onToggleRun)
@@ -1333,7 +1339,7 @@ function HandCameraDriver({ signalRef, gestureRef, active, controlsRef, span, ho
     // 👍 = start/stop the animation. Held briefly then fired once (see
     // stepGestureLatch), and stepped before any early return below so it works
     // in every mode.
-    if (stepGestureLatch(latch.current, gesture === 'toggleRun', dt)) toggleRef.current?.()
+    if (stepGestureLatch(latch.current, gesture === 'toggleRun', dt, tuningRef.current.latchHoldSeconds)) toggleRef.current?.()
     // (Re)adopt the current camera pose when first activated or whenever the
     // hand isn't visible this frame - keeps everything continuous with the
     // mouse and avoids any snap on (re)acquire.
@@ -1370,11 +1376,11 @@ function HandCameraDriver({ signalRef, gestureRef, active, controlsRef, span, ho
       // every render frame. Holding the hand out keeps the view turning (so any
       // angle is reachable), returning it to centre stops - which is what makes
       // zoom and left/right actually usable, unlike the old absolute mapping.
-      const rates = mapSignalToRates(sig, gesture)
+      const rates = mapSignalToRates(sig, gesture, tuningRef.current.config)
       const next = integrateHandCamera({ azimuth: s.azimuth, polar: s.polar, distance: s.distance }, rates, dt, {
-        azimuthSpeed: HAND_AZIMUTH_SPEED,
-        polarSpeed: HAND_POLAR_SPEED,
-        zoomSpeed: HAND_ZOOM_SPEED,
+        azimuthSpeed: tuningRef.current.azimuthSpeed,
+        polarSpeed: tuningRef.current.polarSpeed,
+        zoomSpeed: tuningRef.current.zoomSpeed,
         minDistance,
         maxDistance,
         minPolar: 0.15,
@@ -1508,6 +1514,9 @@ interface Solar3DSceneProps {
   // Called once each time the hand signals 👍 - the page wires it to the same
   // play/pause it uses for the ▶/⏸ button.
   onHandToggleRun?: () => void
+  // Editable `hand.*` tuning (2026-07-25 part 3). Omitted -> the compiled
+  // defaults, which are the same numbers the settings registry ships.
+  handTuning?: HandTuning
 }
 
 export function Solar3DScene({
@@ -1542,6 +1551,7 @@ export function Solar3DScene({
   handSignalRef,
   handGestureRef,
   onHandToggleRun,
+  handTuning,
   ref,
 }: Solar3DSceneProps & { ref?: Ref<Solar3DSceneHandle> }) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null)
@@ -1811,6 +1821,7 @@ export function Solar3DScene({
         span={bounds.full.span}
         homeTarget={[focusCenterScene[0], panelBaseY, focusCenterScene[1]]}
         onToggleRun={onHandToggleRun}
+        tuning={handTuning}
       />
     </Canvas>
   )
