@@ -139,8 +139,6 @@ export function useFeatureImportance(zone: string) {
   })
 }
 
-// Expansion scenarios are pure config + seasonal model output - they only change
-// when config/assets.yaml does, so this is effectively static per deploy.
 export function useGridToday() {
   const { token } = useAuth()
   return useQuery({
@@ -165,6 +163,9 @@ export function useGridCarbon() {
     enabled: Boolean(token),
     refetchInterval: 5 * 60 * 1000,
     staleTime: 5 * 60 * 1000,
+  })
+}
+
 export function useOfficialSources() {
   const { token } = useAuth()
   return useQuery({
@@ -177,6 +178,8 @@ export function useOfficialSources() {
   })
 }
 
+// Expansion scenarios are pure config + seasonal model output - they only change
+// when config/assets.yaml does, so this is effectively static per deploy.
 export function useExpansion() {
   const { token } = useAuth()
   return useQuery({
