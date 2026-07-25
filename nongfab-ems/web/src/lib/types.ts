@@ -993,6 +993,8 @@ export interface GridCarbonResponse {
   calibration_note: string
   marginal_note: string
   profile_note: string
+}
+
 // GET /sources - provenance + staleness watch over the four Thai agencies this
 // site quotes (2026-07-25). Deliberately NOT a rate scraper: every Thai tariff
 // announcement is a scanned image, so the figures are transcribed by hand and
