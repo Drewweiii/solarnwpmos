@@ -10,6 +10,12 @@ import { FinancialPage } from '../FinancialPage'
 
 function makeFinancialResponse(overrides: Partial<FinancialResponse> = {}): FinancialResponse {
   return {
+    // The project's confirmed BOI holidays, served by the API so the page's
+    // quick-set buttons can never disagree with the published setting.
+    boi_presets: [
+      { label: '8 ปี — พื้นที่ทั่วไป (GIS, ISB)', years: 8 },
+      { label: '12 ปี — Jetty', years: 12 },
+    ],
     installed_dc_capacity_kwp: 200.2,
     year_1_ac_energy_kwh: 250_000,
     capex_thb: 6_006_000,
@@ -98,5 +104,22 @@ describe('FinancialPage', () => {
     vi.spyOn(api, 'postFinancial').mockRejectedValue(new ApiError(422, 'invalid assumptions'))
     renderPage()
     expect(await screen.findByText(/financial analysis failed/i)).toBeInTheDocument()
+  })
+})
+
+describe('BOI presets', () => {
+  it('renders one button per holiday the API reports, and selecting one sets the slider', async () => {
+    // The 8 vs 12 split is a confirmed fact about this project (general area vs
+    // Jetty), so it must be one click rather than a number to remember - and it
+    // must come from the API, so an edit in Settings cannot leave the button
+    // disagreeing with the published figure.
+    vi.spyOn(api, 'postFinancial').mockResolvedValue(makeFinancialResponse())
+    renderPage()
+
+    const jetty = await screen.findByRole('button', { name: /12 ปี — Jetty/ })
+    expect(screen.getByRole('button', { name: /8 ปี — พื้นที่ทั่วไป/ })).toBeInTheDocument()
+
+    await userEvent.click(jetty)
+    await waitFor(() => expect(jetty).toHaveClass('is-active'))
   })
 })
