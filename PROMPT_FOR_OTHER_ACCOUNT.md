@@ -30,7 +30,9 @@ Terminal 2) branch `claude/solar-optimization-forecasting-jryux7`
 และตำแหน่งของสิ่งกีดขวางครบไหม **แล้วรายงาน user ว่าขาดอะไรบ้าง** ถ้าข้อมูล
 เรขาคณิตไม่พอ ทั้งโปรเจกต์จะกลายเป็นการเดา ซึ่งผิดกติกาข้อสำคัญที่สุดของ repo นี้
 
-**ห้ามแตะ** `financial/`, `grid_carbon.py`, `green_savings.py` — อีกบัญชีถือครองอยู่
+**ห้ามแตะ** `financial/`, `grid_carbon.py`, `green_savings.py`, `egat_grid.py`,
+`routes_grid.py`, `official_sources.py`, `routes_sources.py`,
+`GridContextPanel.tsx`, `OfficialSourcesPanel.tsx` — อีกบัญชีถือครองอยู่
 (กำลังจะทำ P50/P90 + Monte Carlo ใน `financial/`)
 
 **กติกาที่พลาดแล้วเจ็บ (จดไว้จากที่พลาดมาแล้วจริงๆ):**
@@ -42,6 +44,15 @@ Terminal 2) branch `claude/solar-optimization-forecasting-jryux7`
 - รัน pytest **ทีละ package** (basename ซ้ำข้าม package ทำให้ collect error)
 - `annual_shading_loss_pct` เป็น `lru_cache` — ต้อง `cache_clear()` เมื่อ tilt เปลี่ยน
   ดูตัวอย่างที่ `settings_service.apply_effective_settings` ทำไว้ (มี 2 cache แล้ว)
+- **เวลาจาก กฟผ. (EGAT SysGen) เป็น ICT ไม่ใช่ UTC** — ต่างจากทุก feed อื่นในเว็บนี้
+  ที่เป็น UTC. ต้นทางส่ง `[วินาทีนับจากเที่ยงคืนเวลาไทย, MW, °C]` คู่กับวันแบบ
+  `DD-MM-YYYY` ทั้งคู่เป็นเวลาไทย ถ้าเผลอ convert จะเพี้ยนไป 7 ชั่วโมง
+  (`egat_grid.py` สร้าง timestamp เป็น ICT ตรงๆ และหน้าจออ่านตัวเลขชั่วโมง
+  จากสตริง ISO ไม่ผ่าน timezone ของเบราว์เซอร์)
+- **ตอน rebase ที่ชนกัน อย่ารวมสองฝั่งแบบอัตโนมัติ** — เพิ่งพลาดมา: การเก็บทั้งสองฝั่ง
+  ทำให้ hook ตัวหนึ่งไปซ้อนอยู่ในบอดี้ของอีกตัว **`tsc --noEmit` ผ่านสะอาด**
+  แต่ไฟล์เทส web ทั้ง 54 ไฟล์ transform ไม่ผ่าน → ย้ำกติกาข้อแรก: `build` + `test`
+  คือด่านจริง ไม่ใช่ `tsc`
 - ค่าคงที่ใหม่ควรใส่ใน `settings_registry.py` — เพิ่ม 1 entry ได้ช่องกรอกในหน้า
   Settings อัตโนมัติ ไม่ต้องทำ UI เอง (ตอนนี้มี 80 ค่า / 10 กลุ่ม)
 
