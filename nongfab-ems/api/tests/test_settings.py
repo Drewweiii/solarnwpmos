@@ -41,6 +41,16 @@ def test_every_spec_has_a_sane_shape():
         assert spec.step > 0, f"{spec.key} needs a positive step"
 
 
+def test_every_group_has_at_least_one_setting():
+    """The settings screen renders one section per entry in GROUP_LABELS, so a
+    group with no specs draws an empty titled box on the page. Easy to create by
+    accident - add the label first and the specs later, or move the last spec out
+    of a group - and invisible until somebody opens the screen."""
+    populated = {spec.group for spec in SPECS}
+    empty = sorted(set(GROUP_LABELS) - populated)
+    assert not empty, f"these groups would render as empty sections: {empty}"
+
+
 def test_keys_are_unique():
     keys = [spec.key for spec in SPECS]
     assert len(keys) == len(set(keys))

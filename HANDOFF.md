@@ -1941,3 +1941,67 @@ simulation **90** · web **491** ผ่านหมด · `ruff check` clean
 6. **Live-verify ด้วย browser จริง** — panel ใหม่ 5 ตัว (Soiling / Verification /
    Health / Expansion / Grid Carbon) + หน้า Settings (ยังไม่เคยเปิดดูของจริงเลย)
 7. งาน Track 2 (UI / AI assistant / visitor network) เป็นของอีกบัญชีเช่นกัน
+
+## 2026-07-25 17:45 ICT
+
+**Track 1 — เนื้อหาเชิงวิชาการ (Content/Engineering)** · จบกะเพราะเครดิตใกล้หมด
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+**1. นวัตกรรม A — คาร์บอนของกริดรายชั่วโมง `/grid/carbon`** (`71d4f8c`, `8dbb6c1`)
+- `api/grid_carbon.py` + `routes_grid_carbon.py` + `GridCarbonPanel` บนหน้า /forecast
+- วิธี: เรียงเชื้อเพลิงตาม merit-order เป็นแถบแนวนอนใต้ load-duration curve
+  (ขนาด**พื้นที่**ของแถบ = สัดส่วนพลังงาน แก้ด้วย bisection) โหลดตกในแถบไหน =
+  เชื้อเพลิงชายขอบของเวลานั้น
+- **กันพลาดสำคัญสุด `calibrate()`**: ตรึงค่าเฉลี่ยถ่วงน้ำหนักให้เท่า GEF ที่เผยแพร่พอดี
+  หน้านี้จึงแค่ "กระจาย" ตัวเลขทางการ ไม่มีทางเสนอตัวเลขที่ขัดกับ Energy Report
+- **ข้อค้นพบ**: โหลดไทยไม่เคยลงต่ำพอให้ก๊าซหลุดจากชายขอบ → โซลาร์ที่นี่แทนที่
+  **ก๊าซ ~0.49** ไม่ใช่ค่าเฉลี่ย 0.4758 → **ค่าคงที่ที่รายงานอยู่ประเมินไซต์นี้ต่ำไป**
+
+**2. หาข้อมูลจริงมาแทน placeholder ได้ 2 ชุด**
+- **สัดส่วนเชื้อเพลิง**: ค่าจริง สนพ. (EPPO) ปี 2566 ทั้งประเทศ 219,540.04 GWh —
+  ก๊าซ 58.61 / นำเข้า 14.94 / ถ่านหิน 13.10 / หมุนเวียน 10.42 / พลังน้ำ 2.92 / น้ำมัน 0.01
+  (คอลัมน์ GWh บวกได้ตรงยอดพอดี + ค้น 2 ครั้งคนละคำได้ผลตรงกัน) ป้าย placeholder → annual
+  ⚠️ **กฟผ. มีอีกตารางคล้ายกันชื่อ "ในระบบของ กฟผ." ที่นำเข้าแค่ ~1% ห้ามใช้** มีเทสกันไว้
+- **BOI**: user ยืนยัน **8 ปีพื้นที่ทั่วไป / 12 ปี Jetty** → `origin=confirmed`
+  แทนค่า 0 เดิม + ปุ่มเลือก 8/12 ในหน้า Financial (อ่านจาก settings สดๆ ไม่ hardcode)
+- **CAPEX (฿30,000) + WACC (8%)**: user เห็นราคาตลาดแล้ว**เลือกคงไว้** →
+  **อย่าเสนอ benchmark ตลาดซ้ำ** เสนอไปแล้วและถูกปฏิเสธแล้ว ขอเฉพาะตัวเลขจริงของโครงการ
+
+**3. แก้บั๊กเล็กที่เจอจากการไล่ตรวจ**
+- CI แดงจาก `da55b22`: recharts formatter ใส่ type ไม่ได้ (TS2322) พังเฉพาะตอน build
+- `boi_tax_holiday_years_jetty` เคยเป็นค่าตาย (ไม่มีใครอ่าน) → ให้ API ส่ง `boi_presets`
+- `GridCarbonPanel` บอกเชื้อเพลิงผิด (หยิบแถวกลาง array แทนชั่วโมงที่ผลิตสูงสุด)
+- `/grid/carbon` คำนวณโปรไฟล์ท้องฟ้าใสซ้ำทุก request (~90 ms) → cache ตามวัน
+  **พร้อม invalidation** ใน `apply_effective_settings` (ตอนนี้เคลียร์ 2 cache)
+- อธิบายจุดกระโดดของเส้น marginal ช่วงพีคบนหน้าจอ (น้ำมันรายปีมาใช้กับวันเดียว = เกินจริง)
+- ตรวจทั้ง registry แล้ว **ไม่มี setting ตายเหลือเลย** ครบทั้ง 80 ตัว
+- เพิ่มเทสกันกลุ่ม settings ว่างเปล่า (จะ render กล่องเปล่าบนหน้า Settings)
+
+**ผลรันล่าสุด (ยืนยันแล้ว):** api **334** · web **503** · financial **31** ·
+ruff clean · `npm run build` clean · lint clean · CI #166 เขียว (#167 กำลังรัน)
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- **`PROMPT_FOR_OTHER_ACCOUNT.md`** (ใหม่) — คำสั่งพร้อมก๊อปวางให้อีกบัญชี
+- **`HANDOFF_PROJECT_C_SHADING.md`** — สเปกเต็มของงานเงา ray-trace
+- **`WORK_SPLIT.md`** — ตารางแบ่งงาน A(เสร็จ)/B(บัญชีนี้)/C,D(อีกบัญชี)
+- settings ตอนนี้ **80 ค่า / 10 กลุ่ม** · เพิ่ม 1 entry = ได้ช่องกรอกอัตโนมัติ
+- **ไซต์นี้ไม่มีมิเตอร์วัดกำลังผลิตจริง** — ข้อจำกัดถาวร
+- gotcha: `routes_verification` include **ก่อน** `routes_forecast` · panel บน
+  ForecastPage ห้ามใช้คลาส `.ems-*` · `npm run test` ไม่ typecheck ต้อง `npm run build` ·
+  ห้าม annotate พารามิเตอร์ recharts formatter · รัน `ruff check` เอง ·
+  pytest ทีละ package · มี 2 lru_cache ที่ต้องเคลียร์เมื่อ settings เปลี่ยน
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **เช็ค CI run #167 (`820a738`)** และรันล่าสุดให้เขียวก่อนทำอย่างอื่น
+2. **งาน B — P50/P90 + Monte Carlo ใน `financial/`** (เป็นของบัญชีนี้)
+   ใช้ข้อมูล reanalysis หลายปีที่ ingest ไว้แล้ว (PVGIS/NASA POWER) + degradation
+   + ความไม่แน่นอนของค่าไฟ/CAPEX → ตอบเป็นการแจกแจง P50/P90 แทนตัวเลขเดียว
+3. **Live-verify ด้วย browser จริง** — panel ใหม่ 5 ตัว + หน้า Settings
+   (ยังไม่เคยเปิดดูของจริงเลยสักครั้ง เป็นหนี้ที่ค้างมานาน)
+4. **ขอ CAPEX + WACC จริงของโครงการ** (อย่าเสนอ benchmark ตลาดซ้ำ)
+5. ถ้าได้ตาราง fuel mix **รายเดือน** ของ สนพ. มา กรอกทับใน Settings ได้เลย
+   ป้าย `annual` จะเปลี่ยนเป็น `published` เอง
+6. งาน C/D และ Track 2 เป็นของอีกบัญชี — ไม่แตะ
