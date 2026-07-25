@@ -35,6 +35,7 @@ from . import (
     routes_simulate,
     routes_soiling,
     routes_solar3d,
+    routes_verification,
     routes_weather,
     ws_chat,
     ws_live,
@@ -219,6 +220,10 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
         return {"access_token": token, "token_type": "bearer"}
 
     app.include_router(routes_assets.router)
+    # BEFORE routes_forecast: that router's catch-all /forecast/{zone}/{horizon}
+    # would otherwise match /forecast/{zone}/verification first and 404 it as an
+    # unknown horizon (FastAPI matches in registration order).
+    app.include_router(routes_verification.router)
     app.include_router(routes_forecast.router)
     app.include_router(routes_simulate.router)
     app.include_router(routes_performance.router)

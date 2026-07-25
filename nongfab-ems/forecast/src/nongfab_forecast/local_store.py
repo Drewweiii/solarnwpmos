@@ -386,6 +386,29 @@ class RealDataStore:
             conn.commit()
         return len(rows)
 
+    def forecast_history_issuances(self, zone: str, horizon: str, since: datetime) -> list[tuple]:
+        """Rows `(target_time, issued_at, pred)` for one zone/horizon,
+        `target_time >= since`, oldest first - what `forecast_history_points`
+        returns plus the ISSUE time, so a caller can recover each row's lead
+        time (target_time - issued_at). Added 2026-07-25 for the forecast
+        verification/skill-score route.
+
+        Note the table's PRIMARY KEY (zone, horizon, target_time) and
+        `record_forecast_points`' INSERT OR REPLACE: only the FRESHEST issuance
+        for a given target hour survives, deliberately (a forecast issued closer
+        to its target is the better one to serve back). So the lead times
+        recoverable here are whatever each hour's last issuance happened to be -
+        this is not a full lead-time matrix, and verification built on it must
+        say so rather than imply every lead was scored.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT target_time, issued_at, pred FROM forecast_history "
+                "WHERE zone = ? AND horizon = ? AND target_time >= ? ORDER BY target_time",
+                (zone, horizon, since.isoformat()),
+            ).fetchall()
+        return list(rows)
+
     def forecast_history_points(self, zone: str, horizon: str, since: datetime) -> list[tuple]:
         """Rows `(target_time, pred, lower, upper, algorithm, error,
         candidate_errors)` for one zone/horizon, `target_time >= since`,

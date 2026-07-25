@@ -4,6 +4,7 @@ import {
   getCloudConditions,
   getCurrentConditions,
   getFeatureImportance,
+  getForecastVerification,
   getSoiling,
   getEnergyReport,
   getSavingsSummary,
@@ -125,6 +126,19 @@ export function useFeatureImportance(zone: string) {
     queryFn: () => getFeatureImportance(token!, zone),
     enabled: Boolean(token),
     staleTime: 5 * 60 * 1000,
+  })
+}
+
+// Verification scores a whole window of past forecasts against actuals, which
+// only changes as new hours complete - a long staleTime, deliberately off the
+// live-dashboard cadence.
+export function useForecastVerification(zone: string, days = 30) {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['forecast-verification', zone, days],
+    queryFn: () => getForecastVerification(token!, zone, days),
+    enabled: Boolean(token),
+    staleTime: 15 * 60 * 1000,
   })
 }
 

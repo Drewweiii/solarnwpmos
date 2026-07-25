@@ -361,3 +361,58 @@ Tests: features +11, api +15 (roll-up, honest-empty, wet-vs-dry window, marine
 vs inland, the placeholder replacement + its labelling, route auth/404/empty/
 populated), web +6. tsc + ruff + oxlint clean; api 118 downstream tests
 (energy-report/financial/simulate/simulation) still pass unchanged.
+
+### 2026-07-25 - Forecast Verification & Skill Score (Track 1)
+
+Innovation B of four. Until now every accuracy number on the site came from
+TRAINING: `rmse_by_lead_hour` and `candidate_errors` are hold-out errors measured
+while fitting a model. That answers "how well did this model fit its training
+data", not "how good have the forecasts this system actually issued turned out to
+be" - which is the question solar-forecasting work is judged on.
+
+New `GET /forecast/{zone}/verification?days=N` scores the second one, from
+history the app already keeps: hour-ahead issuances (`forecast_history`, horizon
+`hour`) against the recorded actual output (same table, horizon `generated`).
+
+`forecast/src/nongfab_forecast/verification.py` (pure, 17 tests):
+- MAE / RMSE / MBE, plus RMSE normalized by the zone's AC capacity so the three
+  zones are comparable. MBE's sign is reported explicitly because a
+  systematically optimistic forecast is a different problem from a noisy one.
+- **Skill score against persistence** ("output in k hours = output now"), the
+  baseline the literature expects a model to beat: `1 - RMSE_model /
+  RMSE_persistence`. > 0 = the model genuinely adds information, 0 = no better
+  than assuming nothing changes, < 0 = worse than doing nothing. The model's RMSE
+  in that ratio is measured over exactly the pairs persistence could also be
+  scored on - mixing subsets would make the ratio meaningless.
+- Lead time per row is recovered from `target_time - issued_at`, via a new
+  `RealDataStore.forecast_history_issuances`.
+
+Three honesty constraints, each unit-tested:
+1. **Daylight filtering.** Night hours are trivially correct (everyone predicts
+   zero) and would drag every metric toward zero error, so the headline is
+   daylight-only - but a pair where only ONE side is zero is kept, because
+   "predicted 40 kW, got nothing" is exactly the miss verification exists to
+   catch. All-hours figures are shown beside the daylight ones rather than hidden.
+2. **No invented pairs.** A forecast hour with no recorded actual is skipped;
+   persistence is left `null` where its reference hour is missing; an empty
+   window returns `n=0`, never a fabricated score. The route distinguishes "no
+   history" from "both sides exist but no overlapping hours".
+3. **The lead-time caveat is stated in the response.** `forecast_history` keys on
+   (zone, horizon, target_time), so only each hour's freshest issuance survives -
+   deliberately, since a forecast issued closer to its target is the better one to
+   serve back. The lead breakdown therefore covers whichever issuance each hour
+   last had, NOT a full lead-time matrix, and `lead_time_note` says so on screen.
+
+Routing note: the router is registered **before** `routes_forecast`, whose
+catch-all `/forecast/{zone}/{horizon}` would otherwise match
+`/forecast/{zone}/verification` and 404 it as an unknown horizon.
+
+`ForecastVerificationPanel` on /forecast: the skill score as an oversized
+colour-coded headline (green beating persistence, red worse than doing nothing),
+a metrics table (daylight vs all hours), an RMSE-by-lead bar chart, and a plain-
+Thai "how to read this" note including the explicit statement that these are not
+training errors. Its CSS lives in ForecastPage.css, not EnergyReportPage.css -
+that page is lazy-loaded, so borrowing its `.ems-panel` classes would have left
+the panel unstyled.
+
+Tests: forecast +17, api +6, web +5 (454 total). ruff/tsc/oxlint clean.

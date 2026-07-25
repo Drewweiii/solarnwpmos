@@ -278,6 +278,45 @@ export interface FeatureImportanceResponse {
   new_features_total: number | null
 }
 
+// GET /forecast/{zone}/verification - how good the forecasts this system has
+// actually ISSUED turned out to be (2026-07-25). Distinct from `error`/
+// `candidate_errors` elsewhere in this file, which are TRAINING hold-out errors
+// measured while fitting the model. `skill_score` is against a persistence
+// baseline: > 0 = the model genuinely adds information over "nothing changes",
+// 0 = no better, < 0 = worse than doing nothing. null whenever too few pairs
+// carried a persistence reference to compute it honestly.
+export interface VerificationMetrics {
+  n: number
+  mae_kw: number
+  rmse_kw: number
+  // Positive = the forecast runs HIGH (optimistic) on average.
+  mbe_kw: number
+  nrmse_pct: number | null
+  persistence_rmse_kw: number | null
+  skill_score: number | null
+}
+
+export interface VerificationLeadMetrics {
+  lead_bucket: string
+  metrics: VerificationMetrics
+}
+
+export interface VerificationResponse {
+  available: boolean
+  zone: string
+  horizon: string
+  window_days: number
+  reason: string | null
+  ac_capacity_kw: number | null
+  // Daylight-only is the headline (night hours are trivially correct and would
+  // dilute every metric toward zero); all_hours is shown alongside it so the
+  // difference is visible rather than hidden.
+  daylight: VerificationMetrics | null
+  all_hours: VerificationMetrics | null
+  by_lead: VerificationLeadMetrics[]
+  lead_time_note: string
+}
+
 // GET /soiling/{zone} - the Soiling & Cleaning Advisor (2026-07-25). How dirty
 // the array is now, how fast it's getting dirtier, when rain last washed it,
 // what the dirt costs, and roughly when a wash is worth scheduling - all derived

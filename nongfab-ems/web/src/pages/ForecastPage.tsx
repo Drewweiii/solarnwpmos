@@ -20,6 +20,7 @@ import {
 import { ZoneSelector } from '../components/ZoneSelector'
 import { WeatherStrip } from '../components/WeatherStrip'
 import { FeatureImportancePanel } from '../components/FeatureImportancePanel'
+import { ForecastVerificationPanel } from '../components/ForecastVerificationPanel'
 import { useAuth } from '../lib/auth'
 import {
   buildCompetitionRows,
@@ -707,6 +708,12 @@ export function ForecastPage() {
       {/* How much each input (incl. the new marine/aerosol features) drives the
           hour-ahead model. Per-zone; "All" resolves to a real zone (GIS). */}
       <FeatureImportancePanel zone={zoneId === ALL_ZONES_ID ? 'GIS' : zoneId} />
+
+      {/* Forecast Verification & Skill Score (2026-07-25) - the accuracy of the
+          forecasts actually issued, scored against what happened, with a skill
+          score against persistence. Distinct from the training hold-out RMSE
+          shown in the Model Competition panel above. */}
+      <ForecastVerificationPanel zone={zoneId === ALL_ZONES_ID ? 'GIS' : zoneId} />
     </div>
   )
 }

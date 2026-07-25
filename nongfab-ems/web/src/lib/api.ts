@@ -23,6 +23,7 @@ import type {
   SunPathResponse,
   UvHistoryResponse,
   UvHourlyHistoryResponse,
+  VerificationResponse,
   WeatherStripResponse,
   Zone,
 } from './types'
@@ -127,6 +128,9 @@ export const getCurrentConditions = (token: string): Promise<CurrentConditionsRe
 
 export const getFeatureImportance = (token: string, zone: string): Promise<FeatureImportanceResponse> =>
   request(`/forecast/${zone}/feature-importance`, token)
+
+export const getForecastVerification = (token: string, zone: string, days = 30): Promise<VerificationResponse> =>
+  request(`/forecast/${zone}/verification?days=${days}`, token)
 
 export const getSoiling = (token: string, zone: string): Promise<SoilingResponse> => request(`/soiling/${zone}`, token)
 
