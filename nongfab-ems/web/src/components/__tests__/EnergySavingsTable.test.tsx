@@ -18,7 +18,7 @@ function metrics(energyKwh: number, billThb: number): SavingsMetrics {
     carbon_credit_units: 1.2,
     carbon_credit_value_thb: 120,
     trees_equivalent: 135,
-    scope2_co2_avoided_kg: energyKwh * 0.4999,
+    scope2_co2_avoided_kg: energyKwh * 0.4758,
   }
 }
 
@@ -52,7 +52,7 @@ const response: SavingsSummaryResponse = {
     ugt1_rate_thb_per_kwh: 4.14,
     ugt2_portfolio: 'Portfolio A',
     ugt2_rate_thb_per_kwh: 4.0423,
-    ef_scope2_kg_per_kwh: 0.4999,
+    ef_scope2_kg_per_kwh: 0.4758,
     carbon_credit_unit_per_kwp_year: 0.901,
     trees_per_kwp_year: 101,
     carbon_price_thb_per_tonne: 100,

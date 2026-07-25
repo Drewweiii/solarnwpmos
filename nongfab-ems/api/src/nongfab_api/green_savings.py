@@ -19,7 +19,8 @@ site-specific choices they confirmed the same day:
                                out weekend/holiday off-peak hours; refine if a
                                real half-hourly consumption profile appears)
   * UGT2 portfolio ........... Portfolio A
-  * Grid emission factor ..... 0.4999 kgCO2/kWh (TGO grid-mix, scope 2)
+  * Grid emission factor ..... 0.4758 kgCO2/kWh (กกพ UGT criteria doc, scope 2;
+                               user's choice 2026-07-25 over TGO's 0.4999)
 
 Rate sources (all baht per kWh, VAT excluded, matching the announcements):
   * Normal Type-4 (large) TOU, HV Peak = 4.1025
@@ -57,14 +58,14 @@ UGT1_RATE_THB_PER_KWH = NORMAL_RATE_THB_PER_KWH + UGT1_RETAIL_PREMIUM_THB_PER_KW
 UGT2_RATE_THB_PER_KWH = UGT2_PORTFOLIO_A_HV_THB_PER_KWH
 
 # --- Carbon constants ------------------------------------------------------
-# 0.4999 is the TGO grid-mix scope-2 factor from the reference files the user
-# supplied on 2026-07-19. NOTE (2026-07-25): กกพ's own UGT criteria document
-# quotes a DIFFERENT national figure - 0.4758 tCO2/MWh (and ~0.407 for 2565) -
-# so two official Thai sources disagree. Which one this site should publish is
-# the user's call, not a silent edit, so the default here is unchanged and the
-# value was instead made user-settable (settings key
-# `green.ef_scope2_kg_per_kwh`) with both figures named in its note.
-EF_SCOPE2_KG_CO2_PER_KWH = 0.4999  # TGO grid-mix (scope 2)
+# Two official Thai sources disagree on the grid emission factor: TGO's
+# grid-mix figure is 0.4999 (the reference files the user supplied 2026-07-19,
+# and what this module shipped with until 2026-07-25), while กกพ's own UGT
+# criteria document quotes 0.4758 tCO2/MWh (and ~0.407 for 2565). The user
+# chose the กกพ figure on 2026-07-25, because the UGT1/UGT2 tariffs on this
+# same page come from that same document - one document, one set of numbers.
+# Still settable per-site via `green.ef_scope2_kg_per_kwh`.
+EF_SCOPE2_KG_CO2_PER_KWH = 0.4758  # กกพ UGT criteria document (scope 2)
 CARBON_CREDIT_UNIT_PER_KWP_YEAR = 0.901  # tonne CO2eq / kWp / year (rule of thumb)
 TREES_PER_KWP_YEAR = 101.0
 CARBON_PRICE_THB_PER_TONNE = 100.0  # market reference price (workshop PDF)

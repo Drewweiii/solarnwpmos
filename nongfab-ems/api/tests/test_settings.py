@@ -361,14 +361,13 @@ def test_a_published_feed_limit_changes_the_diagnostics_verdict(engine, tmp_path
 # --- green savings: tariffs + carbon (2026-07-25) ----------------------------
 
 
-def test_the_conflicting_emission_factor_ships_unchanged_and_names_both_sources():
-    """กกพ's UGT criteria doc quotes 0.4758 where the code uses TGO's 0.4999.
-    Two official Thai sources disagree, so the value became SETTABLE rather than
-    silently switched: the default must still be the one the published carbon
-    figures were computed with, and the note must name the alternative so the
-    choice is informed."""
+def test_the_emission_factor_default_is_the_kkp_figure_and_names_both_sources():
+    """Two official Thai sources disagree: กกพ's UGT criteria doc says 0.4758,
+    TGO's grid-mix says 0.4999. The user chose กกพ's on 2026-07-25, so that is
+    the default - and the note must still name BOTH, so a later reader can see
+    the choice was between two real published figures rather than a typo."""
     spec = BY_KEY["green.ef_scope2_kg_per_kwh"]
-    assert spec.default == 0.4999
+    assert spec.default == 0.4758
     assert "0.4758" in spec.note
     assert "0.4999" in spec.note
 
@@ -381,17 +380,17 @@ def test_publishing_an_emission_factor_changes_the_avoided_co2(engine, tmp_path)
         token = create_access_token("tester", "admin", settings, app.state.deploy_id)
         headers = {"Authorization": f"Bearer {token}"}
         before = client.get("/savings/summary", headers=headers).json()
-        assert before["assumptions"]["ef_scope2_kg_per_kwh"] == 0.4999
+        assert before["assumptions"]["ef_scope2_kg_per_kwh"] == 0.4758
         co2_before = before["zones"][0]["periods"]["year"]["scope2_co2_avoided_kg"]
 
-        # Switch to กกพ's figure.
-        client.put("/settings", json={"values": {"green.ef_scope2_kg_per_kwh": 0.4758}}, headers=headers)
+        # Switch to TGO's figure.
+        client.put("/settings", json={"values": {"green.ef_scope2_kg_per_kwh": 0.4999}}, headers=headers)
         after = client.get("/savings/summary", headers=headers).json()
 
     # The footnote quotes what is actually in force, not the shipped default.
-    assert after["assumptions"]["ef_scope2_kg_per_kwh"] == 0.4758
+    assert after["assumptions"]["ef_scope2_kg_per_kwh"] == 0.4999
     co2_after = after["zones"][0]["periods"]["year"]["scope2_co2_avoided_kg"]
-    assert co2_after == pytest.approx(co2_before * 0.4758 / 0.4999)
+    assert co2_after == pytest.approx(co2_before * 0.4999 / 0.4758)
 
 
 def test_publishing_a_tariff_changes_the_bill_saving_and_keeps_ugt1_derived(engine, tmp_path):

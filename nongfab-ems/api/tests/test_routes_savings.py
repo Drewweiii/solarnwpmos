@@ -50,4 +50,4 @@ def test_assumptions_present(app, token_factory):
         resp = client.get("/savings/summary", headers={"Authorization": f"Bearer {token}"})
     a = resp.json()["assumptions"]
     assert a["ugt2_portfolio"] == "Portfolio A"
-    assert a["ef_scope2_kg_per_kwh"] == 0.4999
+    assert a["ef_scope2_kg_per_kwh"] == 0.4758

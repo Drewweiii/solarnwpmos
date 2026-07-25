@@ -24,7 +24,7 @@ def test_ugt2_portfolio_a_hv_rate():
 
 def test_scope2_uses_tgo_emission_factor():
     m = g.compute_metrics(energy_kwh=2000.0, dc_capacity_kwp=100.0, capacity_years=1.0)
-    assert m.scope2_co2_avoided_kg == pytest.approx(2000.0 * 0.4999)
+    assert m.scope2_co2_avoided_kg == pytest.approx(2000.0 * 0.4758)
 
 
 def test_carbon_credit_and_trees_are_capacity_based_not_energy_based():
@@ -52,4 +52,4 @@ def test_assumptions_echoes_the_locked_constants():
     assert a["normal_rate_thb_per_kwh"] == 4.1025
     assert a["ugt1_rate_thb_per_kwh"] == pytest.approx(4.14)
     assert a["ugt2_rate_thb_per_kwh"] == 4.0423
-    assert a["ef_scope2_kg_per_kwh"] == 0.4999
+    assert a["ef_scope2_kg_per_kwh"] == 0.4758

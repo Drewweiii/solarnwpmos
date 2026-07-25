@@ -611,7 +611,7 @@ moves until somebody deliberately publishes a new value.
 
 Seven new settings under `green.*` (registry now 73 settings / 9 groups): the
 normal PEA rate (฿4.1025/kWh), the UGT1 premium (฿0.0375/kWh), the UGT2 rate
-(฿4.0423/kWh), the emission factor (0.4999 kgCO2/kWh), carbon-credit units per
+(฿4.0423/kWh), the emission factor, carbon-credit units per
 kWp-year (0.901), trees per kWp-year (101), and the carbon price
 (฿100/tonne). The emission factor's `note` names **both** official figures and
 their sources, so whoever edits it is choosing between two real published values
@@ -631,11 +631,18 @@ the same answer for the same inputs regardless of what any database says.
 that one object to every zone row and the combined row, so a mid-request publish
 can't produce a report whose rows disagree with each other.
 
-Tests: api +4 - that the shipped default is still 0.4999 and its note names both
-sources, that publishing an emission factor really moves the avoided CO2, that
+Tests: api +4 - that the emission-factor default is the published choice and its
+note names both sources, that publishing an emission factor really moves the avoided CO2, that
 publishing a tariff moves the bill saving while UGT1 stays derived from it, and
 that a carbon price moves the credit value. Full regression: api 303 / forecast
 190 / features+financial 133 / simulation 90 / web 491 all pass; ruff clean.
 
-**Still the user's decision:** which GEF to publish - TGO 0.4999 (current
-default), กกพ 0.4758, or ~0.407 for 2565.
+**Decided, same day:** asked which GEF to publish - TGO 0.4999, กกพ 0.4758, or
+~0.407 for 2565 - the user chose **กกพ's 0.4758**, so that is now the shipped
+default in `green_savings.py` and the registry (it lowers every published
+avoided-CO2, tree-equivalent and carbon-credit figure by ~4.8%). The reasoning
+is worth recording: the UGT1 and UGT2 tariffs on this same page already come
+from that กกพ document, so taking the emission factor from it too keeps one page
+sourced to one document instead of mixing two agencies' numbers in a single
+table. The note still names TGO's 0.4999 and the ~0.407 for 2565, so the choice
+stays visible rather than looking like the only figure that ever existed.
