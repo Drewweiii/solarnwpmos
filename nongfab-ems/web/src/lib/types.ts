@@ -278,6 +278,45 @@ export interface FeatureImportanceResponse {
   new_features_total: number | null
 }
 
+// GET /expansion - what each planned phase in config/assets.yaml actually buys
+// (2026-07-25). `marginal_*` describe the phase itself rather than the running
+// total, which is what an investment decision turns on. Everything is derived
+// from real figures EXCEPT capex (still the documented ฿30,000/kWp placeholder),
+// so `simple_payback_years` inherits that - `capex_note` says so.
+export interface ExpansionScenario {
+  label: string
+  phase: string | null
+  ac_capacity_kw: number
+  dc_capacity_kwp: number
+  annual_energy_kwh: number
+  solar_offset_pct: number | null
+  annual_bill_saving_thb: number | null
+  marginal_ac_capacity_kw: number | null
+  marginal_annual_energy_kwh: number | null
+  marginal_bill_saving_thb: number | null
+  marginal_energy_per_kwp: number | null
+  capex_estimate_thb: number | null
+  simple_payback_years: number | null
+}
+
+export interface ExpansionTarget {
+  target_offset_pct: number
+  required_dc_capacity_kwp: number
+  times_current_capacity: number
+}
+
+export interface ExpansionResponse {
+  available: boolean
+  reason: string | null
+  facility_load_kw: number | null
+  implied_tariff_thb_per_kwh: number | null
+  capex_per_kwp_thb: number
+  scenarios: ExpansionScenario[]
+  targets: ExpansionTarget[]
+  capex_note: string
+  method_note: string
+}
+
 // GET /diagnostics/feeds - one verdict per external data source (2026-07-25).
 // `kind` matters: an 'observation' feed (satellite cloud, UV) is healthy while
 // its newest row is RECENT, while a 'coverage' feed (NWP, aerosol - forecasts

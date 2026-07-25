@@ -428,3 +428,45 @@
 .soiling-chart {
   margin-top: 12px;
 }
+
+/* Expansion Planner (2026-07-25). Reuses the verification tables' styling, which
+   this page needs its own copy of since ForecastPage.css isn't loaded here. */
+.verify-table-scroll {
+  overflow-x: auto;
+}
+.verify-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.verify-table caption {
+  caption-side: top;
+  text-align: left;
+  padding-bottom: 6px;
+  font-size: 12.5px;
+  color: var(--text-muted, #94a3b8);
+}
+.verify-table th,
+.verify-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border, #334155);
+  text-align: right;
+  white-space: nowrap;
+}
+.verify-table thead th,
+.verify-table tbody th {
+  text-align: left;
+  font-weight: 600;
+}
+.verify-table thead th {
+  color: var(--text-muted, #94a3b8);
+  font-weight: 500;
+}
+.health-subtitle {
+  margin: 18px 0 6px;
+  font-size: 14px;
+}
+.expansion-chart {
+  margin-top: 12px;
+}

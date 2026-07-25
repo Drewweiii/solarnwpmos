@@ -8,6 +8,7 @@ import type {
   FeatureImportanceResponse,
   FeedsResponse,
   EnergyReportResponse,
+  ExpansionResponse,
   SavingsSummaryResponse,
   FeedbackItem,
   FinancialRequest,
@@ -130,6 +131,8 @@ export const getCurrentConditions = (token: string): Promise<CurrentConditionsRe
 
 export const getFeatureImportance = (token: string, zone: string): Promise<FeatureImportanceResponse> =>
   request(`/forecast/${zone}/feature-importance`, token)
+
+export const getExpansion = (token: string): Promise<ExpansionResponse> => request('/expansion', token)
 
 export const getFeedHealth = (token: string): Promise<FeedsResponse> => request('/diagnostics/feeds', token)
 

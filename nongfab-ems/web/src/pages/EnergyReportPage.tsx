@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { EnergySavingsTable } from '../components/EnergySavingsTable'
 import { EnergyManagementPanel } from '../components/EnergyManagementPanel'
+import { ExpansionPlannerPanel } from '../components/ExpansionPlannerPanel'
 import { SoilingAdvisorPanel } from '../components/SoilingAdvisorPanel'
 import { SLDViewer } from '../components/SLDViewer'
 import { ZoneSelector } from '../components/ZoneSelector'
@@ -78,6 +79,11 @@ export function EnergyReportPage() {
               that replaced the loss model's literature placeholder, plus the
               "when should this be washed" recommendation. */}
           <SoilingAdvisorPanel zone={zone} />
+
+          {/* Expansion Planner (2026-07-25) - what assets.yaml's real planned
+              phases actually buy against the terminal's own 13.5 MW load, with a
+              marginal (per-added-kWp) column. Site-wide, so no zone prop. */}
+          <ExpansionPlannerPanel />
 
           <section className="energy-report-section" aria-label="System summary">
             <h2>System summary</h2>

@@ -4,6 +4,7 @@ import {
   getCloudConditions,
   getCurrentConditions,
   getFeatureImportance,
+  getExpansion,
   getFeedHealth,
   getForecastVerification,
   getOutputAnomalies,
@@ -128,6 +129,18 @@ export function useFeatureImportance(zone: string) {
     queryFn: () => getFeatureImportance(token!, zone),
     enabled: Boolean(token),
     staleTime: 5 * 60 * 1000,
+  })
+}
+
+// Expansion scenarios are pure config + seasonal model output - they only change
+// when config/assets.yaml does, so this is effectively static per deploy.
+export function useExpansion() {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['expansion'],
+    queryFn: () => getExpansion(token!),
+    enabled: Boolean(token),
+    staleTime: 60 * 60 * 1000,
   })
 }
 

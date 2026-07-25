@@ -474,3 +474,44 @@ flagged-days table with its ranked cause. Feed health is the one diagnostic that
 polls briskly - a stale reading of staleness is useless.
 
 Tests: forecast +10, api +6, web +5 (459 total). ruff/tsc/oxlint clean.
+
+### 2026-07-25 - Expansion Planner: what each planned phase actually buys (Track 1)
+
+Innovation D of four, and the one that puts the whole plant in perspective.
+
+config/assets.yaml already recorded the real planned phases (Jetty phase 1.5 =
++100 kW AC, phase 2 = +300 kW, note: "target total 600kW AC") and nothing on the
+site answered the question they raise. The framing that matters: **400 kW AC
+against a terminal drawing 13.5 MW covers about 0.5% of its own electricity**, and
+even the 800 kW end state of the planned phases only reaches ~1%. That is not an
+argument against the phases - it is the context any expansion decision needs, and
+it was nowhere on the site before.
+
+`financial/src/nongfab_financial/expansion.py` (pure, 12 tests) builds cumulative
+scenarios with a **marginal column**, because that is the number a decision turns
+on: a phase's total looks impressive next to nothing, while its yield per added
+kWp is what says whether it is as good a deal as what came before. Also
+`capacity_for_target_offset`, which prices out what a *meaningful* offset would
+actually take - 10% of this facility's demand needs ~8.5 MWp, an order of
+magnitude beyond the planned end state.
+
+`GET /expansion` assembles it from real figures: today's three zones' capacities
+and their seasonal annual energy, assets.yaml's own future_phases, the user's real
+13.5 MW load, and the facility's **own implied tariff** (real annual cost / real
+annual consumption ≈ ฿2.54/kWh) rather than the financial module's placeholder PEA
+rate.
+
+Two limits stated in the response and repeated on screen rather than buried:
+- CAPEX is still the documented ฿30,000/kWp placeholder, so
+  `simple_payback_years` inherits it (`capex_note`). Everything else -
+  capacity, energy, offset, bill saving - comes from real figures.
+- Each phase's energy is scaled proportionally from today's array (same site,
+  latitude, tilt and module family), not simulated from a new layout - phase 2
+  has no layout yet (`method_note`).
+
+`ExpansionPlannerPanel` on /energy-report: the scenario table with its marginal
+columns, an offset-by-scenario bar chart, and the "what would a real offset take"
+table. Its CSS duplicates the verification-table rules rather than importing
+ForecastPage.css, since only one page's stylesheet is loaded at a time.
+
+Tests: financial +12, api +5, web +5 (464 total). ruff/tsc/oxlint clean.
