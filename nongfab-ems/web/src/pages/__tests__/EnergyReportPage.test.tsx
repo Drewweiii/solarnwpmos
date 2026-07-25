@@ -104,6 +104,44 @@ describe('EnergyReportPage', () => {
     localStorage.clear()
     vi.spyOn(api, 'getAssets').mockResolvedValue(registry)
     vi.spyOn(api, 'getEnergyReport').mockImplementation((zone) => Promise.resolve(makeReport(zone)))
+    // Panels added to this page in July 2026 (Soiling Advisor, Expansion
+    // Planner, the savings table). Left unmocked they attempt a real fetch,
+    // which jsdom stalls on long enough to blow the default findBy* timeout
+    // for the assertions below. Each is given its documented "no data yet"
+    // shape - the panels render their own graceful empty state, which is all
+    // these tests need since they assert on the report body, not the panels.
+    vi.spyOn(api, 'getSoiling').mockResolvedValue({
+      available: false,
+      zone: 'GIS',
+      reason: 'no data in test',
+      days_assessed: 0,
+      current_loss_pct: 0,
+      average_loss_pct: 0,
+      current_daily_rate_pct: 0,
+      days_since_cleaning_rain: null,
+      cleaning_events: 0,
+      days_until_trigger: null,
+      cleaning_trigger_pct: 5,
+      max_loss_pct: 0,
+      annual_energy_lost_kwh: null,
+      annual_cost_lost_thb: null,
+      loss_model_soiling_source: 'literature-default',
+      loss_model_soiling_pct: null,
+      series_days: [],
+      series_loss_pct: [],
+    })
+    vi.spyOn(api, 'getExpansion').mockResolvedValue({
+      available: false,
+      reason: 'no data in test',
+      facility_load_kw: null,
+      implied_tariff_thb_per_kwh: null,
+      capex_per_kwp_thb: 30000,
+      scenarios: [],
+      targets: [],
+      capex_note: '',
+      method_note: '',
+    })
+    vi.spyOn(api, 'getSavingsSummary').mockResolvedValue({ zones: [], assumptions: {} })
   })
 
   it('defaults to GIS and shows system summary figures', async () => {

@@ -212,6 +212,17 @@ describe('Solar3DPage', () => {
     vi.spyOn(api, 'getCloudConditions').mockResolvedValue(cloudConditions)
     vi.spyOn(api, 'getPrecipitationConditions').mockResolvedValue(precipitationConditions)
     vi.spyOn(api, 'getIrradianceMap').mockResolvedValue(makeIrradianceMap())
+    // Since 2026-07-25 (editable system values, part 3) this page also reads
+    // GET /settings, to resolve the `hand.*` tuning the hand control runs on.
+    // Left unmocked it would attempt a real fetch, which jsdom stalls on long
+    // enough to blow the default findBy* timeout. An empty list is the
+    // "nothing published" case -> the compiled hand defaults, as before.
+    vi.spyOn(api, 'getSettings').mockResolvedValue({
+      settings: [],
+      groups: {},
+      origins: {},
+      can_publish: false,
+    })
   })
 
   it('defaults to GIS and has no All-zones tab', async () => {

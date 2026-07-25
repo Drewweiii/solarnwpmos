@@ -74,6 +74,13 @@ export function EnergySavingsTable() {
   }
 
   const zones = savings.data.zones
+  // An empty list means the API knows of no real zone to total up. Bail out
+  // here rather than indexing into nothing - every row below dereferences
+  // `zone`, so without this the whole Energy Report page would crash on a
+  // response that is merely uninteresting.
+  if (zones.length === 0) {
+    return <p className="forecast-status forecast-status-warn">ยังไม่มีข้อมูลผลประหยัดสำหรับกลุ่มใดเลย</p>
+  }
   const zone = zones.find((z) => z.zone === activeZone) ?? zones[zones.length - 1]
   const a = savings.data.assumptions
 

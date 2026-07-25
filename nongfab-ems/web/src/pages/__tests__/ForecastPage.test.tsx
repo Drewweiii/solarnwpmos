@@ -180,6 +180,45 @@ describe('ForecastPage', () => {
     // daily bar (matching the pre-2026-07-22 behavior the daily-bar tests
     // assert). Tests that exercise the hourly line override this per-case.
     vi.spyOn(api, 'getUvHourlyHistory').mockResolvedValue({ points: [] })
+    // Panels added to this page in July 2026 (Feature Importance, Forecast
+    // Verification, System Health). Left unmocked they attempt a real fetch,
+    // which jsdom stalls on long enough to blow the default findBy* timeout
+    // for assertions elsewhere on the page. Each gets its documented "no data
+    // yet" shape - the panels render their own graceful empty state.
+    vi.spyOn(api, 'getFeatureImportance').mockResolvedValue({
+      available: false,
+      zone: 'GIS',
+      items: [],
+      new_features_total: null,
+    })
+    vi.spyOn(api, 'getForecastVerification').mockResolvedValue({
+      available: false,
+      zone: 'GIS',
+      horizon: 'hour',
+      window_days: 30,
+      reason: 'no data in test',
+      ac_capacity_kw: null,
+      daylight: null,
+      all_hours: null,
+      by_lead: [],
+      lead_time_note: '',
+      reference_note: '',
+    })
+    vi.spyOn(api, 'getFeedHealth').mockResolvedValue({
+      overall_status: 'unknown',
+      checked_at: '2026-07-14T12:00:00Z',
+      feeds: [],
+    })
+    vi.spyOn(api, 'getOutputAnomalies').mockResolvedValue({
+      available: false,
+      zone: 'GIS',
+      window_days: 45,
+      reason: 'no data in test',
+      days_assessed: 0,
+      norm_kwh_per_day: null,
+      anomalies: [],
+      basis_note: '',
+    })
   })
 
   afterEach(() => {
