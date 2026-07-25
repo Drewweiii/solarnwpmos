@@ -20,6 +20,7 @@ import { SimulationPlaygroundPage } from './pages/SimulationPlaygroundPage'
 const Solar3DPage = lazy(() => import('./pages/Solar3DPage').then((m) => ({ default: m.Solar3DPage })))
 const EnergyReportPage = lazy(() => import('./pages/EnergyReportPage').then((m) => ({ default: m.EnergyReportPage })))
 const AdminFeedbackPage = lazy(() => import('./pages/AdminFeedbackPage').then((m) => ({ default: m.AdminFeedbackPage })))
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })))
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
@@ -92,6 +93,18 @@ function RequireAuth() {
           element={
             <Suspense fallback={<p className="forecast-status">Loading…</p>}>
               <EnergyReportPage />
+            </Suspense>
+          }
+        />
+        {/* Editable system values (2026-07-25). Deliberately NOT admin-gated:
+            GET /settings is viewer-level server-side, and the page lets a
+            non-admin try values in their own browser only - publishing a
+            shared default is what requires admin, enforced by the API. */}
+        <Route
+          path="/settings"
+          element={
+            <Suspense fallback={<p className="forecast-status">Loading…</p>}>
+              <SettingsPage />
             </Suspense>
           }
         />

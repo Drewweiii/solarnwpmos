@@ -21,6 +21,8 @@ import type {
   PerformanceResponse,
   PrecipitationConditionsResponse,
   SimulateRequest,
+  SettingsResponse,
+  SettingsUpdateResponse,
   SimulateResponse,
   SoilingResponse,
   SunPathResponse,
@@ -143,6 +145,21 @@ export const getForecastVerification = (token: string, zone: string, days = 30):
   request(`/forecast/${zone}/verification?days=${days}`, token)
 
 export const getSoiling = (token: string, zone: string): Promise<SoilingResponse> => request(`/soiling/${zone}`, token)
+
+// --- Editable system values (2026-07-25) ---------------------------------
+// GET is viewer-level; every write is admin-only server-side (routes_settings.py).
+export const getSettings = (token: string): Promise<SettingsResponse> => request('/settings', token)
+
+export const putSettings = (values: Record<string, number>, token: string): Promise<SettingsUpdateResponse> =>
+  request('/settings', token, { method: 'PUT', body: JSON.stringify({ values }) })
+
+/** Reset ONE key back to the registry default. The key is dotted
+ * (`zone.GIS.tilt_deg`), which the backend accepts via `{key:path}`. */
+export const deleteSetting = (key: string, token: string): Promise<SettingsUpdateResponse> =>
+  request(`/settings/${key}`, token, { method: 'DELETE' })
+
+export const resetSettings = (token: string): Promise<SettingsUpdateResponse> =>
+  request('/settings/reset', token, { method: 'POST', body: JSON.stringify({}) })
 
 export const getUvHistory = (token: string): Promise<UvHistoryResponse> => request('/weather/uv-history', token)
 

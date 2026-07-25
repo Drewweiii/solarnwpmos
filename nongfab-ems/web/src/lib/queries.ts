@@ -11,6 +11,10 @@ import {
   getSoiling,
   getEnergyReport,
   getSavingsSummary,
+  getSettings,
+  putSettings,
+  deleteSetting,
+  resetSettings,
   getFeedback,
   getForecast,
   getGeometry,
@@ -391,5 +395,60 @@ export function useFeedbackInbox() {
     queryFn: () => getFeedback(token!),
     enabled: Boolean(token) && role === 'admin',
     refetchInterval: LIVE_REFETCH_INTERVAL_MS,
+  })
+}
+
+// --- Editable system values (2026-07-25) ---------------------------------
+// One query feeds the whole settings page: the response is self-describing
+// (label/unit/bounds/step/origin per key), so the page renders every group
+// from it without hardcoding fields. Not polled - these only change when
+// somebody publishes, and every mutation below invalidates the key.
+
+/** GET /settings. Viewer-level: anyone signed in may read the values (and try
+ * them locally); `can_publish` in the response says whether this caller may
+ * save a shared default. */
+export function useSystemSettings() {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['settings'],
+    queryFn: () => getSettings(token!),
+    enabled: Boolean(token),
+    staleTime: 60 * 1000,
+  })
+}
+
+/** PUT /settings - publish a batch as the shared system default (admin-only
+ * server-side). Validated as a whole backend-side: one bad field rejects the
+ * entire submission rather than saving half of it. */
+export function usePublishSettings() {
+  const { token } = useAuth()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (values: Record<string, number>) => putSettings(values, token!),
+    // Published values feed physics/money calculations across the whole app
+    // (loss factors, capacities, financial assumptions), so drop every cached
+    // query rather than just the settings one - otherwise the dashboard would
+    // keep showing figures computed from the previous values.
+    onSuccess: () => queryClient.invalidateQueries(),
+  })
+}
+
+/** DELETE /settings/{key} - reset ONE value back to the shipped default. */
+export function useResetSetting() {
+  const { token } = useAuth()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (key: string) => deleteSetting(key, token!),
+    onSuccess: () => queryClient.invalidateQueries(),
+  })
+}
+
+/** POST /settings/reset - reset EVERY value back to the shipped defaults. */
+export function useResetAllSettings() {
+  const { token } = useAuth()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => resetSettings(token!),
+    onSuccess: () => queryClient.invalidateQueries(),
   })
 }

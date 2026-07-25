@@ -850,3 +850,49 @@ export interface FeedbackItem {
    * where the admin view falls back to `username`. */
   display_name: string | null
 }
+
+// --- Editable system values (GET/PUT /settings, 2026-07-25) ---------------
+// Mirrors routes_settings.py's SettingOut. Deliberately self-describing: the
+// settings page renders every group from this metadata (label/unit/bounds/
+// step/origin) rather than hardcoding a field per value, so adding a value
+// backend-side needs no frontend change at all.
+export interface SettingItem {
+  key: string
+  group: string
+  group_label: string
+  label: string
+  unit: string
+  default: number
+  value: number
+  minimum: number
+  maximum: number
+  step: number
+  /** Where the shipped default came from - confirmed / as-built / placeholder
+   * / literature / tuning. Surfaced so nobody edits a measured figure thinking
+   * it's a guess, or trusts a guess thinking it was measured. */
+  origin: string
+  origin_label: string
+  note: string
+  /** Applied by the browser (hand control); stored server-side so an admin can
+   * publish a shared default, but no backend calculation reads it. */
+  frontend_only: boolean
+  /** True when an admin has published a value for this key - drives the
+   * per-field "reset to default" affordance. */
+  overridden: boolean
+  updated_at: string | null
+  updated_by: string | null
+}
+
+export interface SettingsResponse {
+  settings: SettingItem[]
+  groups: Record<string, string>
+  origins: Record<string, string>
+  /** Whether THIS caller may publish a shared default (admin), or is limited
+   * to trying values locally in their own browser. */
+  can_publish: boolean
+}
+
+export interface SettingsUpdateResponse {
+  updated: Record<string, number>
+  settings: SettingItem[]
+}

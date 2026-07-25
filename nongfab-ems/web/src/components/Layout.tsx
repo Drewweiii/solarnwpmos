@@ -68,6 +68,12 @@ export function Layout() {
           <NavLink to="/energy-report" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
             Energy Report
           </NavLink>
+          {/* Visible to every signed-in role on purpose: reading the values (and
+              trying them locally) is viewer-level; only publishing a shared
+              default needs admin, which the API enforces. */}
+          <NavLink to="/settings" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
+            Settings
+          </NavLink>
           {role === 'admin' ? (
             <NavLink to="/admin/feedback" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
               Feedback
