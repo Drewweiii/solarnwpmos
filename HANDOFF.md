@@ -1585,3 +1585,94 @@ Roadmap ระยะกลางหมดแล้ว — ไม่มีงา�
    (ข) per-point cloud raster ต้องมี raster store (MinIO) — ทั้งคู่ติดเรื่องไม่มี
    ข้อมูล/infra จริง ไม่ใช่โค้ด
 4. งาน Track 2 (UI/AI assistant/visitor network) เป็นของอีกบัญชี — ไม่แตะ
+
+## 2026-07-25 02:15 ICT
+
+**Track 1 — เนื้อหาเชิงวิชาการ (Content/Engineering)**
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+รอบนี้ user สั่ง "แก้บัคที่ยังค้างคา + เพิ่มระบบ + นวัตกรรมใหม่ที่ผมออกแบบเอง"
+และเลือก **นวัตกรรมทั้ง 4 ตัว** (A/B/C/D) ทำครบแล้ว **6 commit** (push แล้วทุกอัน)
+
+1. **`f837d19` แก้บั๊ก aerosol/CAMS ค้างหลัง startup** — บั๊กจริงที่กระทบ feature
+   ที่เพิ่งทำเมื่อวาน: `ingestion_scheduler` มี poll loop ให้ Himawari/GFS/UV แต่
+   **ไม่มี `_poll_aerosol_forever`** → ดึงครั้งเดียวตอนบูต พอเกิน 180 นาที
+   (`_AEROSOL_MAX_AGE_MINUTES`) โมเดลกลับไปใช้ค่า neutral default เงียบๆ และหน้า
+   Forecast โชว์ "ยังไม่มีข้อมูล CAMS" ตลอด. แก้: เพิ่ม poll ทุก 1 ชม.,
+   `forecast_days` 1→2 (เดิมช่วง 18:00 UTC ขึ้นไป lead +1..+6h หลุดขอบ response),
+   gate backfill `== 0` → `< 100` แถว. + เก็บคอมเมนต์ค้างที่ยังเรียกค่าโหลด 13.5 MW
+   (ค่าจริงของ user) ว่าเป็น placeholder
+2. **`892be83` ระบบมือ v2** (user รายงานเอง: ซูม/ขยับซ้ายขวายาก + ไม่มีท่าเปิด-ปิด 3D)
+   — ต้นเหตุคือ **control model** ไม่ใช่การตรวจจับ: v1 map ตำแหน่งมือ = ตำแหน่งกล้อง
+   (absolute) ทุกแกนขยับพร้อมกัน, ระยะเอื้อมมือจำกัดมุมที่ไปถึงได้, ค้างซูมต้อง
+   ค้างนิ้วเป๊ะ, และ**ไม่มี pan เลย**. v2 เปลี่ยนเป็น **rate control** + แยกแกนตามท่า:
+   ✋ orbit · 🤏 หนีบ+ยกมือ = zoom · 🤟 3 นิ้ว = pan · ✊ hold · ✌️ recenter ·
+   **👍 = เริ่ม/หยุดรัน 3D** (edge-trigger ค้าง 0.35 วิ ทำงานครั้งเดียว)
+3. **`74322de` A. Soiling & Cleaning Advisor** + **แทนค่า placeholder soiling
+   ทั้งระบบ** (ตามที่ user เลือก) — โมเดล Kimber(2007)+Coello&Boyle(2019):
+   อัตราสะสมแปรผันตาม PM10 จริง + พจน์เกลือทะเล ล้างด้วยฝนจริง (0.25–5 mm),
+   อิ่มตัวที่ 12%. `refresh_measured_soiling` publish ค่าเข้า
+   `loss_model.set_measured_soiling_pct` → ไหลเข้า Energy Report/Financial/Simulate.
+   `GET /soiling/{zone}` + panel: แนะนำว่าควรล้างเมื่อไร, %/วัน, ฝนล้างล่าสุด,
+   ฿/ปี ที่เสีย, กราฟฟันเลื่อย 90 วัน
+4. **`651a949` B. Forecast Verification & Skill Score** — ของเดิมทั้งเว็บโชว์แต่
+   error จาก**การเทรน**; อันนี้ตรวจ forecast ที่ระบบออกไปจริงเทียบผลที่เกิดขึ้น:
+   MAE/RMSE/MBE/nRMSE + **skill score เทียบ persistence** (baseline มาตรฐานงานวิจัย)
+5. **`460b5c3` C1. System Health & Anomalies** + **แก้คำอธิบายข้อ B ให้ตรงความจริง**
+   — เจอว่าไซต์**ไม่มีมิเตอร์วัดกำลังผลิตจริงเลย** (ดูหัวข้อถัดไป) จึงทำ C แบบ C1:
+   `/diagnostics/feeds` แยก feed 2 แบบ (observation วัดความเก่า vs coverage วัดการ
+   ครอบคลุม**ล่วงหน้า**) — จับบั๊กแบบ aerosol วันนี้ได้ตรงๆ + `/diagnostics/{zone}/anomalies`
+   หาวันต่ำกว่า 70% ของค่าปกติเดือนนั้น พร้อม**จัดอันดับ**สาเหตุจากอากาศที่วัดได้
+6. **`b23b765` D. Expansion Planner** — `/expansion` + panel: เฟสจริงใน assets.yaml
+   (+100, +300 kW) พร้อมคอลัมน์ **marginal** (kWh ต่อ kWp ที่เพิ่ม) และบริบทสำคัญ:
+   400 kW ครอบคลุมโหลด 13.5 MW ได้ ~0.5%, ครบ 800 kW ได้ ~1%, ถ้าจะได้ 10% ต้อง ~8.5 MWp
+
+**ผลรันทั้งหมด (ผ่านหมด):** api 257 · forecast 190 · features 102 · simulation 90 ·
+financial 31 · web 464 = **1,134 tests** · ruff + tsc + oxlint clean
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- **branch:** `claude/solar-optimization-forecasting-jryux7` (HEAD `b23b765`, push แล้ว)
+- **⚠️ ค้นพบสำคัญ — ไซต์นี้ไม่มีมิเตอร์วัดกำลังผลิตจริง:** `real_data.pv_params_for_zone`
+  ระบุว่าไม่มีค่า P จริงที่ไหนในระบบ และเป็น "deliberate, permanent scope decision"
+  (FusionSolar ปิดถาวร). เส้น "Actual power" = `record_generated_power` คือ**ค่าจาก
+  โมเดลฟิสิกส์ของเราเอง** ป้อนด้วยอากาศจริง. **user ยืนยันว่าไม่มีช่องทางเอาค่าจริง**
+  → ผลคือ (ก) ข้อ C ทำแบบ actual-vs-expected ไม่ได้ (ข) ข้อ B วัด "error ของพยากรณ์
+  อากาศที่ส่งผ่านฟิสิกส์" ไม่ใช่เทียบมิเตอร์ — ใส่ `reference_note` ในทุก response
+  และเขียนบนหน้าเว็บแล้ว **ถ้าวันหน้าได้ค่ามิเตอร์จริง ให้ทำ C2 ต่อ (detector
+  measured-vs-expected + จัดอันดับสาเหตุ) ได้ทันที**
+- **⚠️ Financial ยังเป็น placeholder 3 ตัว:** CAPEX(฿30k/kWp), WACC(8%), BOI(0)
+  — แต่ **tariff ไม่ใช่ placeholder แล้วในของใหม่**: `/soiling` และ `/expansion` ใช้
+  **implied tariff จริง** (ค่าไฟจริง 300 MTHB/ปี ÷ หน่วยที่ใช้จริง ≈ ฿2.54/kWh)
+  ส่วน `financial/model.py` เองยังใช้ ฿4.0 อยู่ → ถ้า user ให้ CAPEX/WACC/BOI จริงมา
+  ค่อยแทนใน `financial/model.py`
+- **soiling ไม่ใช่ placeholder แล้ว** — `LossFactors.soiling_source` บอกว่าเป็น
+  `measured-airquality-rainfall` หรือ `literature-default`; ค่าสัมประสิทธิ์อัตราสะสม
+  ยังมาจากงานวิจัย (ไม่มีการวัดคราบจริงที่หนองแฟบ = known gap) แต่ input ทุกตัววัดจริง
+- **routing gotcha:** `routes_verification` ต้อง include **ก่อน** `routes_forecast`
+  เพราะ `/forecast/{zone}/{horizon}` จะ match `/forecast/{zone}/verification` แล้ว 404
+- **CSS gotcha:** `EnergyReportPage` เป็น lazy route → panel ที่อยู่บน ForecastPage
+  ห้ามใช้คลาส `.ems-*` ของหน้านั้น (จะไม่มี style) — verify/health panel ใช้คลาสของ
+  ForecastPage.css เอง
+- **บทเรียนเดิมที่ยังใช้:** sandbox รัน `ruff check` ไม่อัตโนมัติ — ต้องรันเองก่อน push
+  ทุกครั้ง ไม่งั้น CI แดงทั้งที่เทสต์ผ่าน
+- ยังไม่ได้ live-verify ด้วย browser จริงในรอบนี้ (ยืนยันด้วย unit/integration test +
+  tsc เท่านั้น) — MediaPipe/CDN และ CAMS ก็ทดสอบจาก sandbox ไม่ได้อยู่แล้ว
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **เช็ค GitHub Actions CI ของ `b23b765`** ให้เขียวก่อนทำอย่างอื่น (6 commit ใหม่
+   แตะ api/forecast/features/simulation/financial/web ครบทุก job)
+2. **Live-verify ด้วย browser จริง** panel ใหม่ 4 ตัว: Soiling Advisor +
+   Expansion Planner (บน /energy-report), Verification + System Health (บน /forecast)
+   — ดูว่าตารางไม่ล้นจอมือถือ และ honest-empty state แสดงถูก
+3. **ลองระบบมือ v2 บนเครื่องจริง** (ต้องมีกล้อง + เน็ตโหลด MediaPipe): เช็คว่า
+   ✋/🤏/🤟/✊/✌️/👍 แยกกันได้จริง ไม่สลับกันเอง ถ้าท่าไหนจับยากให้ปรับ
+   `DEFAULT_HAND_CONTROL_CONFIG.pinchEngageRatio` (0.42) หรือ `rateGain` (2.2)
+   และความเร็วใน Solar3DScene (`HAND_AZIMUTH_SPEED` 2.0, `HAND_ZOOM_SPEED` 0.8)
+4. **ขอตัวเลข Financial จริงที่เหลือ 3 ตัว** (CAPEX/WACC/BOI) มาแทน placeholder
+5. งานเสริมที่ต่อยอดได้ทันที: ให้ `/diagnostics/feeds` ยิงเตือนเมื่อ feed ตาย
+   (ตอนนี้ต้องเปิดหน้าเว็บดูเอง), และเพิ่ม aerosol/AOD เข้า `rank_cause` ของ anomaly
+   (ตอนนี้ส่ง `aod=None` เพราะ daily_conditions ยังไม่คืน AOD รายวัน)
+6. งาน Track 2 (UI/AI assistant/visitor network) เป็นของอีกบัญชี — ไม่แตะ
