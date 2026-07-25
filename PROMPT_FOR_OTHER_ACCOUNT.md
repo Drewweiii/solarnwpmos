@@ -54,7 +54,10 @@ TSM-NEG21C.20 (N-type i-TOPCon **dual glass**) ขนาด 2384×1303×33 mm �
   ไม่ได้แปลว่า CI จะเขียว ต้องรัน build ก่อน push เสมอ (CI แดงเพราะข้อนี้มาแล้ว)
 - **ห้ามใส่ type ให้พารามิเตอร์ของ recharts formatter** — recharts widen เป็น
   `ValueType | undefined` ต้อง narrow ด้วย `typeof` ในบอดี้แทน (พลาดมาแล้ว 3 ครั้ง)
-- ต้องรัน `ruff check` เองก่อน push (sandbox ไม่รันให้)
+- ต้องรัน `ruff check` เองก่อน push (sandbox ไม่รันให้) และ **ต้องใส่โฟลเดอร์ `tests` ด้วย**
+  → `ruff check <pkg>/src <pkg>/tests` เหมือนที่ CI รันเป๊ะๆ
+  ⚠️ CI **#185/#186 แดงเพราะข้อนี้** — รัน ruff แค่ `src` เลยไม่เห็น `I001` (import ไม่เรียง)
+  ในไฟล์เทสใหม่ และเพราะ ruff รัน**ก่อน** pytest ใน CI เทสจึงถูก skip ทั้ง job
 - รัน pytest **ทีละ package** (basename ซ้ำข้าม package ทำให้ collect error)
 - **`lru_cache` มี 4 ตัวแล้ว** ที่ `settings_service.apply_effective_settings()` ต้อง `cache_clear()`
   ถ้าเพิ่มตัวที่ 5 ต้องไปเพิ่มในนั้นด้วย ไม่งั้นแก้ setting แล้วตัวเลขบนเว็บไม่ขยับ:

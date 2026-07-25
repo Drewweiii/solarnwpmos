@@ -9,6 +9,7 @@ the model responds to its inputs the way physics says it should.
 from __future__ import annotations
 
 import pytest
+
 from nongfab_features.bifacial import (
     ALBEDO_BY_GROUND,
     DATASHEET_BIFACIALITY,

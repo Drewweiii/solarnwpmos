@@ -147,7 +147,10 @@ web/components/{GridCarbon,Orientation,DcAc,Bifacial,Tou}Panel.tsx
   (CI #156/#157 แดงเพราะข้อนี้)
 - **ห้าม annotate พารามิเตอร์ของ recharts formatter** — narrow ด้วย `typeof`
   ในบอดี้แทน (พลาดมาแล้ว 3 ครั้ง)
-- ต้องรัน `ruff check` เองก่อน push (sandbox ไม่รันให้)
+- ต้องรัน `ruff check` เองก่อน push (sandbox ไม่รันให้) และ **ต้องใส่โฟลเดอร์ `tests` ด้วย**
+  → `ruff check <pkg>/src <pkg>/tests` เหมือนที่ CI รันเป๊ะๆ
+  ⚠️ CI **#185/#186 แดงเพราะข้อนี้**: รัน ruff แค่ `src` เลยไม่เห็น `I001` (import ไม่เรียง)
+  ในไฟล์เทสใหม่ 2 ไฟล์ · ruff รัน**ก่อน** pytest ใน CI ดังนั้นพลาดตรงนี้ = เทสไม่ได้รันเลย
 - รัน pytest **ทีละ package** (basename ซ้ำข้าม package ทำให้ collect error)
 - **`lru_cache` มี 4 ตัวแล้ว** ที่ `settings_service.apply_effective_settings()` ต้อง `cache_clear()`:
   `annual_shading_loss_pct` · `_profile_for_day` · `optimise_zone` · `analyse_zone`

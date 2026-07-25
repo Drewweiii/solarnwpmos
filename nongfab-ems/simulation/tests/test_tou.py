@@ -8,6 +8,7 @@ correction, and in particular the two effects that are easy to miss.
 from __future__ import annotations
 
 import pytest
+
 from nongfab_simulation.tou import blended_rate_thb_per_kwh, is_peak_hour, weekday_count, zone_tou_split
 
 YEAR = 2026
