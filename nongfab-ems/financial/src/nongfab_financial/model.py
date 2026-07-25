@@ -33,9 +33,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-import pandas as pd
 from nongfab_simulation.pipeline import DEFAULT_DEGRADATION_PCT_PER_YEAR, LIFETIME_YEARS
-from nongfab_simulation.what_if import ScenarioParams, apply_scenario
 
 # Thai utility-scale/C&I solar EPC cost ballpark (documented approximation,
 # not a quote for this project) - used only when the caller doesn't supply a
@@ -180,6 +178,28 @@ def _find_payback_year(cumulative_after_capex: list[float], capex: float) -> flo
     return None
 
 
+def degradation_factor(degradation_pct_per_year: float, years_since_commissioning: float) -> float:
+    """The surviving fraction of year-1 output after `years_since_commissioning`.
+
+    Exactly `nongfab_simulation.what_if.apply_scenario`'s degradation term -
+    LINEAR, not compounding, and floored at zero - reproduced as scalar
+    arithmetic so a Monte Carlo does not pay for a pandas Series per year.
+
+    Validation is repeated here rather than delegated: `ScenarioParams` is a
+    plain dataclass that accepts anything, and it is `apply_scenario` that
+    rejects a negative rate. Skipping this call therefore also skips the
+    guard, so the same two checks are made explicitly, with the same wording.
+    """
+    if degradation_pct_per_year < 0:
+        raise ValueError(
+            f"degradation_pct_per_year cannot be negative (degradation only ever reduces performance), "
+            f"got {degradation_pct_per_year}"
+        )
+    if years_since_commissioning < 0:
+        raise ValueError("years_since_commissioning cannot be negative")
+    return max(0.0, 1 - (degradation_pct_per_year / 100) * years_since_commissioning)
+
+
 def compute_financial_analysis(
     year_1_ac_energy_kwh: float,
     installed_dc_capacity_kwp: float,
@@ -200,7 +220,12 @@ def compute_financial_analysis(
     assumptions = assumptions or FinancialAssumptions()
     capex = assumptions.capex_thb if assumptions.capex_thb is not None else DEFAULT_CAPEX_PER_KWP_THB * installed_dc_capacity_kwp
     discount_rate = assumptions.discount_rate_pct / 100
-    degradation_params = ScenarioParams(degradation_pct_per_year=assumptions.degradation_pct_per_year)
+    # Validate the degradation rate through what_if's own rules, then apply it
+    # arithmetically below. Degradation there is LINEAR (1 - rate*years, floored
+    # at 0), so the scalar form is exact - and building a one-element Series per
+    # year cost ~25 s per 2,000-trial Monte Carlo, which is the whole reason
+    # `uncertainty.monte_carlo_financial_analysis` can run inside a request at
+    # all. `test_model.py` pins the two against each other.
 
     cash_flows: list[CashFlowYear] = []
     cumulative_undiscounted = -capex
@@ -208,9 +233,7 @@ def compute_financial_analysis(
     undiscounted_series_for_irr = [-capex]
 
     for y in range(1, assumptions.lifetime_years + 1):
-        energy_kwh = float(
-            apply_scenario(pd.Series([year_1_ac_energy_kwh]), degradation_params, years_since_commissioning=y - 1).iloc[0]
-        )
+        energy_kwh = year_1_ac_energy_kwh * degradation_factor(assumptions.degradation_pct_per_year, y - 1)
         tariff = assumptions.tariff_thb_per_kwh * (1 + assumptions.tariff_escalation_pct_per_year / 100) ** (y - 1)
         avoided_cost = energy_kwh * tariff
         opex = capex * (assumptions.opex_pct_of_capex_per_year / 100) * (1 + assumptions.opex_escalation_pct_per_year / 100) ** (

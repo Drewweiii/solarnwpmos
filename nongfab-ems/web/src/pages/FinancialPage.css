@@ -135,3 +135,123 @@
   color: #1d4ed8;
   font-weight: 600;
 }
+
+/* Uncertainty band behind the headline figures (2026-07-25, project B). */
+.financial-uncertainty {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 2px solid var(--border);
+}
+
+.financial-uncertainty h3 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+
+.financial-uncertainty-sub {
+  margin: 18px 0 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.financial-uncertainty-yields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.financial-uncertainty-yield {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.financial-uncertainty-yield-label {
+  font-size: 0.78rem;
+  opacity: 0.7;
+}
+
+.financial-uncertainty-yield strong {
+  font-size: 1.2rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.financial-uncertainty-yield-sub {
+  font-size: 0.74rem;
+  opacity: 0.7;
+  line-height: 1.5;
+}
+
+/* Wide on a phone - scrolls inside itself rather than widening the page. */
+.financial-uncertainty-scroll {
+  overflow-x: auto;
+}
+
+.financial-uncertainty-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.financial-uncertainty-table th,
+.financial-uncertainty-table td {
+  padding: 7px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.financial-uncertainty-table th:first-child,
+.financial-uncertainty-table td:first-child {
+  text-align: left;
+  white-space: normal;
+}
+
+.financial-uncertainty-table th {
+  font-size: 0.76rem;
+  opacity: 0.75;
+  font-weight: 600;
+}
+
+.financial-uncertainty-table td:not(:first-child) {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Colour carries the direction, since "bad" is a low NPV but a high payback. */
+.financial-uncertainty-bad {
+  color: #b45309;
+}
+
+.financial-uncertainty-good {
+  color: #047857;
+}
+
+.financial-uncertainty-mid {
+  font-weight: 600;
+}
+
+.financial-uncertainty-unit,
+.financial-uncertainty-undef {
+  font-size: 0.75rem;
+  opacity: 0.65;
+}
+
+.financial-uncertainty-risk {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-left: 4px solid #f59e0b;
+  border-radius: 0 8px 8px 0;
+  background: rgba(245, 158, 11, 0.08);
+  font-size: 0.88rem;
+  line-height: 1.65;
+}
+
+.financial-uncertainty-note {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  opacity: 0.75;
+  line-height: 1.6;
+}

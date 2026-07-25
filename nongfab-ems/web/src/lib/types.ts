@@ -588,6 +588,7 @@ export interface FinancialResponse {
   discounted_payback_years: number | null
   cash_flows: CashFlowYearOut[]
   boi_presets: BoiPreset[]
+  uncertainty: FinancialUncertainty | null
 }
 
 export interface SolarPosition {
@@ -1025,5 +1026,35 @@ export interface SourcesResponse {
   checked_at: string | null
   baseline_captured: string
   sources: OfficialSourceItem[]
+  method_note: string
+}
+
+// POST /financial's uncertainty block (2026-07-25, project B). Two separate
+// views on purpose: P50/P90 is year-to-year sun variability, the Monte Carlo
+// spread is how unsure the money assumptions are. See api/uncertainty.py.
+export interface ExceedanceYield {
+  label: string
+  exceedance: number
+  annual_energy_kwh: number
+}
+
+export interface MetricPercentiles {
+  metric: string
+  p10: number | null
+  p50: number | null
+  p90: number | null
+  mean: number | null
+  /** Trials where the metric was undefined (no IRR root / never paid back). */
+  undefined_trials: number
+}
+
+export interface FinancialUncertainty {
+  available: boolean
+  reason: string | null
+  yield_levels: ExceedanceYield[]
+  samples: number
+  metrics: MetricPercentiles[]
+  probability_npv_negative_pct: number
+  probability_no_payback_pct: number
   method_note: string
 }

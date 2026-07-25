@@ -137,3 +137,38 @@ def test_financial_assumptions_rejects_negative_boi_years():
 def test_financial_assumptions_rejects_non_positive_explicit_capex():
     with pytest.raises(ValueError):
         FinancialAssumptions(capex_thb=0.0)
+
+
+class TestDegradationFactorMatchesApplyScenario:
+    """`compute_financial_analysis` applies degradation arithmetically instead
+    of round-tripping a one-element pandas Series (2026-07-25, so the Monte
+    Carlo in `uncertainty.py` can run inside a request). These pin the scalar
+    form against `what_if.apply_scenario`, the module it is copied from - if
+    that ever stops being linear, this fails rather than silently diverging.
+    """
+
+    def test_agrees_with_apply_scenario_across_a_project_lifetime(self):
+        import pandas as pd
+        from nongfab_simulation.what_if import ScenarioParams, apply_scenario
+
+        from nongfab_financial.model import degradation_factor
+
+        for rate in (0.0, 0.25, 0.5, 0.7, 2.0):
+            params = ScenarioParams(degradation_pct_per_year=rate)
+            for year in range(0, 26):
+                expected = float(apply_scenario(pd.Series([1000.0]), params, years_since_commissioning=year).iloc[0])
+                assert degradation_factor(rate, year) * 1000.0 == pytest.approx(expected)
+
+    def test_is_floored_at_zero_rather_than_going_negative(self):
+        from nongfab_financial.model import degradation_factor
+
+        # 5%/yr for 25 years would take a naive linear formula to -0.25.
+        assert degradation_factor(5.0, 25) == 0.0
+
+    def test_rejects_the_same_invalid_inputs_apply_scenario_does(self):
+        from nongfab_financial.model import degradation_factor
+
+        with pytest.raises(ValueError):
+            degradation_factor(-1.0, 5)
+        with pytest.raises(ValueError):
+            degradation_factor(0.5, -1)

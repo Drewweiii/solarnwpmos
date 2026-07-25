@@ -24,6 +24,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from nongfab_common.assets import load_assets
 from nongfab_financial.model import FinancialAssumptions, compute_financial_analysis
+from nongfab_financial.uncertainty import (
+    FinancialDistribution,
+    YieldUncertainty,
+    exceedance_levels,
+    monte_carlo_financial_analysis,
+)
 from nongfab_simulation.pipeline import seasonal_annual_ac_energy_kwh
 from pydantic import BaseModel
 
@@ -70,6 +76,43 @@ class BoiPresetOut(BaseModel):
     years: int
 
 
+UNCERTAINTY_NOTE = (
+    "ตัวเลขชุดนี้บอก 'ความไม่แน่ใจ' ไม่ใช่ 'ความแปรปรวนที่วัดได้' — P50/P90 คือความ"
+    "ผันผวนของแดดแต่ละปีตามงานวิจัย ส่วนช่วงของ NPV/IRR มาจากการที่ CAPEX และ WACC "
+    "ยังเป็นค่าประมาณ ไม่ใช่ราคาจริงของโครงการ · ปรับค่าความไม่แน่นอนได้ในหน้า Settings "
+    "กลุ่มสมมติฐานการเงิน"
+)
+
+
+class ExceedanceYieldOut(BaseModel):
+    label: str
+    exceedance: float
+    annual_energy_kwh: float
+
+
+class MetricPercentilesOut(BaseModel):
+    metric: str
+    p10: float | None
+    p50: float | None
+    p90: float | None
+    mean: float | None
+    undefined_trials: int
+
+
+class UncertaintyOut(BaseModel):
+    """P50/P90 yield and the Monte Carlo spread, reported separately - the sun
+    is the predictable part here, the price of the project is not."""
+
+    available: bool
+    reason: str | None = None
+    yield_levels: list[ExceedanceYieldOut] = []
+    samples: int = 0
+    metrics: list[MetricPercentilesOut] = []
+    probability_npv_negative_pct: float = 0.0
+    probability_no_payback_pct: float = 0.0
+    method_note: str = UNCERTAINTY_NOTE
+
+
 class FinancialResponse(BaseModel):
     installed_dc_capacity_kwp: float
     year_1_ac_energy_kwh: float
@@ -81,6 +124,7 @@ class FinancialResponse(BaseModel):
     discounted_payback_years: float | None
     cash_flows: list[CashFlowYearOut]
     boi_presets: list[BoiPresetOut] = []
+    uncertainty: UncertaintyOut | None = None
 
 
 
@@ -144,6 +188,66 @@ def _configured_assumptions(installed_dc_capacity_kwp: float) -> dict[str, float
         configured["capex_thb"] = effective("financial.capex_per_kwp_thb") * installed_dc_capacity_kwp
     return configured
 
+def _configured_distribution() -> FinancialDistribution:
+    """The uncertainty spreads as the user has them set. Defaults come from the
+    registry, so an admin widens or (once real figures land) collapses the bands
+    without a deploy."""
+    from .settings_store import effective
+
+    return FinancialDistribution(
+        capex_per_kwp_std_thb=effective("financial.capex_std_per_kwp_thb"),
+        tariff_std_thb_per_kwh=effective("financial.tariff_std_thb_per_kwh"),
+        discount_rate_std_pct=effective("financial.discount_rate_std_pct"),
+        annual_yield_cv_pct=effective("financial.annual_yield_cv_pct"),
+    )
+
+
+def _uncertainty_block(
+    year_1_ac_energy_kwh: float, installed_dc_capacity_kwp: float, assumptions: FinancialAssumptions
+) -> UncertaintyOut:
+    """P50/P90 + Monte Carlo for this request's assumptions.
+
+    Honest-empty when every spread is zero: with nothing declared uncertain
+    there is no distribution to show, and drawing a flat band would suggest a
+    confidence the inputs do not support.
+    """
+    from .settings_store import effective
+
+    distribution = _configured_distribution()
+    if not distribution.any_uncertainty():
+        return UncertaintyOut(
+            available=False,
+            reason="ยังไม่ได้ตั้งค่าความไม่แน่นอนของสมมติฐานใดเลย จึงไม่มีช่วงให้แสดง (ตั้งได้ในหน้า Settings)",
+        )
+
+    levels = exceedance_levels(
+        year_1_ac_energy_kwh, YieldUncertainty(annual_cv_pct=distribution.annual_yield_cv_pct)
+    )
+    mc = monte_carlo_financial_analysis(
+        year_1_ac_energy_kwh,
+        installed_dc_capacity_kwp,
+        assumptions,
+        distribution,
+        n_samples=int(effective("financial.monte_carlo_samples")),
+    )
+    return UncertaintyOut(
+        available=True,
+        yield_levels=[
+            ExceedanceYieldOut(label=lv.label, exceedance=lv.exceedance, annual_energy_kwh=lv.annual_energy_kwh)
+            for lv in levels
+        ],
+        samples=mc.samples,
+        metrics=[
+            MetricPercentilesOut(
+                metric=m.metric, p10=m.p10, p50=m.p50, p90=m.p90, mean=m.mean, undefined_trials=m.undefined_trials
+            )
+            for m in mc.metrics.values()
+        ],
+        probability_npv_negative_pct=mc.probability_npv_negative_pct,
+        probability_no_payback_pct=mc.probability_no_payback_pct,
+    )
+
+
 @router.post("/financial", response_model=FinancialResponse)
 async def get_financial_analysis(req: FinancialRequest, _user=Depends(require_role("operator"))) -> FinancialResponse:
     registry = load_assets()
@@ -170,6 +274,7 @@ async def get_financial_analysis(req: FinancialRequest, _user=Depends(require_ro
     try:
         assumptions = FinancialAssumptions(**overrides)
         result = compute_financial_analysis(year_1_ac_energy_kwh, installed_dc_capacity_kwp, assumptions)
+        uncertainty = _uncertainty_block(year_1_ac_energy_kwh, installed_dc_capacity_kwp, assumptions)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -196,4 +301,5 @@ async def get_financial_analysis(req: FinancialRequest, _user=Depends(require_ro
             for cf in result.cash_flows
         ],
         boi_presets=_boi_presets(),
+        uncertainty=uncertainty,
     )

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CartesianGrid, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { FinancialUncertaintyPanel } from '../components/FinancialUncertaintyPanel'
 import { ApiError } from '../lib/api'
 import { useFinancial } from '../lib/queries'
 import type { FinancialRequest } from '../lib/types'
@@ -242,6 +243,11 @@ export function FinancialPage() {
               </ComposedChart>
             </ResponsiveContainer>
           </section>
+
+          {/* The spread behind the headline numbers above (2026-07-25). Sits
+              after the cash-flow chart because it qualifies those figures
+              rather than replacing them. */}
+          <FinancialUncertaintyPanel uncertainty={financial.data.uncertainty} />
         </>
       )}
     </div>

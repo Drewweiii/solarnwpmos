@@ -308,6 +308,81 @@ SPECS: tuple[SettingSpec, ...] = (
         step=0.05,
         origin=ORIGIN_LITERATURE,
     ),
+    # --- uncertainty (2026-07-25, project B) ---------------------------------
+    # These are SPREADS, not values: they say how unsure each assumption is, and
+    # drive the P50/P90 table and the Monte Carlo on /financial. All start as
+    # documented judgements rather than measurements - there is no multi-year
+    # on-site yield record and no signed EPC price - so every one is settable
+    # and every one is labelled as an estimate on screen.
+    SettingSpec(
+        key="financial.annual_yield_cv_pct",
+        group=GROUP_FINANCIAL,
+        label="ความแปรปรวนของพลังงานรายปี (สำหรับ P50/P90)",
+        unit="% ของค่าเฉลี่ย",
+        default=4.0,
+        minimum=0.0,
+        maximum=30.0,
+        step=0.5,
+        origin=ORIGIN_LITERATURE,
+        note=(
+            "ผลผลิตแต่ละปีไม่เท่ากันเพราะปีที่เมฆมาก/ฝนมากต่างกัน ค่านี้คือส่วนเบี่ยงเบน "
+            "มาตรฐานคิดเป็น % ของค่าเฉลี่ย · งานวิจัยพื้นที่มรสุมเขตร้อนส่วนใหญ่อยู่ราว 3-5% "
+            "จึงใช้ 4% เป็นค่ากลาง — ยังไม่ใช่ค่าที่วัดจากหนองแฟบ เพราะโรงยังใหม่และไม่มีมิเตอร์ "
+            "ตั้งเป็น 0 = ถือว่าทุกปีเท่ากันเป๊ะ แล้ว P90 จะเท่ากับ P50"
+        ),
+    ),
+    SettingSpec(
+        key="financial.capex_std_per_kwp_thb",
+        group=GROUP_FINANCIAL,
+        label="ความไม่แน่นอนของ CAPEX",
+        unit="บาท/kWp (ส่วนเบี่ยงเบนมาตรฐาน)",
+        default=4_000.0,
+        minimum=0.0,
+        maximum=30_000.0,
+        step=500.0,
+        origin=ORIGIN_PLACEHOLDER,
+        note=(
+            "CAPEX ตั้งต้น (฿30,000/kWp) ยังไม่ใช่ราคาจริงของโครงการ ค่านี้บอกว่า 'ไม่แน่ใจ "
+            "ประมาณเท่าไร' ซึ่งเป็นตัวขับความกว้างของช่วง NPV มากที่สุด — เมื่อได้ราคาจริง "
+            "จากสัญญาแล้ว ควรลดค่านี้ลงมาก หรือตั้งเป็น 0 ถ้าราคาถูกล็อกแล้ว"
+        ),
+    ),
+    SettingSpec(
+        key="financial.discount_rate_std_pct",
+        group=GROUP_FINANCIAL,
+        label="ความไม่แน่นอนของ WACC",
+        unit="% (ส่วนเบี่ยงเบนมาตรฐาน)",
+        default=1.5,
+        minimum=0.0,
+        maximum=10.0,
+        step=0.1,
+        origin=ORIGIN_PLACEHOLDER,
+        note="WACC ตั้งต้น 8% ยังไม่ยืนยันกับฝ่ายการเงิน ค่านี้คือช่วงที่ยอมให้มันขยับตอนสุ่ม",
+    ),
+    SettingSpec(
+        key="financial.tariff_std_thb_per_kwh",
+        group=GROUP_FINANCIAL,
+        label="ความไม่แน่นอนของค่าไฟที่หลีกเลี่ยงได้",
+        unit="บาท/kWh (ส่วนเบี่ยงเบนมาตรฐาน)",
+        default=0.3,
+        minimum=0.0,
+        maximum=3.0,
+        step=0.05,
+        origin=ORIGIN_PLACEHOLDER,
+        note="ค่า Ft เปลี่ยนทุก 4 เดือน และโครงสร้างอัตราอาจถูกทบทวน ค่านี้คือช่วงที่ยอมให้ค่าไฟขยับ",
+    ),
+    SettingSpec(
+        key="financial.monte_carlo_samples",
+        group=GROUP_FINANCIAL,
+        label="จำนวนรอบสุ่มของ Monte Carlo",
+        unit="รอบ",
+        default=2000.0,
+        minimum=100.0,
+        maximum=20_000.0,
+        step=100.0,
+        origin=ORIGIN_TUNING,
+        note="ยิ่งมากยิ่งนิ่งแต่ช้าลง · 2,000 รอบใช้เวลาราว 0.5 วินาที",
+    ),
     SettingSpec(
         key="financial.lifetime_years",
         group=GROUP_FINANCIAL,
