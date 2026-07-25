@@ -52,6 +52,7 @@ class FinancialRequest(BaseModel):
     tax_rate_pct: float | None = None
     boi_tax_holiday_years: int | None = None
     degradation_pct_per_year: float | None = None
+    degradation_first_year_pct: float | None = None
     lifetime_years: int | None = None
 
 
@@ -142,6 +143,7 @@ _ASSUMPTION_KEYS = {
     "financial.tax_rate_pct": "tax_rate_pct",
     "financial.boi_tax_holiday_years": "boi_tax_holiday_years",
     "financial.degradation_pct_per_year": "degradation_pct_per_year",
+    "financial.degradation_first_year_pct": "degradation_first_year_pct",
     "financial.lifetime_years": "lifetime_years",
 }
 

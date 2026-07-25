@@ -314,13 +314,34 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec(
         key="financial.degradation_pct_per_year",
         group=GROUP_FINANCIAL,
-        label="แผงเสื่อมสภาพต่อปี",
+        label="แผงเสื่อมสภาพต่อปี (ปีที่ 2 เป็นต้นไป)",
         unit="%/ปี",
-        default=0.5,
+        default=0.4,
         minimum=0.0,
         maximum=5.0,
-        step=0.05,
+        step=0.01,
         origin=ORIGIN_LITERATURE,
+        note=(
+            "ค่ารับประกันของแผงรุ่นที่ติดตั้งจริง — Trina Vertex N TSM-NEG21C.20 (N-type i-TOPCon 715 W) "
+            "ตามที่ระบุใน assets.yaml · รับประกันเชิงเส้น 30 ปี: ปีแรก 1% จากนั้น 0.40%/ปี เหลือ 87.4% ที่ปีที่ 30 "
+            "(100 − 1 − 0.4×29 = 87.4 ลงตัวพอดี) · เดิมใช้ 0.55 ซึ่งเป็นช่วงกลางๆ ของอุตสาหกรรม ไม่เจาะจงรุ่นนี้"
+        ),
+    ),
+    SettingSpec(
+        key="financial.degradation_first_year_pct",
+        group=GROUP_FINANCIAL,
+        label="แผงเสื่อมสภาพปีแรก (LID)",
+        unit="%",
+        default=1.0,
+        minimum=0.0,
+        maximum=10.0,
+        step=0.1,
+        origin=ORIGIN_LITERATURE,
+        note=(
+            "ปีแรกเสื่อมมากกว่าปีถัดๆ ไปเพราะ light-induced degradation ซึ่งเกิดครั้งเดียว ไม่ใช่การปัดเศษของอัตรารายปี · "
+            "ค่า 1% มาจากใบรับประกันของ Trina สำหรับรุ่นนี้โดยตรง · แยกเป็นคนละค่าเพื่อให้กระแสเงินสดที่เผยแพร่ "
+            "ตรงกับใบรับประกันปีต่อปี"
+        ),
     ),
     # --- uncertainty (2026-07-25, project B) ---------------------------------
     # These are SPREADS, not values: they say how unsure each assumption is, and

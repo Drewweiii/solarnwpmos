@@ -172,3 +172,40 @@ class TestDegradationFactorMatchesApplyScenario:
             degradation_factor(-1.0, 5)
         with pytest.raises(ValueError):
             degradation_factor(0.5, -1)
+
+
+def test_degradation_reproduces_the_installed_modules_warranty_curve():
+    """The defaults are not a generic industry range any more - they are the
+    published warranty for the module config/assets.yaml says is installed
+    (Trina Vertex N TSM-NEG21C.20): 1% in year 1, 0.40%/year after, 87.4% left
+    at year 30 on a 30-year LINEAR warranty.
+
+    Pinned on the year-30 figure because that is the number that proves the
+    other two: 100 - 1 - 0.4 x 29 = 87.4 exactly. If a future edit changes
+    either rate without meaning to, this catches it against the datasheet
+    rather than against whatever the code happened to say.
+    """
+    from nongfab_financial.model import FinancialAssumptions, degradation_factor
+
+    a = FinancialAssumptions()
+    assert a.degradation_pct_per_year == 0.4
+    assert a.degradation_first_year_pct == 1.0
+
+    def surviving(year: int) -> float:
+        return degradation_factor(a.degradation_pct_per_year, year - 1) - a.degradation_first_year_pct / 100
+
+    assert surviving(1) == pytest.approx(0.99)
+    assert surviving(30) == pytest.approx(0.874)
+
+
+def test_a_worse_first_year_step_lowers_lifetime_energy_and_npv():
+    """The first-year term has to reach the cash flow, not just sit on the
+    dataclass - a separately-modelled loss that nothing multiplies by is the
+    same bug as a setting nothing reads."""
+    from nongfab_financial.model import FinancialAssumptions, compute_financial_analysis
+
+    base = compute_financial_analysis(400_000.0, 200.0, FinancialAssumptions())
+    worse = compute_financial_analysis(400_000.0, 200.0, FinancialAssumptions(degradation_first_year_pct=5.0))
+
+    assert worse.cash_flows[0].ac_energy_kwh < base.cash_flows[0].ac_energy_kwh
+    assert worse.npv_thb < base.npv_thb

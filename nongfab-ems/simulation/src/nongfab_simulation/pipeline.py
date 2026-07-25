@@ -42,12 +42,23 @@ RAINY_SEASON_MONTHS = (6, 7, 8, 9, 10)
 # real (if approximate) rainy-season dip instead of a flat line.
 RAINY_SEASON_EXTRA_CLOUD_ATTENUATION_PCT = 15.0
 
-# Typical modern crystalline-silicon linear degradation warranty figure
-# (~0.4-0.7%/year is a common manufacturer range per what_if.py's own
-# docstring) - not a Trina Vertex N-specific measured value (config/
-# assets.yaml doesn't carry one, the same gap pv_conversion.py's temperature
-# coefficient documents).
-DEFAULT_DEGRADATION_PCT_PER_YEAR = 0.55
+# The installed module's OWN warranted rate (2026-07-25). config/assets.yaml
+# names the part - Trina Vertex N TSM-NEG21C.20, N-type i-TOPCon, 715 W - and
+# Trina's published warranty for it is 1% in year 1, then 0.40%/year, with 87.4%
+# guaranteed at year 30 on a 30-year LINEAR power warranty.
+#
+# The three figures reconcile exactly, which is what makes them trustworthy
+# rather than merely quoted: 100 - 1 - (0.4 x 29) = 87.4. "Linear" is also why
+# this drops straight in - `what_if.apply_scenario` and `model.degradation_factor`
+# were already linear rather than compounding, so the model shape and the
+# warranty shape agree.
+#
+# Was 0.55 (a generic 0.4-0.7%/yr industry range) until the datasheet was
+# looked up; the old comment here said outright that no Trina-specific figure
+# was available, and that gap is now closed. The first-year 1% step lives in
+# `nongfab_financial.model` (DEFAULT_DEGRADATION_FIRST_YEAR_PCT) because it is
+# the published cash-flow that has to match the warranty year for year.
+DEFAULT_DEGRADATION_PCT_PER_YEAR = 0.4
 LIFETIME_YEARS = 25
 
 # Days per year, for the flat annual-energy extrapolation below - not a

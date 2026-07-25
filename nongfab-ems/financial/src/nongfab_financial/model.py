@@ -35,6 +35,14 @@ from dataclasses import dataclass, field
 
 from nongfab_simulation.pipeline import DEFAULT_DEGRADATION_PCT_PER_YEAR, LIFETIME_YEARS
 
+# Trina's warranty for the installed TSM-NEG21C.20 is a 1% step in year 1 and
+# 0.40%/year after it - the larger first-year drop is light-induced degradation,
+# a real one-off, not a rounding of the annual rate. Modelled separately so the
+# published cash flow reproduces the warranty exactly:
+#   factor(y) = 1 - first/100 - (annual/100) x (y - 1)
+# which at y=30 gives 1 - 0.01 - 0.004 x 29 = 0.874, the warranted 87.4%.
+DEFAULT_DEGRADATION_FIRST_YEAR_PCT = 1.0
+
 # Thai utility-scale/C&I solar EPC cost ballpark (documented approximation,
 # not a quote for this project) - used only when the caller doesn't supply a
 # real CAPEX figure.
@@ -80,6 +88,7 @@ class FinancialAssumptions:
     tax_rate_pct: float = THAILAND_STANDARD_CORPORATE_TAX_RATE_PCT
     boi_tax_holiday_years: int = DEFAULT_BOI_TAX_HOLIDAY_YEARS
     degradation_pct_per_year: float = DEFAULT_DEGRADATION_PCT_PER_YEAR
+    degradation_first_year_pct: float = DEFAULT_DEGRADATION_FIRST_YEAR_PCT
     lifetime_years: int = LIFETIME_YEARS
 
     def __post_init__(self) -> None:
@@ -240,7 +249,12 @@ def compute_financial_analysis(
     undiscounted_series_for_irr = [-capex]
 
     for y in range(1, assumptions.lifetime_years + 1):
-        energy_kwh = year_1_ac_energy_kwh * degradation_factor(assumptions.degradation_pct_per_year, y - 1)
+        # First-year LID applies from year 1 onward, the annual rate on top of
+        # it - together they reproduce Trina's warranty curve for this module.
+        surviving = degradation_factor(assumptions.degradation_pct_per_year, y - 1) - (
+            assumptions.degradation_first_year_pct / 100
+        )
+        energy_kwh = year_1_ac_energy_kwh * max(0.0, surviving)
         tariff = assumptions.tariff_thb_per_kwh * (1 + assumptions.tariff_escalation_pct_per_year / 100) ** (y - 1)
         avoided_cost = energy_kwh * tariff
         opex = capex * (assumptions.opex_pct_of_capex_per_year / 100) * (1 + assumptions.opex_escalation_pct_per_year / 100) ** (

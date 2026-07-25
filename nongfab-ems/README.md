@@ -807,3 +807,49 @@ CLAUDE.md's standing Financial reminder was rewritten: it had been chasing four
 figures, three of which are now real. Only CAPEX and WACC remain, and the note
 records that market benchmarks were already offered and declined so a future
 session does not re-propose them.
+
+### 2026-07-25 - Panel degradation is the installed module's own warranty now (Track 1)
+
+Auditing what is still an estimate turned up a value the code had already
+flagged against itself. `pipeline.py`'s comment on
+`DEFAULT_DEGRADATION_PCT_PER_YEAR = 0.55` said outright that it was a generic
+0.4-0.7%/yr industry range and "not a Trina Vertex N-specific measured value
+(config/assets.yaml doesn't carry one)".
+
+But assets.yaml does name the part: **Trina Vertex N TSM-NEG21C.20**, N-type
+i-TOPCon, 715 W. Trina publishes a warranty for exactly that module - **1% in
+year 1, then 0.40%/year, 87.4% guaranteed at year 30** on a 30-year LINEAR power
+warranty.
+
+Those three figures check each other, which is what makes them usable rather
+than merely quoted: **100 − 1 − (0.4 × 29) = 87.4** exactly. Two independent
+searches returned the same terms (Trina's own datasheet and ENF both 403 the
+fetcher, so the corroboration is across search results rather than the PDF).
+
+**"Linear" is the part that made this drop straight in.** `apply_scenario` and
+`degradation_factor` were already linear rather than compounding, so the model's
+shape and the warranty's shape agree - no conversion, no silent change of
+method. Had the model been compounding, adopting these numbers would have meant
+changing the maths as well as the constants, which is a much bigger claim.
+
+The first-year 1% is modelled separately (`degradation_first_year_pct`) rather
+than folded into the annual rate, because light-induced degradation is a real
+one-off, not a rounding of the annual figure. Together:
+
+    factor(y) = 1 − first/100 − (annual/100) × (y − 1)
+
+which gives 99.00% at year 1, 89.40% at year 25 and 87.40% at year 30 - the
+warranted number, reproduced rather than approximated.
+
+Direction of the change: 0.55%/yr flat gave 86.8% at year 25 against the
+warranted 89.40%, so the old figure was **pessimistic** about this array. The
+published payback improves slightly, and now matches the contract the modules
+actually carry.
+
+Tests: financial +2 - the year-30 figure pinned against the datasheet (it is the
+one that proves the other two), and that the first-year term genuinely reaches
+the cash flow rather than sitting unused on the dataclass. api 360 / financial 74
+/ simulation 90 / web 538 pass; ruff clean; build clean.
+
+Sources: [Trina Vertex N TSM-NEG21C.20 datasheet](https://static.trinasolar.com/sites/default/files/Datasheet_NEG21C.20.pdf) ·
+[ENF panel directory entry](https://www.enfsolar.com/pv/panel-datasheet/crystalline/69962)
