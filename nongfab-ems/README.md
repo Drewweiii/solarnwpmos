@@ -646,3 +646,73 @@ from that กกพ document, so taking the emission factor from it too keeps on
 sourced to one document instead of mixing two agencies' numbers in a single
 table. The note still names TGO's 0.4999 and the ~0.407 for 2565, so the choice
 stays visible rather than looking like the only figure that ever existed.
+
+### 2026-07-25 - Hour-of-day grid carbon: what our solar actually displaces (Track 1)
+
+**The question a flat emission factor cannot answer.** The Energy Report values
+every avoided kWh at one annual number (กกพ's 0.4758). That is the right
+reporting convention and physically wrong in an interesting way: at 02:00 the
+Thai system runs on its cheapest baseload plant, and at 14:00 - exactly when
+this array produces - it runs that baseload PLUS whatever more expensive, dirtier
+unit was needed for the extra demand. So: does solar here displace clean
+electricity or dirty electricity?
+
+**What the data actually allows.** Thailand does not publish real-time
+generation by fuel type. EPPO and กฟผ. publish it monthly, in reports, after the
+fact - checked before building anything, and the user chose the honest hybrid:
+real published levels, modelled hourly shape. `api/grid_carbon.py` therefore
+states its own provenance line by line, and so does the API response:
+
+  - REAL - the load curve (EGAT SysGen, per-minute, measured, Thai).
+  - REAL - the published GEF the model is *forced* to reproduce.
+  - CITED - per-fuel factors, IPCC AR5 WG3 Annex III lifecycle medians.
+  - MODEL - which fuel is marginal at a given load (merit-order stack).
+  - PLACEHOLDER - the fuel-mix shares themselves, pending EPPO's table.
+
+**The method.** Stack the fuels cheapest-first as horizontal bands under the
+day's load-duration curve, each band sized so its AREA equals that fuel's share
+of the day's energy (bisection - the area is piecewise-linear in the band edge,
+so there is no closed form). At any instant the load sits in exactly one band:
+that fuel is MARGINAL - it would back off if this array made one more kWh.
+Everything below is the mix actually running, whose weighted factor is the
+AVERAGE intensity. Both are returned; conflating them is the classic error.
+
+**The guardrail that makes it publishable.** `calibrate()` scales the whole
+curve so its load-weighted mean equals the published GEF exactly. This page can
+therefore only *redistribute* the official number across the day - it can never
+quietly assert a different national carbon figure than the Energy Report does.
+Four tests pin that invariant, including one that keeps it true after an admin
+publishes a completely different fuel mix.
+
+**What the model says for Thailand, which is not what I expected.** Thai demand
+never falls far enough overnight for the gas fleet to leave the margin - the
+trough is about two-thirds of the peak and gas alone is ~60% of generation - so
+**natural gas comes out marginal at every hour of the day**. The marginal curve
+is nearly flat. That looks like a bug and is the finding: every solar kWh here
+displaces gas at ~0.49 kgCO2eq/kWh rather than the 0.4758 grid average, so the
+flat annual factor slightly **understates** this array. The average curve does
+still vary, because more of the gas band is in use at the peak. A test asserts
+this explicitly rather than treating a flat line as a failure, and a second test
+proves the mechanism does switch fuels when a mix has a peaker above gas.
+
+New `gridmix.*` settings group (registry now 79 settings / 10 groups) holds the
+six shares as percentages, defaulting to the placeholder and labelled
+`placeholder` in the API and on screen until somebody enters real figures - at
+which point the label flips to `published` on its own. Shares need not sum to
+100: a published table that rounds to 99.8 is usable as-is.
+
+Frontend `GridCarbonPanel` on /forecast: the published factor next to the one
+this array earns, the percentage gap, the marginal fuel by name, and a chart
+overlaying both intensity curves on the site's own hourly output - plus a
+standing on-screen warning while the mix is a placeholder, and a collapsible
+"what is measured, what is modelled" block.
+
+The site profile weighting the average is CLEAR-SKY, from the same pvlib solar
+position the monthly estimates use - this site still has no generation meter, so
+that limitation is stated on the panel rather than papered over.
+
+Tests: api +20, web +7. api 323 / web 498 pass; ruff clean; `npm run build`
+clean.
+
+**Open, and genuinely blocking better numbers:** EPPO's monthly
+generation-by-fuel table. Everything else in this feature is real.

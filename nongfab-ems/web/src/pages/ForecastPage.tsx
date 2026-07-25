@@ -22,6 +22,7 @@ import { WeatherStrip } from '../components/WeatherStrip'
 import { FeatureImportancePanel } from '../components/FeatureImportancePanel'
 import { DataHealthPanel } from '../components/DataHealthPanel'
 import { ForecastVerificationPanel } from '../components/ForecastVerificationPanel'
+import { GridCarbonPanel } from '../components/GridCarbonPanel'
 import { GridContextPanel } from '../components/GridContextPanel'
 import { useAuth } from '../lib/auth'
 import {
@@ -726,6 +727,7 @@ export function ForecastPage() {
           ~26 GW Thai system, from EGAT's own public feed. Site-wide rather than
           per-zone: the national curve is the same whichever zone is selected. */}
       <GridContextPanel />
+      <GridCarbonPanel />
     </div>
   )
 }

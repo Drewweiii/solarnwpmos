@@ -38,6 +38,7 @@ GROUP_DIAGNOSTICS = "diagnostics"
 GROUP_HAND = "hand"
 GROUP_EXPANSION = "expansion"
 GROUP_GREEN = "green"
+GROUP_GRIDMIX = "gridmix"
 
 GROUP_LABELS: dict[str, str] = {
     GROUP_SITE: "ข้อมูลไซต์และคลัง (Site & facility)",
@@ -49,6 +50,7 @@ GROUP_LABELS: dict[str, str] = {
     GROUP_HAND: "ความไวการควบคุมด้วยมือ (Hand control)",
     GROUP_EXPANSION: "แผนขยายกำลังผลิต (Expansion plan)",
     GROUP_GREEN: "ค่าไฟและคาร์บอนสำหรับหน้า Savings (Tariff & carbon)",
+    GROUP_GRIDMIX: "สัดส่วนเชื้อเพลิงของระบบไฟฟ้าไทย (Grid fuel mix)",
 }
 
 # --- where a default came from ---------------------------------------------
@@ -883,6 +885,89 @@ SPECS: tuple[SettingSpec, ...] = (
         step=10.0,
         origin=ORIGIN_LITERATURE,
         note="ราคาตลาดอ้างอิงจากเอกสาร workshop คาร์บอนเครดิต · ราคาจริงผันผวนตามตลาด",
+    ),
+    # --- J. national grid fuel mix, for the hourly carbon curve (2026-07-25) -
+    #
+    # Shares of Thailand's ELECTRICITY GENERATION, in percent. Every default is
+    # a PLACEHOLDER, not a figure read off an EPPO table - they exist so the
+    # /grid/carbon curve has a shape to draw at all, and the API labels any
+    # untouched mix as such. Enter EPPO's or กฟผ.'s published monthly
+    # generation-by-fuel numbers here and the label flips to "published".
+    #
+    # They are percentages that need not sum to exactly 100: the model
+    # normalises whatever it is given, so a published table that rounds to
+    # 99.8% is usable as-is rather than being an error to reconcile by hand.
+    SettingSpec(
+        key="gridmix.natural_gas_pct",
+        group=GROUP_GRIDMIX,
+        label="ก๊าซธรรมชาติ",
+        unit="% ของการผลิตไฟฟ้าทั้งประเทศ",
+        default=60.0,
+        minimum=0.0,
+        maximum=100.0,
+        step=0.1,
+        origin=ORIGIN_PLACEHOLDER,
+        note="ค่าประมาณ ยังไม่ได้ยืนยันกับตาราง EPPO — ก๊าซเป็นเชื้อเพลิงหลักของไทยและมักเป็นตัวที่อยู่ 'ชายขอบ' ช่วงกลางวัน",
+    ),
+    SettingSpec(
+        key="gridmix.coal_lignite_pct",
+        group=GROUP_GRIDMIX,
+        label="ถ่านหิน/ลิกไนต์",
+        unit="% ของการผลิตไฟฟ้าทั้งประเทศ",
+        default=16.0,
+        minimum=0.0,
+        maximum=100.0,
+        step=0.1,
+        origin=ORIGIN_PLACEHOLDER,
+        note="ค่าประมาณ · แบบจำลองใช้ค่าคาร์บอนของถ่านหินตาม IPCC (820 gCO₂eq/kWh) ซึ่งต่ำกว่าลิกไนต์จริงของไทย",
+    ),
+    SettingSpec(
+        key="gridmix.imported_pct",
+        group=GROUP_GRIDMIX,
+        label="นำเข้า (ส่วนใหญ่พลังน้ำ สปป.ลาว)",
+        unit="% ของการผลิตไฟฟ้าทั้งประเทศ",
+        default=14.0,
+        minimum=0.0,
+        maximum=100.0,
+        step=0.1,
+        origin=ORIGIN_PLACEHOLDER,
+        note="ค่าประมาณ",
+    ),
+    SettingSpec(
+        key="gridmix.renewables_pct",
+        group=GROUP_GRIDMIX,
+        label="พลังงานหมุนเวียนในประเทศ",
+        unit="% ของการผลิตไฟฟ้าทั้งประเทศ",
+        default=9.0,
+        minimum=0.0,
+        maximum=100.0,
+        step=0.1,
+        origin=ORIGIN_PLACEHOLDER,
+        note="ค่าประมาณ · แบบจำลองใช้ค่าคาร์บอนของโซลาร์ (48 gCO₂eq/kWh) ซึ่งต่ำกว่าชีวมวลที่เป็นสัดส่วนใหญ่ในไทย",
+    ),
+    SettingSpec(
+        key="gridmix.hydro_pct",
+        group=GROUP_GRIDMIX,
+        label="พลังน้ำในประเทศ",
+        unit="% ของการผลิตไฟฟ้าทั้งประเทศ",
+        default=1.0,
+        minimum=0.0,
+        maximum=100.0,
+        step=0.1,
+        origin=ORIGIN_PLACEHOLDER,
+        note="ค่าประมาณ",
+    ),
+    SettingSpec(
+        key="gridmix.oil_pct",
+        group=GROUP_GRIDMIX,
+        label="น้ำมัน/ดีเซล",
+        unit="% ของการผลิตไฟฟ้าทั้งประเทศ",
+        default=0.0,
+        minimum=0.0,
+        maximum=100.0,
+        step=0.1,
+        origin=ORIGIN_PLACEHOLDER,
+        note="ค่าประมาณ · ปกติเดินเครื่องเฉพาะช่วงพีค ตั้ง 0 ได้ถ้าไม่ต้องการให้เป็นเชื้อเพลิงชายขอบ",
     ),
 )
 

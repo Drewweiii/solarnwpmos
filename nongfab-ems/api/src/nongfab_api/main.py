@@ -32,6 +32,7 @@ from . import (
     routes_financial,
     routes_forecast,
     routes_grid,
+    routes_grid_carbon,
     routes_irradiance_map,
     routes_performance,
     routes_savings,
@@ -253,6 +254,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     app.include_router(routes_diagnostics.router)
     app.include_router(routes_expansion.router)
     app.include_router(routes_grid.router)
+    app.include_router(routes_grid_carbon.router)
     app.include_router(routes_settings.router)
     app.include_router(routes_feedback.router)
     app.include_router(ws_live.router)

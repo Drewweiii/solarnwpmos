@@ -5,6 +5,7 @@ import {
   getCurrentConditions,
   getFeatureImportance,
   getExpansion,
+  getGridCarbon,
   getGridToday,
   getFeedHealth,
   getForecastVerification,
@@ -149,6 +150,20 @@ export function useGridToday() {
     // interval, so anything faster than this just re-reads the same snapshot.
     refetchInterval: 60 * 1000,
     staleTime: 60 * 1000,
+  })
+}
+
+// The carbon curve is rebuilt from the same once-a-minute EGAT snapshot, but
+// it only moves meaningfully as the day's shape fills in - a slower cadence is
+// plenty and keeps the merit-order solve off the critical path.
+export function useGridCarbon() {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['grid-carbon'],
+    queryFn: () => getGridCarbon(token!),
+    enabled: Boolean(token),
+    refetchInterval: 5 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
   })
 }
 

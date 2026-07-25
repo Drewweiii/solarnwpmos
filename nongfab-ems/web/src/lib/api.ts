@@ -16,6 +16,7 @@ import type {
   ForecastHorizon,
   ForecastResponse,
   GeometryResponse,
+  GridCarbonResponse,
   GridTodayResponse,
   IrradianceMapResponse,
   MoonPathResponse,
@@ -271,3 +272,5 @@ export const getChatHistory = (
 }
 
 export const getGridToday = (token: string): Promise<GridTodayResponse> => request('/grid/today', token)
+
+export const getGridCarbon = (token: string): Promise<GridCarbonResponse> => request('/grid/carbon', token)

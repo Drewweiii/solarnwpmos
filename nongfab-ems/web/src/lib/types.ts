@@ -937,3 +937,49 @@ export interface GridTodayResponse {
   source_note: string
   comparison_note: string
 }
+
+/** One ICT hour of the national grid's modelled carbon intensity
+ * (2026-07-25). `average` is what the running mix emits; `marginal` is what
+ * the plant on the margin emits - the factor an extra solar kWh actually
+ * displaces. See api/grid_carbon.py for which parts are measured and which
+ * are modelled. */
+export interface GridCarbonHour {
+  hour: number
+  load_mw: number
+  average_kg_per_kwh: number
+  marginal_kg_per_kwh: number
+  marginal_fuel_key: string
+  marginal_fuel_label: string
+  samples: number
+  /** Clear-sky AC energy for the whole site in this hour - the weighting, not
+   * a measurement (this site has no generation meter). */
+  site_generation_kwh: number
+}
+
+export interface GridCarbonMixShare {
+  key: string
+  label: string
+  share_pct: number
+  ef_kg_per_kwh: number
+}
+
+export interface GridCarbonResponse {
+  available: boolean
+  reason: string | null
+  day: string | null
+  hours: GridCarbonHour[]
+  mix: GridCarbonMixShare[]
+  /** 'placeholder' until somebody enters EPPO's real monthly fuel split. */
+  mix_origin: string
+  mix_note: string
+  published_ef_kg_per_kwh: number | null
+  solar_weighted_marginal_kg_per_kwh: number | null
+  solar_weighted_average_kg_per_kwh: number | null
+  /** How far the factor this array earns sits above (or below) the flat
+   * published one, in percent. */
+  marginal_uplift_pct: number | null
+  method_note: string
+  calibration_note: string
+  marginal_note: string
+  profile_note: string
+}
