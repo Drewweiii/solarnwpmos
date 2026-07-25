@@ -1063,3 +1063,35 @@ export interface FinancialUncertainty {
   probability_no_payback_pct: number
   method_note: string
 }
+
+/** One orientation and what it collects (project D, 2026-07-25). */
+export interface OrientationYield {
+  tilt_deg: number
+  azimuth_deg: number
+  poa_kwh_per_m2: number
+  shading_loss_pct: number
+  effective_kwh_per_m2: number
+}
+
+export interface ZoneOrientation {
+  zone_id: string
+  current: OrientationYield
+  optimum: OrientationYield
+  /** False everywhere today: assets.yaml has `tilt_deg: null` for every zone,
+   * so "current" is an assumed angle and the gain is a gap against an
+   * assumption, not a finding about the built array. */
+  current_is_measured: boolean
+  gain_pct: number
+  gain_kwh_per_m2_year: number
+  row_pitch_m: number
+  note: string | null
+}
+
+export interface OrientationResponse {
+  zones: ZoneOrientation[]
+  any_unmeasured: boolean
+  method_note: string
+  pipeline_note: string
+  unmeasured_note: string
+  expansion_note: string
+}

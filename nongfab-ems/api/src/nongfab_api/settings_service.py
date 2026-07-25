@@ -97,13 +97,17 @@ def apply_effective_settings() -> None:
     Also clears the two lru_caches that are computed FROM these settings and
     would otherwise keep answering with pre-edit values for the life of the
     process: `annual_shading_loss_pct` (per zone, from tilt/azimuth/geometry)
-    and `/grid/carbon`'s cached clear-sky day profile (per date, from each
-    zone's capacity, tilt and loss factors).
+    `/grid/carbon`'s cached clear-sky day profile (per date, from each zone's
+    capacity, tilt and loss factors), and `/orientation`'s cached tilt sweep
+    (per zone, from its tilt, azimuth and row pitch).
     """
+    from nongfab_simulation.tilt_optimizer import optimise_zone
+
     from .routes_grid_carbon import _profile_for_day
 
     set_asset_overrides(asset_override_payload())
     set_loss_overrides(loss_override_payload())
     annual_shading_loss_pct.cache_clear()
     _profile_for_day.cache_clear()
+    optimise_zone.cache_clear()
     logger.debug("settings applied to assets + loss model")

@@ -6,6 +6,7 @@ import {
   getFeatureImportance,
   getExpansion,
   getGridCarbon,
+  getOrientation,
   getGridToday,
   getOfficialSources,
   getFeedHealth,
@@ -155,6 +156,18 @@ export function useGridToday() {
 // The carbon curve is rebuilt from the same once-a-minute EGAT snapshot, but
 // it only moves meaningfully as the day's shape fills in - a slower cadence is
 // plenty and keeps the merit-order solve off the critical path.
+// The sweep is cached server-side and depends only on the sun path and the
+// zone geometry, so it never changes between page loads within a deploy.
+export function useOrientation() {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['orientation'],
+    queryFn: () => getOrientation(token!),
+    enabled: Boolean(token),
+    staleTime: Infinity,
+  })
+}
+
 export function useGridCarbon() {
   const { token } = useAuth()
   return useQuery({

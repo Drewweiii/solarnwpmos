@@ -810,3 +810,51 @@
   color: #6b7280;
   line-height: 1.55;
 }
+
+/* Orientation optimiser (project D, 2026-07-25). Lives here rather than in a
+   component stylesheet for the same reason the grid-context classes do:
+   EnergyReportPage is a lazy route and does not share these. */
+.orientation-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  margin: 10px 0;
+}
+
+.orientation-table th,
+.orientation-table td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid #e5e7eb;
+  white-space: nowrap;
+}
+
+.orientation-table th {
+  font-size: 0.78rem;
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.orientation-gain {
+  color: #b45309;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.orientation-flat {
+  color: #15803d;
+}
+
+/* Marks an angle the system assumed rather than measured - the distinction the
+   whole panel depends on, so it must be visible in the row itself, not only in
+   the warning above the table. */
+.orientation-assumed {
+  color: #b45309;
+  font-size: 0.75rem;
+}
+
+.orientation-warning {
+  color: #b45309;
+  border-left: 3px solid #f59e0b;
+  padding-left: 10px;
+}

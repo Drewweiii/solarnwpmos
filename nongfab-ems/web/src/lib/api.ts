@@ -18,6 +18,7 @@ import type {
   GeometryResponse,
   GridCarbonResponse,
   GridTodayResponse,
+  OrientationResponse,
   IrradianceMapResponse,
   MoonPathResponse,
   PerformanceResponse,
@@ -275,4 +276,6 @@ export const getChatHistory = (
 export const getGridToday = (token: string): Promise<GridTodayResponse> => request('/grid/today', token)
 
 export const getGridCarbon = (token: string): Promise<GridCarbonResponse> => request('/grid/carbon', token)
+
+export const getOrientation = (token: string): Promise<OrientationResponse> => request('/orientation', token)
 export const getOfficialSources = (token: string): Promise<SourcesResponse> => request('/sources', token)

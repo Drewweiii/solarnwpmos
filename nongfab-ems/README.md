@@ -853,3 +853,69 @@ the cash flow rather than sitting unused on the dataclass. api 360 / financial 7
 
 Sources: [Trina Vertex N TSM-NEG21C.20 datasheet](https://static.trinasolar.com/sites/default/files/Datasheet_NEG21C.20.pdf) ·
 [ENF panel directory entry](https://www.enfsolar.com/pv/panel-datasheet/crystalline/69962)
+
+### 2026-07-25 - Project D: is the array pointed the right way? (Track 1)
+
+**The bug found on the way in, which is bigger than the feature.** Tilt affected
+exactly one thing in this codebase: inter-row self-shading. The ENERGY model
+never used it - `simulate_zone_baseline` is handed `ghi_clearsky`, irradiance on
+a HORIZONTAL surface - so as far as yield was concerned, every panel here might
+as well have been lying flat. Asking the existing model for the best tilt would
+have answered "it does not matter", which is wrong rather than uninformative.
+
+So `simulation/tilt_optimizer.py` transposes GHI/DNI/DHI onto the tilted plane
+(pvlib Hay-Davies) to get plane-of-array irradiance, then sweeps tilt x azimuth
+against the site's own sun path, subtracting the self-shading each candidate
+geometry causes. POA and shading pull opposite ways - tilting up gains
+irradiance and gives some back to the row in front - so the optimum is a real
+balance, not a maximum of one term.
+
+**Sanity check that the physics is right:** the optimum comes out at **14°
+facing due south** for a site at **12.7 N**. Optimal tilt ≈ latitude is the
+textbook result, and getting it out of an independent computation is the
+strongest evidence the transposition is not flipped. A test pins it as a band
+rather than an exact degree, so it stays a physics check instead of a
+change-detector.
+
+**What it does NOT do, deliberately.** The main pipeline still runs on GHI, so
+/financial, /savings and the Energy Report are untouched. Adopting POA site-wide
+would move the published annual yield and therefore the payback - that is the
+user's decision, not a side effect of adding an advisory panel. Both sides of
+every comparison here use the same POA model, so the comparison is internally
+consistent regardless.
+
+**The limit that decides what may be claimed.** `config/assets.yaml` carries
+`tilt_deg: null` for every zone - "not measured - SLD is electrical-only". The
+array's real angle is unknown. So "you could gain X%" is a statement about an
+ASSUMED angle, and `current_is_measured` carries that through the module, the
+API and the screen, where it renders as a per-row "ค่าสมมติ" tag rather than only
+as a banner somebody can scroll past. A test asserts it is false for all three
+zones today and is expected to fail the day a survey lands - which is the point:
+it will force the caveat to be revisited instead of going stale.
+
+The optimum itself survives that limit intact, because it depends on the sun
+path rather than on what was built - which makes it directly usable for the
+expansion phases that do not exist yet.
+
+Results: GIS and ISB sit at an assumed 10°/180°, within **0.16%** of the best
+available - effectively already right. Jetty faces **west (270°)** and models
+**3.7%** below south, but its panels follow the trestle, so that figure is
+reported as the cost of a structural constraint rather than as advice to rotate
+a pier.
+
+Row pitch is deliberately held at as-built: widening it cuts shading, but this
+site's land is capped, so a wider pitch means fewer rows and less capacity.
+Trading a loss for a smaller array is not a like-for-like comparison and doing
+it honestly needs a land-area constraint this module does not have.
+
+The sweep is ~1,500 candidates and several seconds, so `optimise_zone` is
+lru_cached - and cleared in `apply_effective_settings` alongside
+`annual_shading_loss_pct` and the grid-carbon day profile, since the geometry it
+reads is user-editable. Three caches now hang off that one call.
+
+Tests: simulation +9, api +6, web +6. api 366 / simulation 99 / web 544 pass;
+ruff clean; build clean; lint clean.
+
+**Worth asking the user for:** a measured tilt and azimuth. It is the one input
+that would turn the gain column from "distance from an assumption" into a real
+finding about the built array.

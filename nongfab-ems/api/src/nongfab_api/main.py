@@ -34,6 +34,7 @@ from . import (
     routes_grid,
     routes_grid_carbon,
     routes_irradiance_map,
+    routes_orientation,
     routes_performance,
     routes_savings,
     routes_settings,
@@ -254,6 +255,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     app.include_router(routes_soiling.router)
     app.include_router(routes_diagnostics.router)
     app.include_router(routes_expansion.router)
+    app.include_router(routes_orientation.router)
     app.include_router(routes_grid.router)
     app.include_router(routes_grid_carbon.router)
     app.include_router(routes_sources.router)

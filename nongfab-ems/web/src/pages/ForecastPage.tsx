@@ -24,6 +24,7 @@ import { DataHealthPanel } from '../components/DataHealthPanel'
 import { ForecastVerificationPanel } from '../components/ForecastVerificationPanel'
 import { GridCarbonPanel } from '../components/GridCarbonPanel'
 import { GridContextPanel } from '../components/GridContextPanel'
+import { OrientationPanel } from '../components/OrientationPanel'
 import { useAuth } from '../lib/auth'
 import {
   buildCompetitionRows,
@@ -737,6 +738,7 @@ export function ForecastPage() {
           per-zone: the national curve is the same whichever zone is selected. */}
       <GridContextPanel />
       <GridCarbonPanel />
+      <OrientationPanel />
     </div>
   )
 }
