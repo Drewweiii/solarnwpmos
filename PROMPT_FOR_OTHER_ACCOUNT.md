@@ -54,9 +54,14 @@ Terminal 2) branch `claude/solar-optimization-forecasting-jryux7`
   (ข) วงเล็บปิด `}` ของ interface ถูกกลืน → `types.ts` พัง **แต่ `vitest` 523 ตัวผ่าน
   `vite build` ผ่าน และ `tsc --noEmit` เงียบสนิท** จับได้ด้วย `npm run lint` ตัวเดียว
   (CI #169/#170 แดงเพราะข้อนี้)
-- **ด่านฝั่ง web มี 4 ตัว ต้องรันให้ครบก่อน push** — ไม่มีตัวไหนครอบตัวอื่นได้:
-  `npm run lint` (oxlint — จับ syntax ที่อีก 3 ตัวปล่อยผ่าน) · `npx vitest run` ·
-  `npx vite build` · `npx tsc --noEmit`
+- **ด่านฝั่ง web มี 3 ตัว ต้องรันให้ครบก่อน push** — ไม่มีตัวไหนครอบตัวอื่นได้:
+  1. `npm run lint` (oxlint) — จับ syntax ที่อีก 2 ตัวปล่อยผ่านทั้งหมด
+  2. `npx vitest run`
+  3. **`npm run build`** ← ต้องใช้ตัวนี้ ไม่ใช่ `npx vite build` หรือ `npx tsc --noEmit`
+     `npm run build` = `tsc -b && vite build` และ **`tsc -b` ตรวจไฟล์เทสด้วย**
+     ส่วน `npx tsc --noEmit` ไม่ตรวจ · เพิ่งทำ CI แดง (#172/#173) เพราะ fixture
+     ใน `FinancialPage.test.tsx` ไม่มีฟิลด์ใหม่ที่ผมประกาศเป็น required
+     → **ฟิลด์ใหม่ใน response type ให้ใส่ `?` เสมอ** ไม่งั้น fixture เก่าทุกตัวพัง
 - ค่าคงที่ใหม่ควรใส่ใน `settings_registry.py` — เพิ่ม 1 entry ได้ช่องกรอกในหน้า
   Settings อัตโนมัติ ไม่ต้องทำ UI เอง (ตอนนี้มี 80 ค่า / 10 กลุ่ม)
 

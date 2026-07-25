@@ -588,7 +588,10 @@ export interface FinancialResponse {
   discounted_payback_years: number | null
   cash_flows: CashFlowYearOut[]
   boi_presets: BoiPreset[]
-  uncertainty: FinancialUncertainty | null
+  /** Optional: an older API deploy (or a test fixture written before this
+   * existed) simply omits it, and the panel renders nothing. Required would
+   * force every existing caller to restate a field they know nothing about. */
+  uncertainty?: FinancialUncertainty | null
 }
 
 export interface SolarPosition {

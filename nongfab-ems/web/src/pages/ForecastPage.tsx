@@ -46,6 +46,7 @@ import {
   useAllZonesPerformance,
   useCurrentConditions,
   useForecast,
+  useGridToday,
   usePerformance,
   useUvHistory,
   useUvHourlyHistory,
@@ -193,6 +194,10 @@ export function ForecastPage() {
   // documents) - powers the 3x3 live variable table + grouped graphs below
   // (2026-07-18, see SolarVariablesTable/SolarVariablesGraphs).
   const currentConditions = useCurrentConditions()
+  // Same query the national-grid panel below already runs, so react-query
+  // serves it from cache - no second request. Used only to show EGAT's own
+  // ambient reading next to the GFS temperature as a sanity check.
+  const gridToday = useGridToday()
   // Real daily UV readings accumulated so far (2026-07-19) - feeds the UV
   // chart below, kept as its own query (not folded into currentConditions)
   // since it's a different shape (a short list of days, not one live
@@ -696,7 +701,11 @@ export function ForecastPage() {
         isLoading={weatherStrip.isLoading}
       />
 
-      <SolarVariablesTable conditions={currentConditions.data} isLoading={currentConditions.isLoading} />
+      <SolarVariablesTable
+        conditions={currentConditions.data}
+        isLoading={currentConditions.isLoading}
+        ambientC={gridToday.data?.latest_ambient_c}
+      />
 
       <SolarVariablesGraphs
         points={weatherStrip.data?.points ?? []}
@@ -1206,6 +1215,11 @@ function formatVar(value: number | null | undefined, digits: number): string {
 interface SolarVariablesTableProps {
   conditions: CurrentConditionsResponse | undefined
   isLoading: boolean
+  /** EGAT's own ambient temperature, already fetched on this page for the
+   * national-grid panel - reused here as an independent Thai reading to sanity
+   * check GFS against. Optional: the block simply omits the comparison when
+   * EGAT is unreachable. */
+  ambientC?: number | null
 }
 
 // Live-updating 3x3 table of all 9 Jitkomut Songsiri reference-deck input
@@ -1218,7 +1232,7 @@ interface SolarVariablesTableProps {
 // ingested-but-never-surfaced) and refetched on the same poll interval
 // every other live readout on this page already uses - no bespoke
 // "real-time" plumbing needed beyond that.
-function SolarVariablesTable({ conditions, isLoading }: SolarVariablesTableProps) {
+function SolarVariablesTable({ conditions, isLoading, ambientC }: SolarVariablesTableProps) {
   if (isLoading) return <p className="forecast-status">Loading…</p>
   if (!conditions || !conditions.available) {
     return <p className="forecast-status">No live weather data available yet.</p>
@@ -1229,9 +1243,21 @@ function SolarVariablesTable({ conditions, isLoading }: SolarVariablesTableProps
       <h3 className="forecast-minute-title">ตัวแปรพยากรณ์พลังงานแสงอาทิตย์ทั้ง 9 ตัว (Songsiri reference)</h3>
       <p className="forecast-error-subtitle">ค่าล่าสุดของตัวแปรทั้ง 9 ตัวที่งานวิจัยอ้างอิงของระบบนี้ใช้ - อัปเดตข้อมูลอัตโนมัติเป็นระยะ</p>
       <div className="solar-variables-grid">
-        <VariableCell symbol="I" label="Irradiance" value={formatVar(conditions.irradiance_w_m2, 0)} unit="W/m²" />
-        <VariableCell symbol="RH" label="Relative humidity" value={formatVar(conditions.relative_humidity_pct, 0)} unit="%" />
-        <VariableCell symbol="T" label="Temperature" value={formatVar(conditions.temp_c, 1)} unit="°C" />
+        <VariableCell symbol="I" label="Irradiance" value={formatVar(conditions.irradiance_w_m2, 0)} unit="W/m²" caption="GFS · SSRD" />
+        <VariableCell
+          symbol="RH"
+          label="Relative humidity"
+          value={formatVar(conditions.relative_humidity_pct, 0)}
+          unit="%"
+          caption="GFS · 2 เมตร"
+        />
+        <VariableCell
+          symbol="T"
+          label="Temperature"
+          value={formatVar(conditions.temp_c, 1)}
+          unit="°C"
+          caption="GFS · 2 เมตร"
+        />
         <VariableCell
           symbol="UV"
           label="UV index"
@@ -1239,8 +1265,20 @@ function SolarVariablesTable({ conditions, isLoading }: SolarVariablesTableProps
           unit="ดัชนี"
           caption={conditions.uv_observation_date ? `ข้อมูลรายวัน (${conditions.uv_observation_date})` : 'ไม่มีข้อมูล UV'}
         />
-        <VariableCell symbol="WS" label="Wind speed" value={formatVar(conditions.wind_speed_ms, 1)} unit="m/s" />
-        <VariableCell symbol="I_clr" label="Clear-sky GHI" value={formatVar(conditions.clearsky_ghi_w_m2, 0)} unit="W/m²" />
+        <VariableCell
+          symbol="WS"
+          label="Wind speed"
+          value={formatVar(conditions.wind_speed_ms, 1)}
+          unit="m/s"
+          caption="GFS · 10 เมตร"
+        />
+        <VariableCell
+          symbol="I_clr"
+          label="Clear-sky GHI"
+          value={formatVar(conditions.clearsky_ghi_w_m2, 0)}
+          unit="W/m²"
+          caption="คำนวณเอง (pvlib)"
+        />
         <VariableCell
           symbol="cosθ"
           label="Cosine of zenith angle"
@@ -1265,9 +1303,25 @@ function SolarVariablesTable({ conditions, isLoading }: SolarVariablesTableProps
           }
         />
       </div>
+      {/* Provenance for the whole block (2026-07-25). Naming the model matters
+          here: none of I/RH/T/WS is measured at Nong Fab - they are a global
+          weather model read at the site's coordinates, and a reader comparing
+          T against a thermometer on the roof should know that before
+          concluding the dashboard is wrong. */}
       <p className="forecast-status forecast-status-caption">
-        I_wrf ใช้ข้อมูลจาก GFS (โมเดล NWP เดียวกับที่ใช้คำนวณ I) ที่เวลาล่วงหน้าใกล้ที่สุด ไม่ใช่โมเดลอิสระตัวที่สอง - ไม่มีเซนเซอร์วัดจริงหน้างานแยกต่างหาก
+        <strong>ที่มาของข้อมูล:</strong> I · RH · T · WS มาจากแบบจำลองอากาศโลก <strong>GFS (NOAA)</strong>{' '}
+        อ่านค่าที่พิกัดจริงของหนองแฟบ — <strong>ไม่ใช่ค่าที่วัดด้วยเซนเซอร์หน้างาน</strong> (ไซต์นี้ไม่มีสถานีตรวจอากาศของตัวเอง) ·
+        I_clr และ cosθ คำนวณเองด้วย pvlib (ดาราศาสตร์ + แบบจำลองท้องฟ้าใส) · k̂ = I ÷ I_clr ·
+        I_wrf คือ GFS ตัวเดียวกันที่เวลาล่วงหน้าใกล้ที่สุด ไม่ใช่โมเดลอิสระตัวที่สอง
       </p>
+      {ambientC != null && conditions.temp_c != null && (
+        <p className="forecast-status forecast-status-caption">
+          🔎 <strong>เทียบกับค่าวัดจริงในไทย:</strong> กฟผ. รายงานอุณหภูมิขณะนี้ที่{' '}
+          <strong>{ambientC.toFixed(1)}°C</strong> ขณะที่ GFS ให้ <strong>{conditions.temp_c.toFixed(1)}°C</strong>{' '}
+          (ต่างกัน {Math.abs(ambientC - conditions.temp_c).toFixed(1)}°C) — ค่าของ กฟผ. เป็นค่าเฉลี่ยของระบบไฟฟ้าทั้งประเทศ
+          ไม่ใช่ของหนองแฟบโดยเฉพาะ จึงใช้ดูคร่าว ๆ ว่าตัวเลขไม่หลุดโลก ไม่ใช่การสอบเทียบ
+        </p>
+      )}
 
       {/* Marine/aerosol model inputs (2026-07-24) - the coastal salt-spray +
           CAMS aerosol variables the hour-ahead model now trains on. */}

@@ -165,82 +165,91 @@ function renderPage(token = 'header.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9.sig
   )
 }
 
+// Installs every endpoint this page touches. Extracted from the original
+// beforeEach (2026-07-25) so a second describe block can reuse it - an
+// unmocked endpoint here does not fail loudly, it stalls jsdom until an
+// unrelated findBy* times out.
+function mockAllEndpoints() {
+  localStorage.clear()
+  vi.spyOn(api, 'getAssets').mockResolvedValue(registry)
+  vi.spyOn(api, 'getPerformance').mockImplementation((zone) =>
+    Promise.resolve(makePerformance(zone, { GIS: 50, ISB: 120, Jetty: 200 }[zone] ?? 50)),
+  )
+  vi.spyOn(api, 'getForecast').mockImplementation((zone, horizon) => Promise.resolve(makeForecast(zone, horizon)))
+  vi.spyOn(api, 'getWeatherStrip').mockResolvedValue(makeWeatherStrip('2026-07-14T12:00:00.000Z', 12))
+  vi.spyOn(api, 'getCurrentConditions').mockResolvedValue(makeCurrentConditions())
+  vi.spyOn(api, 'getUvHistory').mockResolvedValue(makeUvHistory())
+  // Default: no hourly UV accumulated yet, so the UV chart falls back to the
+  // daily bar (matching the pre-2026-07-22 behavior the daily-bar tests
+  // assert). Tests that exercise the hourly line override this per-case.
+  vi.spyOn(api, 'getUvHourlyHistory').mockResolvedValue({ points: [] })
+  // Panels added to this page in July 2026 (Feature Importance, Forecast
+  // Verification, System Health). Left unmocked they attempt a real fetch,
+  // which jsdom stalls on long enough to blow the default findBy* timeout
+  // for assertions elsewhere on the page. Each gets its documented "no data
+  // yet" shape - the panels render their own graceful empty state.
+  vi.spyOn(api, 'getFeatureImportance').mockResolvedValue({
+    available: false,
+    zone: 'GIS',
+    items: [],
+    new_features_total: null,
+  })
+  vi.spyOn(api, 'getForecastVerification').mockResolvedValue({
+    available: false,
+    zone: 'GIS',
+    horizon: 'hour',
+    window_days: 30,
+    reason: 'no data in test',
+    ac_capacity_kw: null,
+    daylight: null,
+    all_hours: null,
+    by_lead: [],
+    lead_time_note: '',
+    reference_note: '',
+  })
+  vi.spyOn(api, 'getFeedHealth').mockResolvedValue({
+    overall_status: 'unknown',
+    checked_at: '2026-07-14T12:00:00Z',
+    feeds: [],
+  })
+  vi.spyOn(api, 'getOutputAnomalies').mockResolvedValue({
+    available: false,
+    zone: 'GIS',
+    window_days: 45,
+    reason: 'no data in test',
+    days_assessed: 0,
+    norm_kwh_per_day: null,
+    anomalies: [],
+    basis_note: '',
+  })
+  // Same reason as the panels above: this page also reads GET /grid/today.
+  vi.spyOn(api, 'getGridToday').mockResolvedValue({
+    available: false,
+    reason: 'no data in test',
+    day: null,
+    actual: [],
+    plan: [],
+    peaks: [],
+    latest_mw: null,
+    latest_at: null,
+    latest_ambient_c: null,
+    peak_so_far_mw: null,
+    peak_so_far_at: null,
+    plan_deviation_mw: null,
+    solar_window_start: null,
+    solar_window_end: null,
+    annual_peak_after_sunset: null,
+    site_dc_capacity_kwp: null,
+    site_share_of_system_pct: null,
+    source_note: '',
+    comparison_note: '',
+  })
+}
+
 describe('ForecastPage', () => {
   beforeEach(() => {
     localStorage.clear()
-    vi.spyOn(api, 'getAssets').mockResolvedValue(registry)
-    vi.spyOn(api, 'getPerformance').mockImplementation((zone) =>
-      Promise.resolve(makePerformance(zone, { GIS: 50, ISB: 120, Jetty: 200 }[zone] ?? 50)),
-    )
-    vi.spyOn(api, 'getForecast').mockImplementation((zone, horizon) => Promise.resolve(makeForecast(zone, horizon)))
-    vi.spyOn(api, 'getWeatherStrip').mockResolvedValue(makeWeatherStrip('2026-07-14T12:00:00.000Z', 12))
-    vi.spyOn(api, 'getCurrentConditions').mockResolvedValue(makeCurrentConditions())
-    vi.spyOn(api, 'getUvHistory').mockResolvedValue(makeUvHistory())
-    // Default: no hourly UV accumulated yet, so the UV chart falls back to the
-    // daily bar (matching the pre-2026-07-22 behavior the daily-bar tests
-    // assert). Tests that exercise the hourly line override this per-case.
-    vi.spyOn(api, 'getUvHourlyHistory').mockResolvedValue({ points: [] })
-    // Panels added to this page in July 2026 (Feature Importance, Forecast
-    // Verification, System Health). Left unmocked they attempt a real fetch,
-    // which jsdom stalls on long enough to blow the default findBy* timeout
-    // for assertions elsewhere on the page. Each gets its documented "no data
-    // yet" shape - the panels render their own graceful empty state.
-    vi.spyOn(api, 'getFeatureImportance').mockResolvedValue({
-      available: false,
-      zone: 'GIS',
-      items: [],
-      new_features_total: null,
-    })
-    vi.spyOn(api, 'getForecastVerification').mockResolvedValue({
-      available: false,
-      zone: 'GIS',
-      horizon: 'hour',
-      window_days: 30,
-      reason: 'no data in test',
-      ac_capacity_kw: null,
-      daylight: null,
-      all_hours: null,
-      by_lead: [],
-      lead_time_note: '',
-      reference_note: '',
-    })
-    vi.spyOn(api, 'getFeedHealth').mockResolvedValue({
-      overall_status: 'unknown',
-      checked_at: '2026-07-14T12:00:00Z',
-      feeds: [],
-    })
-    vi.spyOn(api, 'getOutputAnomalies').mockResolvedValue({
-      available: false,
-      zone: 'GIS',
-      window_days: 45,
-      reason: 'no data in test',
-      days_assessed: 0,
-      norm_kwh_per_day: null,
-      anomalies: [],
-      basis_note: '',
-    })
-    // Same reason as the panels above: this page also reads GET /grid/today.
-    vi.spyOn(api, 'getGridToday').mockResolvedValue({
-      available: false,
-      reason: 'no data in test',
-      day: null,
-      actual: [],
-      plan: [],
-      peaks: [],
-      latest_mw: null,
-      latest_at: null,
-      latest_ambient_c: null,
-      peak_so_far_mw: null,
-      peak_so_far_at: null,
-      plan_deviation_mw: null,
-      solar_window_start: null,
-      solar_window_end: null,
-      annual_peak_after_sunset: null,
-      site_dc_capacity_kwp: null,
-      site_share_of_system_pct: null,
-      source_note: '',
-      comparison_note: '',
-    })
+    mockAllEndpoints()
   })
 
   afterEach(() => {
@@ -497,3 +506,71 @@ async function clickGisTab() {
   const gisTab = await screen.findByRole('tab', { name: /^GIS$/i })
   await user.click(gisTab)
 }
+
+// Provenance labelling for the 9-variable table (2026-07-25, task #152). None
+// of I/RH/T/WS is measured at Nong Fab - they come from a global weather model
+// read at the site's coordinates. A reader comparing T against a thermometer
+// on the roof needs to know that before concluding the dashboard is broken.
+describe('ForecastPage - where the 9 variables come from', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    mockAllEndpoints()
+  })
+
+  it('names GFS as the source and says plainly there is no on-site sensor', async () => {
+    renderPage()
+    expect(await screen.findByText(/แบบจำลองอากาศโลก/)).toBeInTheDocument()
+    expect(screen.getByText(/ไม่ใช่ค่าที่วัดด้วยเซนเซอร์หน้างาน/)).toBeInTheDocument()
+  })
+
+  it('tags the four NWP-sourced cells individually, not just in the footnote', async () => {
+    renderPage()
+    await screen.findByText(/แบบจำลองอากาศโลก/)
+    // T and RH are both "GFS · 2 เมตร"; WS is 10 m; I is SSRD.
+    expect(screen.getAllByText('GFS · 2 เมตร')).toHaveLength(2)
+    expect(screen.getByText('GFS · 10 เมตร')).toBeInTheDocument()
+    expect(screen.getByText('GFS · SSRD')).toBeInTheDocument()
+  })
+
+  it('marks the pvlib-computed variable as computed rather than observed', async () => {
+    renderPage()
+    await screen.findByText(/แบบจำลองอากาศโลก/)
+    expect(screen.getByText('คำนวณเอง (pvlib)')).toBeInTheDocument()
+  })
+
+  it('cross-checks the GFS temperature against EGAT’s own ambient reading', async () => {
+    vi.spyOn(api, 'getGridToday').mockResolvedValue({
+      available: true,
+      reason: null,
+      day: '2026-07-25',
+      actual: [],
+      plan: [],
+      peaks: [],
+      latest_mw: 26093,
+      latest_at: '2026-07-25T13:19:00+07:00',
+      latest_ambient_c: 34.8,
+      peak_so_far_mw: null,
+      peak_so_far_at: null,
+      plan_deviation_mw: null,
+      solar_window_start: null,
+      solar_window_end: null,
+      annual_peak_after_sunset: null,
+      site_dc_capacity_kwp: null,
+      site_share_of_system_pct: null,
+      source_note: '',
+      comparison_note: '',
+    })
+    renderPage()
+    // makeCurrentConditions() reports 30.0 °C, so the gap is 4.8.
+    expect(await screen.findByText(/เทียบกับค่าวัดจริงในไทย/)).toBeInTheDocument()
+    expect(screen.getByText('34.8°C')).toBeInTheDocument()
+    expect(screen.getByText(/ต่างกัน 4\.8°C/)).toBeInTheDocument()
+  })
+
+  it('omits the comparison entirely when EGAT is unreachable', async () => {
+    // The default mock in beforeEach has available=false / ambient null.
+    renderPage()
+    await screen.findByText(/แบบจำลองอากาศโลก/)
+    expect(screen.queryByText(/เทียบกับค่าวัดจริงในไทย/)).not.toBeInTheDocument()
+  })
+})
