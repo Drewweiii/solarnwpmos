@@ -393,6 +393,7 @@ export function Solar3DPage() {
               handControlActive={handControlActive}
               handSignalRef={hand.signalRef}
               handGestureRef={hand.gestureRef}
+              onHandToggleRun={handlePlayToggle}
             />
           </>
         )}
@@ -486,9 +487,19 @@ export function Solar3DPage() {
           </p>
         )}
         {handControlEnabled && (
-          <p className="forecast-status forecast-status-caption">
-            ท่ามือ: ✋ กางมือ = ควบคุม (ขยับ=หมุน, หนีบนิ้ว=ซูม) · ✊ กำหมัด = หยุดค้างมุมกล้อง · ✌️ ชู 2 นิ้ว = รีเซ็ตมุมกล้อง
-          </p>
+          <div className="solar3d-hand-gestures">
+            <p className="forecast-status forecast-status-caption">
+              ท่ามือ (ขยับมือออกจากกลางจอ = สั่ง "เดินหน้าเรื่อยๆ" กลับมากลางจอ = หยุด):
+            </p>
+            <ul className="solar3d-hand-gesture-list">
+              <li><b>✋ กางมือ</b> — หมุนมุมกล้อง (ซ้าย-ขวา = หมุนรอบ, ขึ้น-ลง = มุมสูง-ต่ำ)</li>
+              <li><b>🤏 หนีบนิ้ว (โป้ง+ชี้)</b> — ซูม: หนีบแล้ว<b>ยกมือขึ้น = ซูมเข้า</b>, ลดมือลง = ซูมออก</li>
+              <li><b>🤟 ชู 3 นิ้ว</b> — เลื่อนภาพ (pan) ซ้าย-ขวา-ขึ้น-ลง</li>
+              <li><b>✊ กำหมัด</b> — หยุดค้างมุมกล้องไว้ (พักมือได้)</li>
+              <li><b>✌️ ชู 2 นิ้ว</b> — รีเซ็ตมุมกล้อง + ตำแหน่งกลับค่าเริ่มต้น</li>
+              <li><b>👍 ยกนิ้วโป้ง</b> — เริ่ม/หยุดการรันเวลา 3D (แทนปุ่ม ▶/⏸ ค้างไว้ ~0.35 วิ ทำงานครั้งเดียวต่อการยก)</li>
+            </ul>
+          </div>
         )}
         <p className="forecast-status forecast-status-caption">
           ประมวลผลภาพในเครื่องของคุณเท่านั้น ไม่ส่งภาพขึ้นเซิร์ฟเวอร์ - เมาส์/นิ้วยังหมุน-ซูมได้ตามปกติ

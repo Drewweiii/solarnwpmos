@@ -19,9 +19,12 @@ export interface HandSyncIndicatorProps {
 // A short Thai label + emoji per control-mode gesture, shown as a live badge
 // while a hand is tracked so the user sees which mode their pose selected.
 const GESTURE_BADGE: Record<HandGesture, string> = {
-  control: '✋ ควบคุม',
+  control: '✋ หมุนมุมกล้อง',
+  zoom: '🤏 ซูมเข้า-ออก (ยกมือขึ้น/ลง)',
+  pan: '🤟 เลื่อนภาพ (ซ้าย-ขวา-ขึ้น-ลง)',
   hold: '✊ หยุดค้าง',
   recenter: '✌️ รีเซ็ตมุมกล้อง',
+  toggleRun: '👍 เริ่ม/หยุดการรัน 3D',
   none: '',
 }
 

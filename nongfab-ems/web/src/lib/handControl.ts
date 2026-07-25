@@ -93,6 +93,12 @@ export interface HandControlConfig {
   // Pinch ratio that maps to fully zoomed-in / fully zoomed-out.
   pinchNearRatio: number
   pinchFarRatio: number
+  // At or below this pinch ratio the thumb and index read as TOUCHING, which is
+  // what selects the zoom mode (see detectGesture).
+  pinchEngageRatio: number
+  // Multiplies the hand's offset-from-centre before it becomes a rate, so a
+  // comfortable half-reach already commands full speed (see mapSignalToRates).
+  rateGain: number
   // Whether the incoming x is already selfie-mirrored (MediaPipe on a mirrored
   // <video> gives x that grows to the right as the user moves their hand right).
   mirrored: boolean
@@ -102,6 +108,8 @@ export const DEFAULT_HAND_CONTROL_CONFIG: HandControlConfig = {
   deadzone: 0.06,
   pinchNearRatio: 0.25,
   pinchFarRatio: 1.3,
+  pinchEngageRatio: 0.42,
+  rateGain: 2.2,
   mirrored: true,
 }
 
@@ -174,41 +182,23 @@ export function dampAngle(current: number, target: number, lambda: number, dt: n
   return current + delta * (1 - Math.exp(-lambda * dt))
 }
 
-// The scene-facing target: real spherical camera params. Kept here (pure) so the
-// mapping from a normalized signal to angles/distance is testable too.
-export interface CameraTarget {
-  azimuth: number // radians
-  polar: number // radians, from +Y down
-  distance: number // scene units (meters)
-}
-
-export interface CameraRange {
-  minDistance: number
-  maxDistance: number
-  // Polar clamps keep the camera from going under the ground or straight down.
-  minPolar: number
-  maxPolar: number
-  azimuthSpan: number // how far azimuthNorm=±1 swings, radians
-}
-
-export function signalToCameraTarget(signal: HandSignal, range: CameraRange): CameraTarget {
-  return {
-    azimuth: signal.azimuthNorm * range.azimuthSpan,
-    polar: range.minPolar + clamp01(signal.polarNorm) * (range.maxPolar - range.minPolar),
-    distance: range.maxDistance + clamp01(signal.zoomNorm) * (range.minDistance - range.maxDistance),
-  }
-}
-
-// --- Hand gestures / control modes (2026-07-23, "godlike" round) ------------
-// On top of the continuous rotate/zoom signal, a few discrete POSES switch the
-// control MODE so the camera does what the hand means, not just where it is:
-//   - 'control'  : a normal open/relaxed hand - camera follows the signal.
-//   - 'hold'     : a closed fist - freeze the camera where it is (rest your
-//                  hand without the view drifting).
-//   - 'recenter' : a two-finger "V"/peace sign - ease the camera back to a
-//                  neutral home pose.
+// --- Hand gestures / control modes (2026-07-23, "godlike" round; reworked
+// 2026-07-25 after the user reported zoom and left/right were hard to use) ---
+// A few discrete POSES pick which AXIS the hand drives, so each gesture does one
+// thing well instead of every axis moving at once:
+//   - 'control'   : open hand - orbit (left/right = spin, up/down = height).
+//   - 'zoom'      : a pinch (thumb + index touching) - move the pinched hand
+//                   up/down to zoom in/out. Nothing else moves.
+//   - 'pan'       : three fingers - slide the view target left/right/up/down.
+//   - 'hold'      : a closed fist - freeze the camera where it is (rest your
+//                   hand without the view drifting).
+//   - 'recenter'  : a two-finger "V"/peace sign - ease the camera back to a
+//                   neutral home pose.
+//   - 'toggleRun' : 👍 thumbs-up - start/stop the 3D view's own time animation
+//                   (edge-triggered via stepGestureLatch, so holding it up
+//                   fires exactly once, not once per frame).
 // 'none' means no usable hand this frame.
-export type HandGesture = 'control' | 'hold' | 'recenter' | 'none'
+export type HandGesture = 'control' | 'zoom' | 'pan' | 'hold' | 'recenter' | 'toggleRun' | 'none'
 
 /** Which of the four non-thumb fingers are extended, as [index, middle, ring,
  * pinky]. A finger is extended when its fingertip sits farther from the wrist
@@ -226,16 +216,179 @@ export function fingersExtended(landmarks: Landmark[]): boolean[] {
   })
 }
 
-/** Classify one hand's pose into a control-mode gesture. */
-export function detectGesture(landmarks: Landmark[] | null | undefined): HandGesture {
+// MediaPipe thumb chain: 1 CMC, 2 MCP, 3 IP, 4 TIP.
+const THUMB_IP = 3
+
+/** Whether the thumb is sticking out (as in 👍) rather than tucked across the
+ * palm. Two conditions, both scale-invariant: the tip reaches farther from the
+ * wrist than its IP joint, AND the tip sits well away from the index knuckle -
+ * the second one is what separates a thumbs-up from a fist, where the thumb lies
+ * folded right against the index finger. */
+export function thumbExtended(landmarks: Landmark[]): boolean {
+  const wrist = landmarks[WRIST]
+  const ip = landmarks[THUMB_IP]
+  const tip = landmarks[THUMB_TIP]
+  const indexMcp = landmarks[INDEX_MCP]
+  const middleMcp = landmarks[MIDDLE_MCP]
+  if (!wrist || !ip || !tip || !indexMcp || !middleMcp) return false
+  const handScale = dist(wrist, middleMcp)
+  if (handScale <= 1e-6) return false
+  const reachesOut = dist(tip, wrist) > dist(ip, wrist) * 1.05
+  const clearOfPalm = dist(tip, indexMcp) / handScale > 0.55
+  return reachesOut && clearOfPalm
+}
+
+/** Classify one hand's pose into a control-mode gesture. Order matters: the
+ * poses that a looser test would also match (a fist's thumb is near the index
+ * tip, so it reads as a "pinch") are checked first. */
+export function detectGesture(
+  landmarks: Landmark[] | null | undefined,
+  config: HandControlConfig = DEFAULT_HAND_CONTROL_CONFIG,
+): HandGesture {
   if (!landmarks || landmarks.length < 21) return 'none'
   const [index, middle, ring, pinky] = fingersExtended(landmarks)
   const extendedCount = [index, middle, ring, pinky].filter(Boolean).length
-  // Peace/"V" sign: index + middle up, ring + pinky down -> recenter.
-  if (index && middle && !ring && !pinky) return 'recenter'
-  // Fist: nothing (or almost nothing) extended -> hold/freeze.
+  // 👍 Thumbs-up: thumb clear of the palm with every finger curled -> play/pause.
+  if (extendedCount === 0 && thumbExtended(landmarks)) return 'toggleRun'
+  // ✊ Fist: nothing extended -> hold/freeze. Checked before the pinch because a
+  // fist also brings the thumb and index tips together.
   if (extendedCount === 0) return 'hold'
+  // 🤏 Pinch: the index has curled in to meet the thumb while at least one other
+  // finger stays out -> zoom.
+  if (!index && extendedCount > 0 && pinchRatio(landmarks) <= config.pinchEngageRatio) return 'zoom'
+  // 🤟 Three fingers (index + middle + ring, pinky down) -> pan.
+  if (index && middle && ring && !pinky) return 'pan'
+  // ✌️ Peace/"V" sign: index + middle up, ring + pinky down -> recenter.
+  if (index && middle && !ring && !pinky) return 'recenter'
   return 'control'
+}
+
+// --- Rate ("velocity") control (2026-07-25) ---------------------------------
+// The original mapping was ABSOLUTE: hand position *was* camera position, so the
+// reachable range was whatever your arm could span, every axis moved at once,
+// and holding a zoom meant holding one exact finger aperture. That is what made
+// zoom and left/right hard to use. These functions instead read the hand's
+// offset from the frame centre as a RATE the caller integrates over time:
+// push your hand right and the view keeps turning right for as long as you hold
+// it (so any angle is reachable), bring it back to centre and motion stops.
+
+export interface HandRates {
+  azimuthRate: number // -1..1, + = spin one way
+  polarRate: number // -1..1, + = camera moves down toward the horizon
+  zoomRate: number // -1..1, + = zoom in (closer)
+  panXRate: number // -1..1, + = slide the target right
+  panYRate: number // -1..1, + = slide the target up
+}
+
+export const ZERO_RATES: HandRates = { azimuthRate: 0, polarRate: 0, zoomRate: 0, panXRate: 0, panYRate: 0 }
+
+/** The hand's vertical offset from the frame centre as -1..1 (+ = hand HIGH),
+ * recovered from the already-smoothed `polarNorm`. Pulled out of the signal
+ * rather than the raw landmarks so it inherits the One-Euro de-jitter. */
+export function verticalOffset(signal: HandSignal): number {
+  return clampSym((0.5 - clamp01(signal.polarNorm)) * 2)
+}
+
+/** Turn one smoothed signal + the active gesture into per-axis rates. Exactly
+ * one axis group is ever non-zero, which is the point: a gesture does one job.
+ * `gain` amplifies the offset so a comfortable half-reach already commands full
+ * speed (no need to stretch to the edge of frame). */
+export function mapSignalToRates(
+  signal: HandSignal | null | undefined,
+  gesture: HandGesture,
+  config: HandControlConfig = DEFAULT_HAND_CONTROL_CONFIG,
+): HandRates {
+  if (!signal) return ZERO_RATES
+  const g = config.rateGain
+  const horizontal = clampSym(signal.azimuthNorm * g) // already deadzoned + mirrored
+  const vertical = clampSym(applyDeadzone(verticalOffset(signal), config.deadzone) * g)
+  switch (gesture) {
+    case 'control':
+      // Hand high -> camera rises, i.e. polar (measured down from +Y) shrinks.
+      // `|| 0` only normalizes the -0 that negating a zero produces.
+      return { ...ZERO_RATES, azimuthRate: horizontal, polarRate: -vertical || 0 }
+    case 'zoom':
+      // Pinch and lift to move in, lower to pull back.
+      return { ...ZERO_RATES, zoomRate: vertical }
+    case 'pan':
+      return { ...ZERO_RATES, panXRate: horizontal, panYRate: vertical }
+    default:
+      // 'hold' / 'recenter' / 'toggleRun' / 'none' command no continuous motion.
+      return ZERO_RATES
+  }
+}
+
+export interface HandCameraState {
+  azimuth: number // radians
+  polar: number // radians, from +Y down
+  distance: number // scene units (meters)
+}
+
+export interface HandCameraLimits {
+  azimuthSpeed: number // rad/s at full rate
+  polarSpeed: number // rad/s at full rate
+  // Zoom is MULTIPLICATIVE (fraction of the current distance per second), so it
+  // feels equally responsive close up and far away - a fixed m/s would crawl
+  // when zoomed out and overshoot when zoomed in.
+  zoomSpeed: number
+  minDistance: number
+  maxDistance: number
+  // Polar clamps keep the camera from going under the ground or straight down.
+  minPolar: number
+  maxPolar: number
+}
+
+/** Integrate one frame of rates into the spherical camera state, clamped. Pure:
+ * returns a new state, never mutates. Azimuth is deliberately unclamped (it
+ * wraps, so you can keep spinning all the way round). */
+export function integrateHandCamera(state: HandCameraState, rates: HandRates, dt: number, limits: HandCameraLimits): HandCameraState {
+  if (dt <= 0) return state
+  const polar = state.polar + rates.polarRate * limits.polarSpeed * dt
+  const distance = state.distance * Math.exp(-rates.zoomRate * limits.zoomSpeed * dt)
+  return {
+    azimuth: wrapAngle(state.azimuth + rates.azimuthRate * limits.azimuthSpeed * dt),
+    polar: Math.max(limits.minPolar, Math.min(limits.maxPolar, polar)),
+    distance: Math.max(limits.minDistance, Math.min(limits.maxDistance, distance)),
+  }
+}
+
+// --- Edge-triggered gesture latch (2026-07-25) ------------------------------
+// A pose is present on EVERY frame it's held, but "start/stop the animation"
+// must fire once per gesture, not 60 times a second. The latch requires the pose
+// to be held briefly (so a hand passing through the shape mid-transition doesn't
+// trigger it), fires exactly once, then stays armed-off until the pose is
+// released.
+
+export interface GestureLatch {
+  heldSeconds: number
+  fired: boolean
+}
+
+export const DEFAULT_LATCH_HOLD_SECONDS = 0.35
+
+export function createGestureLatch(): GestureLatch {
+  return { heldSeconds: 0, fired: false }
+}
+
+/** Advance the latch by `dt` with the pose present or not. Returns true on the
+ * single frame the gesture commits. Mutates `latch`. */
+export function stepGestureLatch(
+  latch: GestureLatch,
+  present: boolean,
+  dt: number,
+  holdSeconds: number = DEFAULT_LATCH_HOLD_SECONDS,
+): boolean {
+  if (!present) {
+    latch.heldSeconds = 0
+    latch.fired = false
+    return false
+  }
+  latch.heldSeconds += Math.max(0, dt)
+  if (!latch.fired && latch.heldSeconds >= holdSeconds) {
+    latch.fired = true
+    return true
+  }
+  return false
 }
 
 // --- One-Euro filter (2026-07-23) -------------------------------------------

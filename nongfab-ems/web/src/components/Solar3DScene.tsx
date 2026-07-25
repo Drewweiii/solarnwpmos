@@ -27,7 +27,16 @@ import {
   tileFootprintMeters,
   type SatelliteTile,
 } from '../lib/satelliteTile'
-import { damp, dampAngle, signalToCameraTarget, type HandGesture, type HandSignal } from '../lib/handControl'
+import {
+  createGestureLatch,
+  damp,
+  dampAngle,
+  integrateHandCamera,
+  mapSignalToRates,
+  stepGestureLatch,
+  type HandGesture,
+  type HandSignal,
+} from '../lib/handControl'
 import type { IrradianceGridPoint, MoonPathPoint, Panel, PrecipitationIntensity, SunPathPoint } from '../lib/types'
 
 // Exposed to Solar3DPage's icon rail "reset camera" button - React 19 takes
@@ -1278,10 +1287,19 @@ function LngStorageTanks({ center, span, visible }: LngStorageTanksProps) {
 // seamlessly when it returns.
 const _hcSpherical = new Spherical()
 const _hcPos = new Vector3()
+const _hcRight = new Vector3()
+const _hcUp = new Vector3()
 // Higher = snappier; ~7 is responsive yet smooth. dt is clamped so a stalled
 // tab (huge delta) can never fling the camera.
 const HAND_DAMP_LAMBDA = 7
 const HAND_MAX_DT = 0.05
+// Full-rate speeds (2026-07-25 rework). Chosen so a comfortable hand hold sweeps
+// a useful amount per second without feeling twitchy: a bit over a quarter turn
+// per second of orbit, and a zoom that roughly halves/doubles the distance per
+// second at full rate.
+const HAND_AZIMUTH_SPEED = 2.0 // rad/s
+const HAND_POLAR_SPEED = 1.1 // rad/s
+const HAND_ZOOM_SPEED = 0.8 // e-folds/s (multiplicative)
 
 interface HandCameraDriverProps {
   signalRef?: React.MutableRefObject<HandSignal | null>
@@ -1289,20 +1307,33 @@ interface HandCameraDriverProps {
   active: boolean
   controlsRef: React.MutableRefObject<OrbitControlsImpl | null>
   span: number
+  homeTarget: [number, number, number]
+  // Fired once per 👍 thumbs-up (edge-triggered) so the hand can start/stop the
+  // 3D view's time animation without touching the mouse.
+  onToggleRun?: () => void
 }
 
-function HandCameraDriver({ signalRef, gestureRef, active, controlsRef, span }: HandCameraDriverProps) {
+function HandCameraDriver({ signalRef, gestureRef, active, controlsRef, span, homeTarget, onToggleRun }: HandCameraDriverProps) {
   const st = useRef({ azimuth: 0, polar: 0.9, distance: 50, synced: false })
+  const latch = useRef(createGestureLatch())
+  const toggleRef = useRef(onToggleRun)
+  toggleRef.current = onToggleRun
   useFrame((state, delta) => {
     const s = st.current
     if (!active || !signalRef) {
       s.synced = false
+      latch.current = createGestureLatch()
       return
     }
     const controls = controlsRef.current
     if (!controls) return
     const sig = signalRef.current
     const gesture = gestureRef?.current ?? 'control'
+    const dt = Math.min(Math.max(delta, 0), HAND_MAX_DT)
+    // 👍 = start/stop the animation. Held briefly then fired once (see
+    // stepGestureLatch), and stepped before any early return below so it works
+    // in every mode.
+    if (stepGestureLatch(latch.current, gesture === 'toggleRun', dt)) toggleRef.current?.()
     // (Re)adopt the current camera pose when first activated or whenever the
     // hand isn't visible this frame - keeps everything continuous with the
     // mouse and avoids any snap on (re)acquire.
@@ -1318,24 +1349,57 @@ function HandCameraDriver({ signalRef, gestureRef, active, controlsRef, span }: 
     // Fist = HOLD: freeze the camera exactly where it is this frame so the user
     // can rest their hand without the view drifting. Keep synced so releasing
     // the fist resumes smoothly from here.
-    if (gesture === 'hold') return
-    const homeDistance = Math.max(span * 1.4, 24)
-    const target =
-      // "V" sign = RECENTER: ease back to a neutral 3/4 overhead home pose,
-      // ignoring the hand's position this frame.
-      gesture === 'recenter'
-        ? { azimuth: 0, polar: 0.9, distance: homeDistance }
-        : signalToCameraTarget(sig, {
-            minDistance: Math.max(span * 0.5, 8),
-            maxDistance: Math.max(span * 2.8, 40),
-            minPolar: 0.15,
-            maxPolar: 1.45,
-            azimuthSpan: Math.PI,
-          })
-    const dt = Math.min(Math.max(delta, 0), HAND_MAX_DT)
-    s.azimuth = dampAngle(s.azimuth, target.azimuth, HAND_DAMP_LAMBDA, dt)
-    s.polar = damp(s.polar, target.polar, HAND_DAMP_LAMBDA, dt)
-    s.distance = damp(s.distance, target.distance, HAND_DAMP_LAMBDA, dt)
+    if (gesture === 'hold' || gesture === 'toggleRun') return
+
+    const minDistance = Math.max(span * 0.25, 4)
+    const maxDistance = Math.max(span * 3.2, 40)
+    if (gesture === 'recenter') {
+      // "V" sign = RECENTER: ease back to a neutral 3/4 overhead home pose AND
+      // undo any panning, so there's always one gesture that gets you unlost.
+      const homeDistance = Math.max(span * 1.4, 24)
+      s.azimuth = dampAngle(s.azimuth, 0, HAND_DAMP_LAMBDA, dt)
+      s.polar = damp(s.polar, 0.9, HAND_DAMP_LAMBDA, dt)
+      s.distance = damp(s.distance, homeDistance, HAND_DAMP_LAMBDA, dt)
+      controls.target.set(
+        damp(controls.target.x, homeTarget[0], HAND_DAMP_LAMBDA, dt),
+        damp(controls.target.y, homeTarget[1], HAND_DAMP_LAMBDA, dt),
+        damp(controls.target.z, homeTarget[2], HAND_DAMP_LAMBDA, dt),
+      )
+    } else {
+      // Rate control: the hand's offset from centre is a SPEED, integrated here
+      // every render frame. Holding the hand out keeps the view turning (so any
+      // angle is reachable), returning it to centre stops - which is what makes
+      // zoom and left/right actually usable, unlike the old absolute mapping.
+      const rates = mapSignalToRates(sig, gesture)
+      const next = integrateHandCamera({ azimuth: s.azimuth, polar: s.polar, distance: s.distance }, rates, dt, {
+        azimuthSpeed: HAND_AZIMUTH_SPEED,
+        polarSpeed: HAND_POLAR_SPEED,
+        zoomSpeed: HAND_ZOOM_SPEED,
+        minDistance,
+        maxDistance,
+        minPolar: 0.15,
+        maxPolar: 1.45,
+      })
+      s.azimuth = next.azimuth
+      s.polar = next.polar
+      s.distance = next.distance
+      if (rates.panXRate !== 0 || rates.panYRate !== 0) {
+        // Pan slides the orbit TARGET along the camera's own right/up axes, at a
+        // speed proportional to the current distance so it feels the same when
+        // zoomed in or out. Clamped to a radius around the zone's home target so
+        // the site can never be panned out of sight entirely.
+        const panSpeed = s.distance * 0.55
+        state.camera.matrixWorld.extractBasis(_hcRight, _hcUp, _hcPos)
+        controls.target
+          .addScaledVector(_hcRight, rates.panXRate * panSpeed * dt)
+          .addScaledVector(_hcUp, rates.panYRate * panSpeed * dt)
+        _hcPos.set(homeTarget[0], homeTarget[1], homeTarget[2])
+        const maxPan = Math.max(span, 20)
+        if (controls.target.distanceTo(_hcPos) > maxPan) {
+          controls.target.sub(_hcPos).setLength(maxPan).add(_hcPos)
+        }
+      }
+    }
     // three.Spherical is (radius, phi=polar-from-+Y, theta=azimuth-around-Y);
     // makeSafe keeps phi off the exact poles so it never gimbal-flips.
     _hcSpherical.set(s.distance, s.polar, s.azimuth)
@@ -1436,10 +1500,14 @@ interface Solar3DSceneProps {
   // existing caller renders exactly as before. See lib/useHandTracking.ts.
   handControlActive?: boolean
   handSignalRef?: React.MutableRefObject<HandSignal | null>
-  // The current control-mode gesture (open=control / fist=hold / V=recenter),
-  // read every render frame by HandCameraDriver. Optional so existing callers
-  // (and the mock in tests) keep working; defaults to plain 'control'.
+  // The current control-mode gesture (open=orbit / pinch=zoom / 3 fingers=pan /
+  // fist=hold / V=recenter / 👍=start-stop), read every render frame by
+  // HandCameraDriver. Optional so existing callers (and the mock in tests) keep
+  // working; defaults to plain 'control'.
   handGestureRef?: React.MutableRefObject<HandGesture>
+  // Called once each time the hand signals 👍 - the page wires it to the same
+  // play/pause it uses for the ▶/⏸ button.
+  onHandToggleRun?: () => void
 }
 
 export function Solar3DScene({
@@ -1473,6 +1541,7 @@ export function Solar3DScene({
   handControlActive = false,
   handSignalRef,
   handGestureRef,
+  onHandToggleRun,
   ref,
 }: Solar3DSceneProps & { ref?: Ref<Solar3DSceneHandle> }) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null)
@@ -1734,7 +1803,15 @@ export function Solar3DScene({
       <RainLayer center={bounds.full.center} span={bounds.full.span} precipMm={precipMm} intensity={precipIntensity} />
 
       <OrbitControls ref={controlsRef} target={[focusCenterScene[0], panelBaseY, focusCenterScene[1]]} />
-      <HandCameraDriver active={handControlActive} signalRef={handSignalRef} gestureRef={handGestureRef} controlsRef={controlsRef} span={bounds.full.span} />
+      <HandCameraDriver
+        active={handControlActive}
+        signalRef={handSignalRef}
+        gestureRef={handGestureRef}
+        controlsRef={controlsRef}
+        span={bounds.full.span}
+        homeTarget={[focusCenterScene[0], panelBaseY, focusCenterScene[1]]}
+        onToggleRun={onHandToggleRun}
+      />
     </Canvas>
   )
 }

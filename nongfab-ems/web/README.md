@@ -3216,3 +3216,63 @@ new WeatherStrip/CurrentConditions fields. Full web suite (429, +2 panel tests)
 passes; tsc + oxlint clean; prod build succeeds. (Backend: weather-route + api
 feature-importance route + hour_ahead aggregation, all tested - see their
 commits.)
+
+### 2026-07-25 - Hand control v2: rate-based orbit/zoom/pan + 👍 start-stop (Track 1)
+
+The user reported the webcam hand control from 2026-07-23 was hard to actually
+use: "ซูมเข้า ซูมออก ขยับซ้ายขวายาก" and there was no gesture to start/stop the
+3D view's own time animation.
+
+Root cause was the control model, not the tracking. v1 was an ABSOLUTE mapping -
+hand position *was* camera position (x -> azimuth over a fixed ±180° span,
+y -> polar, pinch aperture -> distance). Three consequences, all of them the
+complaint:
+- Every axis moved at once, so you could not adjust one without disturbing the
+  others.
+- Reach was capped by your arm: the widest hand sweep was the widest camera
+  sweep, and holding a zoom meant holding one exact finger aperture steady.
+- There was no true pan at all (the orbit target never moved).
+
+v2 (`web/src/lib/handControl.ts`, all pure/unit-tested) makes each gesture pick
+one axis, and reads the hand's offset from the frame centre as a RATE that the
+render loop integrates:
+- `mapSignalToRates(signal, gesture)` -> `HandRates` (azimuth/polar/zoom/panX/
+  panY). Exactly one axis group is ever non-zero.
+- `integrateHandCamera(state, rates, dt, limits)` accumulates it - so holding
+  your hand out keeps the view turning (any angle is reachable) and bringing it
+  back to centre stops. Zoom is multiplicative (e-folds/sec), so it feels the
+  same close up and far out.
+- `stepGestureLatch` is an edge-trigger: a pose held ~0.35s fires exactly once,
+  then rearms only after release - what makes 👍 a start/stop button instead of
+  60 toggles a second.
+
+Gesture map (also shown as a cheat-sheet on the page, and as a live badge in
+HandSyncIndicator / colour in HandPreview):
+
+| pose | mode |
+| --- | --- |
+| ✋ open hand | orbit (left/right = spin, up/down = camera height) |
+| 🤏 pinch (thumb+index) | zoom - lift to zoom in, lower to zoom out |
+| 🤟 three fingers | pan the view target left/right/up/down |
+| ✊ fist | hold/freeze (rest your hand) |
+| ✌️ two fingers | recenter - home pose AND undo panning |
+| 👍 thumbs-up | start/stop the 3D time animation (edge-triggered) |
+
+`detectGesture` gained `thumbExtended` (tip reaches past its IP joint AND sits
+clear of the index knuckle - the second test is what separates 👍 from a fist,
+where the thumb folds against the palm) and orders its checks so a looser match
+never steals a pose: fist before pinch, since a fist also brings the thumb and
+index tips together.
+
+The obsolete absolute mapping `signalToCameraTarget` (and its `CameraTarget`/
+`CameraRange` types) was removed rather than left as dead code;
+`mapHandToSignal` stays - it still feeds the sync indicator's live bars, and its
+already-One-Euro-smoothed channels are what the rate mapping reads.
+
+Tests: web +14 (thumb/fist disambiguation, the three new gesture poses, one-axis
+isolation per mode, rate accumulation past what one hand-span could command,
+multiplicative zoom + polar clamps, latch fires once per hold and never on a
+pose that flashes by). Full suite 443 passed; tsc + oxlint clean. As with v1 the
+MediaPipe model loads from a CDN, so this cannot be visually confirmed from the
+egress-blocked dev sandbox - the pure control layer is verified by unit test and
+the gesture wiring by type-checking.

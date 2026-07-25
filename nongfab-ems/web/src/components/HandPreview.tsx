@@ -19,9 +19,12 @@ export interface HandPreviewProps {
 }
 
 const GESTURE_COLOR: Record<HandGesture, string> = {
-  control: '#22d3ee', // cyan - actively controlling
+  control: '#22d3ee', // cyan - orbiting
+  zoom: '#4ade80', // green - zooming
+  pan: '#38bdf8', // sky - panning
   hold: '#f59e0b', // amber - frozen
   recenter: '#a855f7', // purple - recentring
+  toggleRun: '#fbbf24', // yellow - start/stop the animation
   none: '#64748b', // grey - no hand
 }
 

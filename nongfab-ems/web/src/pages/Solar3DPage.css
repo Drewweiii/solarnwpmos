@@ -391,6 +391,25 @@
   align-items: flex-start;
 }
 
+/* The gesture cheat-sheet (2026-07-25): one line per pose, so the six modes are
+   scannable instead of crammed into a single run-on caption. */
+.solar3d-hand-gestures {
+  width: 100%;
+}
+.solar3d-hand-gesture-list {
+  margin: 2px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 3px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted, #94a3b8);
+}
+.solar3d-hand-gesture-list b {
+  color: var(--text, #e2e8f0);
+  font-weight: 600;
+}
+
 /* Explicit on/off MODE switch - a labeled control (icon · name · ON/OFF badge)
    rather than a bare button, so it clearly reads as a mode you flip. */
 .solar3d-hand-toggle {

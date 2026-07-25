@@ -15,9 +15,15 @@ import {
   mapHandToSignal,
   oneEuroStep,
   pinchRatio,
-  signalToCameraTarget,
   smoothSignal,
+  thumbExtended,
+  verticalOffset,
   wrapAngle,
+  ZERO_RATES,
+  createGestureLatch,
+  integrateHandCamera,
+  mapSignalToRates,
+  stepGestureLatch,
   type Landmark,
 } from '../handControl'
 
@@ -141,23 +147,6 @@ describe('smoothSignal', () => {
   })
 })
 
-describe('signalToCameraTarget', () => {
-  const range = { minDistance: 20, maxDistance: 100, minPolar: 0.2, maxPolar: 1.4, azimuthSpan: Math.PI }
-
-  it('maps azimuthNorm across ±azimuthSpan and zoomNorm from far to near', () => {
-    expect(signalToCameraTarget({ azimuthNorm: 1, polarNorm: 0.5, zoomNorm: 0 }, range).azimuth).toBeCloseTo(Math.PI, 6)
-    expect(signalToCameraTarget({ azimuthNorm: -1, polarNorm: 0.5, zoomNorm: 0 }, range).azimuth).toBeCloseTo(-Math.PI, 6)
-    // zoomNorm 0 -> far (max distance), 1 -> near (min distance)
-    expect(signalToCameraTarget({ azimuthNorm: 0, polarNorm: 0.5, zoomNorm: 0 }, range).distance).toBeCloseTo(100, 6)
-    expect(signalToCameraTarget({ azimuthNorm: 0, polarNorm: 0.5, zoomNorm: 1 }, range).distance).toBeCloseTo(20, 6)
-  })
-
-  it('keeps polar within the configured clamps', () => {
-    expect(signalToCameraTarget({ azimuthNorm: 0, polarNorm: 0, zoomNorm: 0.5 }, range).polar).toBeCloseTo(0.2, 6)
-    expect(signalToCameraTarget({ azimuthNorm: 0, polarNorm: 1, zoomNorm: 0.5 }, range).polar).toBeCloseTo(1.4, 6)
-  })
-})
-
 describe('damp (frame-rate-independent smoothing)', () => {
   it('dt<=0 holds; moves toward target and never overshoots', () => {
     expect(damp(0, 10, 8, 0)).toBe(0)
@@ -278,5 +267,167 @@ describe('One-Euro filter', () => {
     expect(second.azimuthNorm).toBeGreaterThan(0.5)
     expect(second.polarNorm).toBeLessThan(0.3)
     expect(second.zoomNorm).toBeLessThan(0.8)
+  })
+})
+
+// --- Rate control + the new gesture modes (2026-07-25) ----------------------
+// The user reported zoom and left/right were hard to use with the original
+// ABSOLUTE mapping (hand position = camera position). These cover the rework:
+// gestures select an axis, and the hand's offset from centre is a RATE.
+
+describe('thumbExtended / the new gesture modes', () => {
+  it('a fist does NOT read as a thumbs-up (the thumb is folded against the palm)', () => {
+    expect(thumbExtended(fistHand())).toBe(false)
+    expect(detectGesture(fistHand())).toBe('hold')
+  })
+
+  it('👍 thumb out with every finger curled -> toggleRun', () => {
+    const lm = fistHand()
+    lm[3] = { x: 0.5, y: 0.6 } // thumb IP, mid-palm
+    lm[4] = { x: 0.5, y: 0.3 } // thumb tip, well clear of the index knuckle
+    expect(thumbExtended(lm)).toBe(true)
+    expect(detectGesture(lm)).toBe('toggleRun')
+  })
+
+  it('🤏 index curled onto the thumb with other fingers out -> zoom', () => {
+    const lm = fistHand()
+    extendFinger(lm, 10, 12)
+    extendFinger(lm, 14, 16)
+    extendFinger(lm, 18, 20)
+    lm[4] = { x: 0.5, y: 0.63 } // thumb tip touching the curled index tip
+    expect(detectGesture(lm)).toBe('zoom')
+  })
+
+  it('🤟 three fingers (pinky down) -> pan, and does not steal the "V" -> recenter', () => {
+    const pan = fistHand()
+    extendFinger(pan, 6, 8)
+    extendFinger(pan, 10, 12)
+    extendFinger(pan, 14, 16)
+    expect(detectGesture(pan)).toBe('pan')
+
+    const v = fistHand()
+    extendFinger(v, 6, 8)
+    extendFinger(v, 10, 12)
+    expect(detectGesture(v)).toBe('recenter')
+  })
+})
+
+describe('verticalOffset / mapSignalToRates', () => {
+  it('verticalOffset is + when the hand is HIGH in frame', () => {
+    expect(verticalOffset({ azimuthNorm: 0, polarNorm: 0.1, zoomNorm: 0.5 })).toBeGreaterThan(0)
+    expect(verticalOffset({ azimuthNorm: 0, polarNorm: 0.9, zoomNorm: 0.5 })).toBeLessThan(0)
+    expect(verticalOffset({ azimuthNorm: 0, polarNorm: 0.5, zoomNorm: 0.5 })).toBeCloseTo(0, 6)
+  })
+
+  it('open hand drives orbit only - a high hand raises the camera (polar shrinks)', () => {
+    const r = mapSignalToRates({ azimuthNorm: 0.5, polarNorm: 0.2, zoomNorm: 0.5 }, 'control')
+    expect(r.azimuthRate).toBeGreaterThan(0)
+    expect(r.polarRate).toBeLessThan(0)
+    expect(r.zoomRate).toBe(0)
+    expect(r.panXRate).toBe(0)
+    expect(r.panYRate).toBe(0)
+  })
+
+  it('pinch drives zoom only - lifting the pinched hand zooms IN', () => {
+    const up = mapSignalToRates({ azimuthNorm: 0.9, polarNorm: 0.1, zoomNorm: 0.5 }, 'zoom')
+    expect(up.zoomRate).toBeGreaterThan(0)
+    // The hand is far off-centre horizontally, but zoom mode must ignore that.
+    expect(up.azimuthRate).toBe(0)
+    const down = mapSignalToRates({ azimuthNorm: 0, polarNorm: 0.9, zoomNorm: 0.5 }, 'zoom')
+    expect(down.zoomRate).toBeLessThan(0)
+  })
+
+  it('three fingers drive pan only', () => {
+    const r = mapSignalToRates({ azimuthNorm: -0.5, polarNorm: 0.2, zoomNorm: 0.5 }, 'pan')
+    expect(r.panXRate).toBeLessThan(0)
+    expect(r.panYRate).toBeGreaterThan(0)
+    expect(r.azimuthRate).toBe(0)
+    expect(r.zoomRate).toBe(0)
+  })
+
+  it('hold / recenter / toggleRun / no hand command no motion at all', () => {
+    const far = { azimuthNorm: 1, polarNorm: 0, zoomNorm: 1 }
+    expect(mapSignalToRates(far, 'hold')).toEqual(ZERO_RATES)
+    expect(mapSignalToRates(far, 'recenter')).toEqual(ZERO_RATES)
+    expect(mapSignalToRates(far, 'toggleRun')).toEqual(ZERO_RATES)
+    expect(mapSignalToRates(null, 'control')).toEqual(ZERO_RATES)
+  })
+
+  it('a centred hand inside the deadzone commands nothing', () => {
+    expect(mapSignalToRates({ azimuthNorm: 0, polarNorm: 0.5, zoomNorm: 0.5 }, 'control')).toEqual(ZERO_RATES)
+  })
+})
+
+describe('integrateHandCamera', () => {
+  const limits = {
+    azimuthSpeed: 2,
+    polarSpeed: 1,
+    zoomSpeed: 0.8,
+    minDistance: 10,
+    maxDistance: 100,
+    minPolar: 0.15,
+    maxPolar: 1.45,
+  }
+  const start = { azimuth: 0, polar: 0.9, distance: 50 }
+
+  it('dt<=0 holds the state unchanged', () => {
+    expect(integrateHandCamera(start, { ...ZERO_RATES, azimuthRate: 1 }, 0, limits)).toBe(start)
+  })
+
+  it('a held rate keeps accumulating - so any angle is reachable', () => {
+    let s = start
+    for (let i = 0; i < 30; i++) s = integrateHandCamera(s, { ...ZERO_RATES, azimuthRate: 1 }, 1 / 60, limits)
+    // 30 frames at 1/60s x 2 rad/s = ~1 rad, far past what one hand-span could
+    // command under the old absolute mapping.
+    expect(s.azimuth).toBeCloseTo(1, 1)
+  })
+
+  it('zoom is multiplicative and clamps at both ends', () => {
+    const inOne = integrateHandCamera(start, { ...ZERO_RATES, zoomRate: 1 }, 0.5, limits)
+    expect(inOne.distance).toBeLessThan(start.distance)
+    let s = start
+    for (let i = 0; i < 600; i++) s = integrateHandCamera(s, { ...ZERO_RATES, zoomRate: 1 }, 1 / 60, limits)
+    expect(s.distance).toBeCloseTo(limits.minDistance, 6)
+    for (let i = 0; i < 1200; i++) s = integrateHandCamera(s, { ...ZERO_RATES, zoomRate: -1 }, 1 / 60, limits)
+    expect(s.distance).toBeCloseTo(limits.maxDistance, 6)
+  })
+
+  it('polar stays inside its clamps and azimuth wraps', () => {
+    let s = start
+    for (let i = 0; i < 600; i++) s = integrateHandCamera(s, { ...ZERO_RATES, polarRate: -1 }, 1 / 60, limits)
+    expect(s.polar).toBeCloseTo(limits.minPolar, 6)
+    for (let i = 0; i < 1200; i++) s = integrateHandCamera(s, { ...ZERO_RATES, polarRate: 1 }, 1 / 60, limits)
+    expect(s.polar).toBeCloseTo(limits.maxPolar, 6)
+    let spun = start
+    for (let i = 0; i < 600; i++) spun = integrateHandCamera(spun, { ...ZERO_RATES, azimuthRate: 1 }, 1 / 60, limits)
+    expect(spun.azimuth).toBeGreaterThan(-Math.PI)
+    expect(spun.azimuth).toBeLessThanOrEqual(Math.PI)
+  })
+})
+
+describe('stepGestureLatch', () => {
+  it('fires exactly once per held gesture, then rearms only after release', () => {
+    const latch = createGestureLatch()
+    let fires = 0
+    // Held for a full second at 60fps: must fire once, not 60 times.
+    for (let i = 0; i < 60; i++) if (stepGestureLatch(latch, true, 1 / 60)) fires++
+    expect(fires).toBe(1)
+    // Still held - no second fire.
+    for (let i = 0; i < 60; i++) if (stepGestureLatch(latch, true, 1 / 60)) fires++
+    expect(fires).toBe(1)
+    // Release, then hold again -> one more fire.
+    stepGestureLatch(latch, false, 1 / 60)
+    for (let i = 0; i < 60; i++) if (stepGestureLatch(latch, true, 1 / 60)) fires++
+    expect(fires).toBe(2)
+  })
+
+  it('a gesture flashing by faster than the hold time never fires', () => {
+    const latch = createGestureLatch()
+    let fired = false
+    for (let i = 0; i < 10; i++) {
+      if (stepGestureLatch(latch, true, 1 / 60)) fired = true // ~0.17s, under the 0.35s hold
+      if (stepGestureLatch(latch, false, 1 / 60)) fired = true
+    }
+    expect(fired).toBe(false)
   })
 })
