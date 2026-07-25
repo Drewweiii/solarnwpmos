@@ -56,7 +56,15 @@ export function GridCarbonPanel() {
   const published = data.published_ef_kg_per_kwh
   const earned = data.solar_weighted_marginal_kg_per_kwh
   const uplift = data.marginal_uplift_pct
-  const dominant = rows.length > 0 ? rows[Math.floor(rows.length / 2)].marginal_fuel_label : null
+  // The fuel our solar actually displaces most, i.e. the marginal fuel in the
+  // hour this array generates the most - NOT the middle row. EGAT publishes the
+  // day so far, so the middle of the array is wherever "now" happens to be
+  // (mid-morning at 13:00), which is not midday and not when we produce most.
+  const peakSolarHour = rows.reduce<CarbonRow | null>(
+    (best, row) => (best === null || row.site_generation_kwh > best.site_generation_kwh ? row : best),
+    null,
+  )
+  const dominant = peakSolarHour && peakSolarHour.site_generation_kwh > 0 ? peakSolarHour.marginal_fuel_label : null
   const isAnnualAverage = data.mix_origin === 'annual'
 
   return (

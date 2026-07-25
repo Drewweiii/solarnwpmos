@@ -28,6 +28,7 @@ export function FinancialPage() {
   const financial = useFinancial()
 
   const set = <K extends keyof Assumptions>(key: K, value: number) => setAssumptions((a) => ({ ...a, [key]: value }))
+  const presets = financial.data?.boi_presets ?? []
 
   const runAnalysis = () => {
     const request: FinancialRequest = { ...assumptions }
@@ -139,10 +140,12 @@ export function FinancialPage() {
             value={assumptions.tax_rate_pct}
             onChange={(v) => set('tax_rate_pct', v)}
           />
-          {/* 8 vs 12 is a real, confirmed split for this project (general area
-              vs Jetty, 2026-07-25), not a preference - so the two are one click
-              away rather than something to find on a slider. The slider still
-              reaches 15 for what-if work. */}
+          {/* The 8 vs 12 split is a real, confirmed fact about this project
+              (general area vs Jetty, 2026-07-25), not a preference - so both are
+              one click away rather than numbers to remember. The list comes from
+              the API, which reads it from Settings, so a preset can never
+              disagree with the published figure. The slider still reaches 15 for
+              what-if work. */}
           <SliderField
             label="BOI tax holiday"
             unit=" yr"
@@ -152,22 +155,20 @@ export function FinancialPage() {
             value={assumptions.boi_tax_holiday_years}
             onChange={(v) => set('boi_tax_holiday_years', v)}
           />
-          <div className="financial-boi-presets">
-            <button
-              type="button"
-              className={assumptions.boi_tax_holiday_years === 8 ? 'is-active' : ''}
-              onClick={() => set('boi_tax_holiday_years', 8)}
-            >
-              8 ปี — พื้นที่ทั่วไป (GIS, ISB)
-            </button>
-            <button
-              type="button"
-              className={assumptions.boi_tax_holiday_years === 12 ? 'is-active' : ''}
-              onClick={() => set('boi_tax_holiday_years', 12)}
-            >
-              12 ปี — Jetty
-            </button>
-          </div>
+          {presets.length > 0 && (
+            <div className="financial-boi-presets">
+              {presets.map((preset) => (
+                <button
+                  key={preset.years}
+                  type="button"
+                  className={assumptions.boi_tax_holiday_years === preset.years ? 'is-active' : ''}
+                  onClick={() => set('boi_tax_holiday_years', preset.years)}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          )}
           <SliderField
             label="Panel degradation"
             unit="%/yr"

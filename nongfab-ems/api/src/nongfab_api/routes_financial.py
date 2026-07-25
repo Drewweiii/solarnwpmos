@@ -60,6 +60,16 @@ class CashFlowYearOut(BaseModel):
     cumulative_discounted_cash_flow_thb: float
 
 
+class BoiPresetOut(BaseModel):
+    """One BOI holiday the project actually holds, for the page's quick-set
+    buttons. Sent from the server rather than hardcoded in the UI so that
+    editing the figure in Settings moves the button too - a preset that
+    disagrees with the published setting is worse than no preset."""
+
+    label: str
+    years: int
+
+
 class FinancialResponse(BaseModel):
     installed_dc_capacity_kwp: float
     year_1_ac_energy_kwh: float
@@ -70,6 +80,7 @@ class FinancialResponse(BaseModel):
     simple_payback_years: float | None
     discounted_payback_years: float | None
     cash_flows: list[CashFlowYearOut]
+    boi_presets: list[BoiPresetOut] = []
 
 
 
@@ -87,6 +98,34 @@ _ASSUMPTION_KEYS = {
     "financial.degradation_pct_per_year": "degradation_pct_per_year",
     "financial.lifetime_years": "lifetime_years",
 }
+
+
+def _boi_presets() -> list[BoiPresetOut]:
+    """The BOI holidays this project actually holds, read live from settings.
+
+    Confirmed by the user 2026-07-25: 8 years in the general areas, 12 for the
+    Jetty. Read rather than hardcoded so an edit in Settings reaches the page's
+    quick-set buttons; duplicates are collapsed so setting both to the same
+    number shows one button instead of two identical ones.
+    """
+    from .settings_store import effective
+
+    wanted = [
+        ("พื้นที่ทั่วไป (GIS, ISB)", "financial.boi_tax_holiday_years"),
+        ("Jetty", "financial.boi_tax_holiday_years_jetty"),
+    ]
+    presets: list[BoiPresetOut] = []
+    seen: set[int] = set()
+    for label, key in wanted:
+        try:
+            years = int(effective(key))
+        except KeyError:
+            continue
+        if years in seen:
+            continue
+        seen.add(years)
+        presets.append(BoiPresetOut(label=f"{years} ปี — {label}", years=years))
+    return presets
 
 
 def _configured_assumptions(installed_dc_capacity_kwp: float) -> dict[str, float]:
@@ -156,4 +195,5 @@ async def get_financial_analysis(req: FinancialRequest, _user=Depends(require_ro
             )
             for cf in result.cash_flows
         ],
+        boi_presets=_boi_presets(),
     )

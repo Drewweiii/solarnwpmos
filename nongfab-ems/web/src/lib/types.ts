@@ -569,6 +569,14 @@ export interface CashFlowYearOut {
   cumulative_discounted_cash_flow_thb: number
 }
 
+/** A BOI holiday this project actually holds, for the /financial quick-set
+ * buttons. Comes from the server so editing the figure in Settings moves the
+ * button with it. */
+export interface BoiPreset {
+  label: string
+  years: number
+}
+
 export interface FinancialResponse {
   installed_dc_capacity_kwp: number
   year_1_ac_energy_kwh: number
@@ -579,6 +587,7 @@ export interface FinancialResponse {
   simple_payback_years: number | null
   discounted_payback_years: number | null
   cash_flows: CashFlowYearOut[]
+  boi_presets: BoiPreset[]
 }
 
 export interface SolarPosition {

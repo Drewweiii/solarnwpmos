@@ -69,3 +69,31 @@ def test_financial_rejects_invalid_assumptions_with_422(app, token_factory):
     with TestClient(app) as client:
         resp = client.post("/financial", json={"tax_rate_pct": 500.0}, headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 422
+
+
+def test_the_boi_presets_come_from_settings_not_from_hardcoded_ui_numbers(app, token_factory):
+    """The /financial page shows one-click 8-year / 12-year buttons for the
+    project's confirmed BOI holidays. They are served from here rather than
+    hardcoded in the UI so that editing the figure in Settings moves the button
+    with it - a preset that disagrees with the published setting is worse than
+    no preset at all."""
+    token = token_factory("operator")
+    with TestClient(app) as client:
+        body = client.post("/financial", json={}, headers={"Authorization": f"Bearer {token}"}).json()
+
+    years = [preset["years"] for preset in body["boi_presets"]]
+    assert years == [8, 12]
+    assert "พื้นที่ทั่วไป" in body["boi_presets"][0]["label"]
+    assert "Jetty" in body["boi_presets"][1]["label"]
+
+
+def test_identical_holidays_collapse_to_one_preset(monkeypatch):
+    """If the Jetty ever matched the general area there would be two buttons
+    saying the same thing, which reads like a bug to anyone looking at it."""
+    from nongfab_api import routes_financial, settings_store
+
+    monkeypatch.setattr(settings_store, "effective", lambda key: 8.0)
+    presets = routes_financial._boi_presets()
+
+    assert len(presets) == 1
+    assert presets[0].years == 8

@@ -148,3 +148,38 @@ describe('GridCarbonPanel', () => {
     expect(await screen.findByText(/ยังดึงเส้นโหลด/)).toBeInTheDocument()
   })
 })
+
+describe('the marginal fuel it names', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.restoreAllMocks()
+  })
+
+  it('names the fuel from the hour the array produces most, not the middle row', async () => {
+    // EGAT publishes the day SO FAR, so the middle of the array is wherever
+    // "now" is - mid-morning at 13:00 - which is neither midday nor when this
+    // array generates most. Reading the middle row was the original bug.
+    const carbon = makeCarbon()
+    carbon.hours = [
+      { ...carbon.hours[0], hour: 3, site_generation_kwh: 0, marginal_fuel_label: 'ถ่านหิน/ลิกไนต์' },
+      { ...carbon.hours[0], hour: 8, site_generation_kwh: 40, marginal_fuel_label: 'นำเข้า (ส่วนใหญ่พลังน้ำ สปป.ลาว)' },
+      { ...carbon.hours[0], hour: 12, site_generation_kwh: 320, marginal_fuel_label: 'ก๊าซธรรมชาติ' },
+    ]
+    vi.spyOn(api, 'getGridCarbon').mockResolvedValue(carbon)
+    renderPanel()
+
+    // Middle row is 08:00; the answer must be the 12:00 one.
+    expect(await screen.findByText('ก๊าซธรรมชาติ')).toBeInTheDocument()
+    expect(screen.queryByText('นำเข้า (ส่วนใหญ่พลังน้ำ สปป.ลาว)')).not.toBeInTheDocument()
+  })
+
+  it('shows a dash rather than a fuel name when the array produced nothing', async () => {
+    const carbon = makeCarbon()
+    carbon.hours = carbon.hours.map((h) => ({ ...h, site_generation_kwh: 0 }))
+    vi.spyOn(api, 'getGridCarbon').mockResolvedValue(carbon)
+    renderPanel()
+
+    expect(await screen.findByText('0.476')).toBeInTheDocument()
+    expect(screen.queryByText('ก๊าซธรรมชาติ')).not.toBeInTheDocument()
+  })
+})
