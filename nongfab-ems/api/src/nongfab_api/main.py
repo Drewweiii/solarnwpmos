@@ -33,6 +33,7 @@ from . import (
     routes_performance,
     routes_savings,
     routes_simulate,
+    routes_soiling,
     routes_solar3d,
     routes_weather,
     ws_chat,
@@ -227,6 +228,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     app.include_router(routes_financial.router)
     app.include_router(routes_irradiance_map.router)
     app.include_router(routes_weather.router)
+    app.include_router(routes_soiling.router)
     app.include_router(routes_feedback.router)
     app.include_router(ws_live.router)
     app.include_router(ws_chat.router)

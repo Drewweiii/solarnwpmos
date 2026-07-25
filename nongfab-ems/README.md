@@ -296,3 +296,68 @@ not after:
 None of these modules scrape HTML or bypass any access control; all are
 documented open-data APIs. See each module's own README for the full
 verification trail (what was checked, when, and the exact evidence).
+
+### 2026-07-25 - Soiling & Cleaning Advisor, replacing the soiling placeholder (Track 1)
+
+Innovation A of four the user picked this round. `/energy-report` gained a
+Soiling & Cleaning Advisor panel, and - per the user's explicit decision
+("แทนค่า placeholder เลย") - the soiling figure the whole system derates by is
+no longer a literature constant.
+
+**Why this and not more forecasting**: the plant is fully grid-tied with no
+battery, so the operationally actionable question isn't "what will output be at
+15:00" but "is the glass costing us money, and when should it be washed". Every
+input needed was already being ingested and unused for this.
+
+**Model** (`features/src/nongfab_features/soiling_dynamics.py`, pure + 11 tests):
+a Kimber-style accumulate-and-wash time series with a data-driven rate.
+- Kimber et al. (2007): soiling grows ~linearly through a dry spell; rain above
+  a threshold restores the array. That shape is why soiling is a *series*, not a
+  derate.
+- Coello & Boyle (2019, IEEE J. Photovoltaics) is why the rate isn't constant:
+  daily soiling scales with ambient PM10, exactly what the CAMS ingestion stores
+  hourly. Plus a marine salt term (this site's documented worse driver) scaled by
+  the existing `salt_soiling_index`, and a small coarse-dust term.
+- Rain cleaning is graded between 0.25 mm (Kimber's threshold - drizzle cleans
+  nothing) and 5 mm (a complete wash), leaving a documented residue: rain never
+  returns the glass to a perfect 0%.
+- Saturates at 12%: a coated panel loses little more per extra gram, and a
+  tropical rain-washed array never gets there anyway.
+
+**Data path** (`api/soiling_service.py`): hourly stores rolled up to daily -
+mean PM10/dust, mean salt index (derived from wind+humidity exactly as the
+forecast features do, so the two can't disagree), and **summed** rainfall,
+because a day's cleaning power is its total not its mean. Hours duplicated
+across issue times are collapsed first so a heavily-reforecast hour can't
+inflate the day's rain. Jetty takes the full sea-spray load (it sits on the
+trestle over the water); GIS/ISB are set back inland, a documented exposure
+allowance on the same footing as `DEFAULT_EXTERNAL_SHADING_PCT`.
+
+**The replacement**: `refresh_measured_soiling` publishes each zone's window
+average into `loss_model.set_measured_soiling_pct`, and `default_loss_factors`
+prefers it over `DEFAULT_SOILING_PCT_LAND/MARINE`. That flows straight into the
+Energy Report losses breakdown, `/financial` NPV/IRR/LCOE and `/simulate`.
+Refreshed on the aerosol poll's own cadence (its inputs change hourly) and once
+after startup backfill, never per-request - it walks 90 days per zone.
+
+Honesty, kept explicit everywhere: the rate COEFFICIENTS are literature-
+calibrated, not fitted to Nong Fab (no on-site soiling measurement or cleaning
+log exists - that stays a known gap). Everything they multiply is this site's own
+measurement. So `LossFactors` now carries `soiling_source`
+(`measured-airquality-rainfall` vs `literature-default`), `/energy-report`
+surfaces it, and the panel states which one is live. With no history the route
+returns `available: false` + a Thai reason and the literature default stays in
+force - it never invents a soiling level.
+
+**Panel** (`SoilingAdvisorPanel.tsx`): headline recommendation (turns amber once
+a wash is due), four KPIs (current loss %, %/day accumulation, days since the
+last cleaning rain - "unknown", never 0, when none fell in the window - and the
+฿/year the current dirt costs, priced at the facility's own implied tariff from
+its real cost/load rather than the financial module's placeholder PEA rate), and
+a 90-day sawtooth chart of accumulation against rain washes with the cleaning
+trigger marked.
+
+Tests: features +11, api +15 (roll-up, honest-empty, wet-vs-dry window, marine
+vs inland, the placeholder replacement + its labelling, route auth/404/empty/
+populated), web +6. tsc + ruff + oxlint clean; api 118 downstream tests
+(energy-report/financial/simulate/simulation) still pass unchanged.

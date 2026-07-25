@@ -408,3 +408,23 @@
   padding-top: 4px;
   border-top: 1px dashed var(--border);
 }
+
+/* Soiling & Cleaning Advisor (2026-07-25). The recommendation line is the
+   panel's headline - it carries the action, so it reads louder than the KPIs
+   below it and turns amber once a wash is actually due. */
+.soiling-recommendation {
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #334155);
+  background: var(--surface-2, #1e293b);
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.soiling-recommendation-urgent {
+  border-color: #f59e0b;
+  color: #fbbf24;
+}
+.soiling-chart {
+  margin-top: 12px;
+}

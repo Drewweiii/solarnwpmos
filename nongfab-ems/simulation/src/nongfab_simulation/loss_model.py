@@ -85,6 +85,12 @@ DEFAULT_AVAILABILITY_PCT = 3.0  # grid/inverter downtime allowance
 MARINE_ZONE_IDS = {"Jetty"}
 
 
+# Where a LossFactors' soiling figure came from, so every surface that reports
+# it can say so instead of leaving the reader to guess.
+SOILING_SOURCE_LITERATURE = "literature-default"
+SOILING_SOURCE_MEASURED = "measured-airquality-rainfall"
+
+
 @dataclass(frozen=True)
 class LossFactors:
     """Each field is a fractional loss in percent (2.0 means 2% lost, i.e. a
@@ -97,22 +103,66 @@ class LossFactors:
     dc_wiring_pct: float = DEFAULT_DC_WIRING_PCT
     connections_pct: float = DEFAULT_CONNECTIONS_PCT
     availability_pct: float = DEFAULT_AVAILABILITY_PCT
+    soiling_source: str = SOILING_SOURCE_LITERATURE
+
+
+# --- Measured soiling override (2026-07-25) ---------------------------------
+# The user asked for the data-driven soiling estimate to REPLACE the literature
+# placeholders, not just sit beside them. The estimate needs the real
+# air-quality + rainfall history, which lives in a store this package has no
+# handle on (simulation/ is pure computation; the store is owned by the API
+# process), so the API injects it here once ingestion has data - see
+# api/soiling_service.refresh_measured_soiling. Until it does, or if the feed
+# goes empty, `default_loss_factors` falls back to the documented literature
+# constants and says so via `soiling_source`, so nothing ever silently reports a
+# measured-looking number it doesn't have.
+_measured_soiling_pct: dict[str, float] = {}
+
+
+def set_measured_soiling_pct(zone_id: str, soiling_pct: float) -> None:
+    """Publish a measured annual-average soiling loss (%) for one zone."""
+    if not (0 <= soiling_pct <= 100):
+        raise ValueError(f"soiling_pct must be in [0, 100], got {soiling_pct}")
+    _measured_soiling_pct[zone_id] = float(soiling_pct)
+
+
+def clear_measured_soiling_pct() -> None:
+    """Drop every published measurement (used by tests, and by the API if the
+    aerosol/precipitation feed stops being trustworthy)."""
+    _measured_soiling_pct.clear()
+
+
+def measured_soiling_pct(zone_id: str) -> float | None:
+    """The published measured soiling for a zone, or None when there is none."""
+    return _measured_soiling_pct.get(zone_id)
 
 
 def default_loss_factors(zone_id: str) -> LossFactors:
-    """Zone-aware defaults - Jetty (marine trestle) gets the higher soiling
-    figure per the architecture doc's own callout ("Jetty soiling/corrosion
-    higher - ละอองเกลือ"); GIS/ISB (land) get the PVWatts land default.
+    """Zone-aware defaults.
 
-    Shading is no longer the flat DEFAULT_SHADING_PCT literature default: it is
-    the array's real geometry-derived inter-row self-shading loss
+    Soiling prefers the MEASURED estimate published by the API from this site's
+    own PM10/dust/salt-index and rainfall history (2026-07-25 - see
+    features/soiling_dynamics.py for the Kimber/Coello-style model). When none
+    has been published it falls back to the literature constants, where Jetty
+    (marine trestle) gets the higher figure per the architecture doc's own
+    callout ("Jetty soiling/corrosion higher - ละอองเกลือ") and GIS/ISB (land)
+    get the PVWatts land default. `soiling_source` records which one it is.
+
+    Shading is likewise not the flat DEFAULT_SHADING_PCT literature default: it
+    is the array's real geometry-derived inter-row self-shading loss
     (annual_shading_loss_pct, energy-weighted over a full year's sun path) plus
     DEFAULT_EXTERNAL_SHADING_PCT as an allowance for unmodelled external-obstacle
     shading (no site obstacle survey exists). 2026-07-22 roadmap item 3.
     """
-    soiling = DEFAULT_SOILING_PCT_MARINE if zone_id in MARINE_ZONE_IDS else DEFAULT_SOILING_PCT_LAND
+    measured = measured_soiling_pct(zone_id)
+    if measured is None:
+        soiling = DEFAULT_SOILING_PCT_MARINE if zone_id in MARINE_ZONE_IDS else DEFAULT_SOILING_PCT_LAND
+        source = SOILING_SOURCE_LITERATURE
+    else:
+        soiling = measured
+        source = SOILING_SOURCE_MEASURED
     shading = annual_shading_loss_pct(zone_id) + DEFAULT_EXTERNAL_SHADING_PCT
-    return LossFactors(soiling_pct=soiling, shading_pct=shading)
+    return LossFactors(soiling_pct=soiling, shading_pct=shading, soiling_source=source)
 
 
 def combined_derate(factors: LossFactors) -> float:

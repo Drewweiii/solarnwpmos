@@ -278,6 +278,38 @@ export interface FeatureImportanceResponse {
   new_features_total: number | null
 }
 
+// GET /soiling/{zone} - the Soiling & Cleaning Advisor (2026-07-25). How dirty
+// the array is now, how fast it's getting dirtier, when rain last washed it,
+// what the dirt costs, and roughly when a wash is worth scheduling - all derived
+// from this site's own CAMS PM10/dust, GFS wind/humidity (salt-spray index) and
+// GFS rainfall history via a Kimber/Coello-style model. `available: false`
+// (with `reason`) whenever that history can't yet support an assessment: the
+// route never invents a soiling level.
+export interface SoilingResponse {
+  available: boolean
+  zone: string
+  reason: string | null
+  days_assessed: number
+  current_loss_pct: number
+  average_loss_pct: number
+  current_daily_rate_pct: number
+  // null = no cleaning rain anywhere in the window (unknown, NOT zero days).
+  days_since_cleaning_rain: number | null
+  cleaning_events: number
+  // null = already past the trigger (wash now) or nothing accumulating.
+  days_until_trigger: number | null
+  cleaning_trigger_pct: number
+  max_loss_pct: number
+  annual_energy_lost_kwh: number | null
+  annual_cost_lost_thb: number | null
+  // 'measured-airquality-rainfall' once the advisor has replaced the loss
+  // model's soiling placeholder, else 'literature-default'.
+  loss_model_soiling_source: string
+  loss_model_soiling_pct: number | null
+  series_days: string[]
+  series_loss_pct: number[]
+}
+
 // GET /weather/uv-history - every real daily UV reading this deployment has
 // accumulated (NASA POWER), oldest first (2026-07-19). One point per real
 // day - UV has no hourly resolution to plot (see CurrentConditionsResponse's

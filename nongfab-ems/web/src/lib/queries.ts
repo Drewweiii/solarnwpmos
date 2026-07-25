@@ -4,6 +4,7 @@ import {
   getCloudConditions,
   getCurrentConditions,
   getFeatureImportance,
+  getSoiling,
   getEnergyReport,
   getSavingsSummary,
   getFeedback,
@@ -124,6 +125,19 @@ export function useFeatureImportance(zone: string) {
     queryFn: () => getFeatureImportance(token!, zone),
     enabled: Boolean(token),
     staleTime: 5 * 60 * 1000,
+  })
+}
+
+// The soiling assessment walks up to 90 days of history server-side and only
+// changes as new air-quality/rainfall data lands (hourly at most), so it is
+// deliberately off the live-dashboard polling cadence with a long staleTime.
+export function useSoiling(zone: string) {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['soiling', zone],
+    queryFn: () => getSoiling(token!, zone),
+    enabled: Boolean(token),
+    staleTime: 30 * 60 * 1000,
   })
 }
 

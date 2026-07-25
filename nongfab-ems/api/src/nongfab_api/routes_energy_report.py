@@ -97,6 +97,12 @@ class EnergyReportResponse(BaseModel):
     system_summary: SystemSummary
     annual: AnnualSummary
     loss_breakdown_pct: dict[str, float]
+    # Where loss_breakdown_pct["soiling_pct"] came from: "measured-airquality-
+    # rainfall" once the soiling advisor has published a figure derived from this
+    # site's own PM10/salt/rainfall history, else "literature-default"
+    # (2026-07-25). Surfaced so the losses table can say which it is rather than
+    # letting a literature constant read as a measurement.
+    soiling_source: str
     co2_saved_kg_per_year: float
     trees_equivalent_per_year: float
     avg_solar_access_pct: float
@@ -181,6 +187,7 @@ async def get_energy_report(zone: str, _user=Depends(require_role("viewer"))) ->
             ac_energy_kwh=annual_ac_energy_kwh, specific_yield_kwh_per_kwp=specific_yield, performance_ratio=pr,
         ),
         loss_breakdown_pct=loss_breakdown,
+        soiling_source=baseline.loss_factors.soiling_source,
         co2_saved_kg_per_year=co2_saved_kg_per_year,
         trees_equivalent_per_year=trees_equivalent_per_year,
         avg_solar_access_pct=avg_access_pct,

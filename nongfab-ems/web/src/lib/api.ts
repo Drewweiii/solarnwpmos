@@ -19,6 +19,7 @@ import type {
   PrecipitationConditionsResponse,
   SimulateRequest,
   SimulateResponse,
+  SoilingResponse,
   SunPathResponse,
   UvHistoryResponse,
   UvHourlyHistoryResponse,
@@ -126,6 +127,8 @@ export const getCurrentConditions = (token: string): Promise<CurrentConditionsRe
 
 export const getFeatureImportance = (token: string, zone: string): Promise<FeatureImportanceResponse> =>
   request(`/forecast/${zone}/feature-importance`, token)
+
+export const getSoiling = (token: string, zone: string): Promise<SoilingResponse> => request(`/soiling/${zone}`, token)
 
 export const getUvHistory = (token: string): Promise<UvHistoryResponse> => request('/weather/uv-history', token)
 

@@ -88,6 +88,12 @@ async def run_startup_backfill(store: RealDataStore, lookback_days: int) -> None
 
     await _backfill_pvgis(store)
 
+    # Last, once every weather/aerosol source has had its chance to land: derive
+    # the measured soiling loss and publish it into the loss model, replacing the
+    # literature placeholder (2026-07-25). Non-fatal and honest-empty - if the
+    # history can't support an assessment the literature default stays in force.
+    _refresh_soiling(store)
+
 
 async def _backfill_nwp(store: RealDataStore, lookback_days: int) -> None:
     from nwp_ingestion.backfill import backfill_range
@@ -507,6 +513,18 @@ async def _poll_uv_forever(store: RealDataStore, interval_seconds: float = UV_PO
 # page's AOD/PM cells showed "no CAMS data" forever on a long-lived process.
 # `past_days=1` keeps each tick small (the deep history is the backfill's job);
 # insert-or-replace on ((valid_time, source)) makes it idempotent.
+def _refresh_soiling(store: RealDataStore) -> None:
+    """Publish the measured soiling estimate to the loss model, swallowing any
+    failure: a bad soiling refresh must never take down ingestion, and falling
+    back to the documented literature default is a safe outcome."""
+    from .soiling_service import refresh_measured_soiling
+
+    try:
+        refresh_measured_soiling(store)
+    except Exception:
+        logger.warning("measured-soiling refresh failed, keeping the literature default", exc_info=True)
+
+
 AEROSOL_POLL_INTERVAL_SECONDS = 3600.0
 
 
@@ -521,6 +539,9 @@ async def _poll_aerosol_forever(store: RealDataStore, interval_seconds: float = 
                 if points:
                     store.insert_aerosol_points(points)
                     logger.debug("aerosol live poll: refreshed %d hours of open-meteo air-quality", len(points))
+                    # Fresh PM10/dust changes the soiling estimate the loss model
+                    # uses, so re-derive it on the same cadence as its input.
+                    _refresh_soiling(store)
             except Exception:
                 logger.warning("aerosol live poll failed, retrying next tick", exc_info=True)
             await asyncio.sleep(interval_seconds)

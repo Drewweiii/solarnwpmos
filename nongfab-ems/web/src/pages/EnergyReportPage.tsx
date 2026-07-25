@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { EnergySavingsTable } from '../components/EnergySavingsTable'
 import { EnergyManagementPanel } from '../components/EnergyManagementPanel'
+import { SoilingAdvisorPanel } from '../components/SoilingAdvisorPanel'
 import { SLDViewer } from '../components/SLDViewer'
 import { ZoneSelector } from '../components/ZoneSelector'
 import { useEnergyReport, useZones } from '../lib/queries'
@@ -72,6 +73,11 @@ export function EnergyReportPage() {
             facilityAnnualCostThb={site?.facility_annual_electricity_cost_thb}
             ppaCode={site?.project_code}
           />
+
+          {/* Soiling & Cleaning Advisor (2026-07-25) - the measured soiling read
+              that replaced the loss model's literature placeholder, plus the
+              "when should this be washed" recommendation. */}
+          <SoilingAdvisorPanel zone={zone} />
 
           <section className="energy-report-section" aria-label="System summary">
             <h2>System summary</h2>
