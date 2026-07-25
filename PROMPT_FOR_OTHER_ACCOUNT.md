@@ -2,7 +2,10 @@
 
 > ไฟล์นี้มีไว้ให้ user ก๊อปวางให้ Claude ของอีกบัญชีโดยตรง
 > ไม่ต้องอธิบายอะไรเพิ่ม บล็อกข้างล่างครบในตัวแล้ว
-> อัปเดต 2026-07-25 · repo ปิด GitHub Issues ไว้ เลยใช้ไฟล์แทน
+> อัปเดต **2026-07-25 23:40** · repo ปิด GitHub Issues ไว้ เลยใช้ไฟล์แทน
+>
+> **เปลี่ยนงานแล้ว**: เดิมไฟล์นี้สั่งให้ทำ C แล้วต่อ D — ตอนนี้ **D เสร็จแล้ว** (Track 1 ทำไป)
+> และ **C ยังติดข้อมูล** งานใหม่คือ **I / J / K** ตามที่ user สั่งเมื่อ 2026-07-25
 
 ---
 
@@ -12,28 +15,39 @@ Terminal 2) branch `claude/solar-optimization-forecasting-jryux7`
 **อ่าน 3 ไฟล์นี้ก่อนเริ่ม ตามลำดับ:**
 1. `CLAUDE.md` — กติกาการทำงาน (Handoff Report ภาษาไทย, นโยบาย Thailand-first,
    การแบ่ง Track, การเตือนเรื่องเครดิต)
-2. `WORK_SPLIT.md` — ตารางแบ่งงานนวัตกรรม 4 ตัวระหว่างสองบัญชี
-3. `HANDOFF_PROJECT_C_SHADING.md` — **สเปกงานของคุณ ฉบับเต็ม**
+2. `WORK_SPLIT.md` — ตารางแบ่งงานนวัตกรรมระหว่างสองบัญชี (A-K)
+3. `HANDOFF_PROJECTS_IJK.md` — **สเปกงานของคุณ ฉบับเต็ม ตัวเลขรันจริงมาแล้วทุกตัว**
 
-**งานของคุณคือ C แล้วต่อด้วย D:**
+**งานของคุณคือ I → J → K** (user มอบให้เมื่อ 2026-07-25 หลังถามเรื่อง
+powerflow / EMS / high voltage / PV recycling)
 
-**C — เงาจริงแบบ ray-trace จากเรขาคณิตของไซต์**
-ตอนนี้ `annual_shading_loss_pct` เป็นสูตรที่รู้จักแค่ "แถวแผงบังแถวแผงด้วยกันเอง"
-แต่ไซต์นี้คือคลัง LNG ที่มีถังเก็บขนาดมหึมาอยู่ข้างๆ ซึ่งสูตรมองไม่เห็นเลย
-ค่า loss ที่ใช้อยู่จึงอาจต่ำกว่าจริงมากในบางโซน และมันไหลไปถึง payback/NPV
-ที่เว็บเผยแพร่ ให้สร้างการคำนวณเงาจากเรขาคณิตจริง (ถัง LNG, อาคาร, ท่าเทียบเรือ)
-รายชั่วโมงทั้งปี แล้วเอาไปแทนสูตรเดิม
+**I — Demand Charge (ทำก่อน ผลกระทบสูงสุด)**
+ค่าไฟผู้ใช้รายใหญ่ในไทยมีสองก้อน: ค่าพลังงาน (฿/kWh) กับ **ค่าความต้องการพลังไฟฟ้า
+(฿/kW ของพีค 15 นาทีที่สูงสุดในเดือน)** — **เว็บนี้โมเดลแค่ก้อนแรก**
+grep ทั้ง repo เจอคำว่า demand charge ที่เดียวคือ `web/src/lib/assistantContent.ts:80`
+ซึ่งเป็นที่ที่ **AI assistant อธิบายมันให้ผู้ชมฟัง** แต่ระบบไม่เคยคำนวณมันเลย
+สมมติฐานที่ต้องพิสูจน์: คลัง LNG เดินเครื่อง 24/7 โหลดแบน 13.5 MW → **พีคของเดือน
+อาจเกิดตอนกลางคืน** ซึ่งแปลว่าโซลาร์ลด demand charge ไม่ได้เลย
+⚠️ ไซต์นี้ **ไม่มี load profile ของคลัง** ห้ามปั้นกราฟโหลดขึ้นมา — ให้ตอบเป็น
+**เส้นความไว** แทน ("ถ้าพีคเกิดชั่วโมง H จะลดได้ P kW") ทุกค่าจึงเป็นของจริงหมด
 
-**D — ตัวหามุมเอียง/ทิศทาง/ระยะแถวที่ดีที่สุด** (ทำต่อจาก C เพราะใช้เรขาคณิตชุดเดียวกัน)
+**J — PV Recycling / มูลค่าซาก** ข้อมูลครบแล้ว: 600 แผ่น รุ่น Trina Vertex N
+TSM-NEG21C.20 (N-type i-TOPCon **dual glass**) ขนาด 2384×1303×33 mm → กระจกรวม 1,863.8 m²
+ต้องหาเพิ่มแค่น้ำหนักต่อแผ่นจาก datasheet + องค์ประกอบวัสดุจากงานวิจัย
+🇹🇭 **ต้องใช้ระเบียบ/ผู้รับรีไซเคิลของไทย ไม่ใช่ EU WEEE** — ถ้าจำเป็นต้องใช้ของต่างประเทศ **หยุดถาม user ก่อน**
 
-**สิ่งแรกที่ต้องทำ ก่อนเขียนโค้ดใดๆ:** เปิด `config/assets.yaml` ตรวจว่ามีความสูง
-และตำแหน่งของสิ่งกีดขวางครบไหม **แล้วรายงาน user ว่าขาดอะไรบ้าง** ถ้าข้อมูล
-เรขาคณิตไม่พอ ทั้งโปรเจกต์จะกลายเป็นการเดา ซึ่งผิดกติกาข้อสำคัญที่สุดของ repo นี้
+**K — Power Flow** ส่วน load flow เต็มรูปแบบ **ยังทำไม่ได้** (`assets.yaml` มีแค่
+`sld_available: true` ไม่มีหม้อแปลง/ฟีดเดอร์/บัสบาร์เลย) **แต่มีชิ้นที่ทำได้เลยและเป็นบั๊กจริง**:
+`loss_model.py` ใช้ `DEFAULT_DC_WIRING_PCT = 2.0` เท่ากันทุกโซนและ **ไม่มีเทอมค่าสูญเสียสาย AC เลย**
+ทั้งที่ `assets.yaml` เก็บระยะ interconnection จริงไว้แล้ว **1,130 / 1,680 / 2,816 เมตร**
+และ design constraint เองอนุญาตให้แรงดัน AC ตกได้ถึง **5%** → ผลผลิตของ Jetty ที่เผยแพร่อยู่อาจสูงเกินจริง
 
-**ห้ามแตะ** `financial/`, `grid_carbon.py`, `green_savings.py`, `egat_grid.py`,
-`routes_grid.py`, `official_sources.py`, `routes_sources.py`,
-`GridContextPanel.tsx`, `OfficialSourcesPanel.tsx` — อีกบัญชีถือครองอยู่
-(กำลังจะทำ P50/P90 + Monte Carlo ใน `financial/`)
+**ห้ามแตะ** — ไฟล์ที่ Track 1 เพิ่งสร้าง/แก้เมื่อ 2026-07-25 และยังไม่ได้ verify บนเบราว์เซอร์จริง:
+`features/poa.py`, `features/bifacial.py`, `simulation/tilt_optimizer.py`,
+`simulation/dc_ac_ratio.py`, `simulation/tou.py`, `simulation/pipeline.py`,
+`api/grid_carbon.py`, `routes_{grid_carbon,orientation,dc_ac,bifacial,tou}.py`,
+`web/components/{GridCarbon,Orientation,DcAc,Bifacial,Tou}Panel.tsx`
+· `financial/model.py` **แตะได้** สำหรับ I และ J แต่ระวังชนกับงาน B (P50/P90 Monte Carlo) ที่ยังค้างในไฟล์เดียวกัน
 
 **กติกาที่พลาดแล้วเจ็บ (จดไว้จากที่พลาดมาแล้วจริงๆ):**
 - `npm run test` **ไม่ typecheck** มีแต่ `npm run build` (`tsc -b`) — เทสเขียว
@@ -42,8 +56,9 @@ Terminal 2) branch `claude/solar-optimization-forecasting-jryux7`
   `ValueType | undefined` ต้อง narrow ด้วย `typeof` ในบอดี้แทน (พลาดมาแล้ว 3 ครั้ง)
 - ต้องรัน `ruff check` เองก่อน push (sandbox ไม่รันให้)
 - รัน pytest **ทีละ package** (basename ซ้ำข้าม package ทำให้ collect error)
-- `annual_shading_loss_pct` เป็น `lru_cache` — ต้อง `cache_clear()` เมื่อ tilt เปลี่ยน
-  ดูตัวอย่างที่ `settings_service.apply_effective_settings` ทำไว้ (มี 2 cache แล้ว)
+- **`lru_cache` มี 4 ตัวแล้ว** ที่ `settings_service.apply_effective_settings()` ต้อง `cache_clear()`
+  ถ้าเพิ่มตัวที่ 5 ต้องไปเพิ่มในนั้นด้วย ไม่งั้นแก้ setting แล้วตัวเลขบนเว็บไม่ขยับ:
+  `annual_shading_loss_pct` · `_profile_for_day` · `optimise_zone` · `analyse_zone`
 - **เวลาจาก กฟผ. (EGAT SysGen) เป็น ICT ไม่ใช่ UTC** — ต่างจากทุก feed อื่นในเว็บนี้
   ที่เป็น UTC. ต้นทางส่ง `[วินาทีนับจากเที่ยงคืนเวลาไทย, MW, °C]` คู่กับวันแบบ
   `DD-MM-YYYY` ทั้งคู่เป็นเวลาไทย ถ้าเผลอ convert จะเพี้ยนไป 7 ชั่วโมง
@@ -63,7 +78,7 @@ Terminal 2) branch `claude/solar-optimization-forecasting-jryux7`
      ใน `FinancialPage.test.tsx` ไม่มีฟิลด์ใหม่ที่ผมประกาศเป็น required
      → **ฟิลด์ใหม่ใน response type ให้ใส่ `?` เสมอ** ไม่งั้น fixture เก่าทุกตัวพัง
 - ค่าคงที่ใหม่ควรใส่ใน `settings_registry.py` — เพิ่ม 1 entry ได้ช่องกรอกในหน้า
-  Settings อัตโนมัติ ไม่ต้องทำ UI เอง (ตอนนี้มี 80 ค่า / 10 กลุ่ม)
+  Settings อัตโนมัติ ไม่ต้องทำ UI เอง (ตอนนี้มี **88 ค่า / 10 กลุ่ม**)
 
 **กฎเหล็กเรื่องความซื่อสัตย์ของข้อมูล:** ห้ามนำเสนอค่าที่แต่งขึ้นว่าเป็นของจริง
 ทุกค่าต้องระบุ `origin` (ยืนยันแล้ว / as-built / งานวิจัย / ค่าประมาณ)
