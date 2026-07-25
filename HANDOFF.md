@@ -1758,3 +1758,71 @@ diagnostics, และค่าที่บันทึกอยู่รอด 
 4. Live-verify ด้วย browser จริง: panel ใหม่ 4 ตัวจากรอบก่อน + หน้า settings ใหม่
 5. ขอตัวเลข Financial จริง 3 ตัว (CAPEX/WACC/BOI) มาแทน placeholder
 6. งาน Track 2 (UI/AI assistant/visitor network) เป็นของอีกบัญชี — ไม่แตะ
+
+## 2026-07-25 15:14 ICT
+
+**Track 1 — เนื้อหาเชิงวิชาการ (Content/Engineering)**
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+รอบนี้คือ **"ดูสิ่งที่เพื่อนทำแล้วเริ่มทำต่อ"** — merge งานอีกบัญชี 4 commit
+(part 2 หน้า UI settings, part 3 ต่อ `hand.*` เข้ากับระบบมือ, live-verify fix 5 เทส,
+EGAT grid) เข้ามาก่อน แล้วสานต่อสิ่งที่เขา **จงใจไม่ทำ** และฝากไว้ให้ user ตัดสินใจ
+
+**ประเด็นที่เพื่อนฝากไว้:** เอกสารหลักเกณฑ์ UGT ของ **กกพ** ระบุ Grid Emission
+Factor = **0.4758 tCO2/MWh** (และ ~0.407 สำหรับปี 2565) แต่ `green_savings.py`
+hardcode ไว้ **0.4999** (ของ TGO) — ตัวเลขนี้คูณตรงเข้าไปในค่า CO2 ที่หลีกเลี่ยงได้ /
+จำนวนต้นไม้ / คาร์บอนเครดิต ที่โชว์บนหน้า Energy Report
+
+**สิ่งที่ทำ:** แก้ที่ *กลไก* โดยไม่แตะ *การตัดสินใจ* — ทำให้กลุ่ม green/tariff
+ทั้งชุดกรอกเองได้ผ่านระบบ settings (part 1) โดย **ค่า default ทุกตัวเหมือนเดิมเป๊ะ**
+ไม่มีตัวเลขไหนที่ publish อยู่ขยับเงียบๆ
+- `settings_registry.py`: เพิ่มกลุ่ม `GROUP_GREEN` + 7 ค่า → รวมเป็น **73 ค่า / 9 กลุ่ม**
+  (`green.normal_rate_thb_per_kwh` 4.1025 · `green.ugt1_premium_thb_per_kwh` 0.0375 ·
+  `green.ugt2_rate_thb_per_kwh` 4.0423 · `green.ef_scope2_kg_per_kwh` 0.4999 ·
+  `green.carbon_credit_unit_per_kwp_year` 0.901 · `green.trees_per_kwp_year` 101 ·
+  `green.carbon_price_thb_per_tonne` 100)
+- ช่อง EF มี `note` ที่ **ระบุทั้งสองแหล่งอย่างเป็นทางการ** (TGO 0.4999 / กกพ 0.4758)
+  คนที่แก้จะได้เลือกระหว่างตัวเลขจริง 2 ตัว ไม่ใช่พิมพ์เลขที่จำมาลอยๆ
+- `green_savings.py`: เพิ่ม `GreenAssumptions` (frozen dataclass) + `DEFAULT_ASSUMPTIONS`
+  ส่งเป็น `params` เข้า `compute_metrics()`/`assumptions()` — pattern เดียวกับ
+  `SoilingParams` (ไม่มี global mutable state ใน pure package)
+  **UGT1 ยังเป็นค่าที่ derive** (`normal + premium`) ไม่แยกเป็นอีกฟิลด์ เพราะนิยามมันคือ
+  ส่วนเพิ่มจากค่าไฟปกติ ถ้าแยกกันแก้ได้จะตั้งให้ขัดกับนิยามตัวเองได้
+- `routes_savings.py`: `_green_assumptions()` อ่าน `effective("green.*")` **ครั้งเดียวต่อ
+  request** แล้วส่งวัตถุเดียวนั้นเข้าทุกแถว zone + แถวรวม (กัน publish กลาง request
+  แล้วได้รายงานที่แต่ละแถวไม่ตรงกัน)
+- เทส api +4 ตัว: default ยังเป็น 0.4999 และ note ระบุครบ 2 แหล่ง · publish EF แล้ว
+  CO2 ขยับจริง · publish ค่าไฟแล้วเงินประหยัดขยับ และ UGT1 ยัง derive ตาม ·
+  publish ราคาคาร์บอนแล้วมูลค่าเครดิตขยับ
+
+**ผลรัน regression เต็ม:** api **303** · forecast **190** · features+financial **133** ·
+simulation **90** · web **491** ผ่านหมด · `ruff check` clean
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- อยู่บน branch `claude/solar-optimization-forecasting-jryux7` (ทั้งสองบัญชีใช้ร่วมกัน)
+  HEAD ก่อนรอบนี้คือ `da55b22` (EGAT grid ของอีกบัญชี)
+- **ระบบ settings ครบวงจรแล้ว**: backend (part 1) + หน้า UI (part 2, อีกบัญชี) +
+  `hand.*` ถูกใช้จริง (part 3, อีกบัญชี) + กลุ่ม `green.*` (part 4, รอบนี้)
+  วิธีเพิ่มค่าใหม่ = เพิ่ม 1 entry ใน `settings_registry.py` เท่านั้น ฟอร์มเรนเดอร์เอง
+- **Financial ยังเป็น placeholder 3 ตัว**: CAPEX (฿30,000/kWp), WACC (8%), BOI (0 ปี)
+  — แก้ผ่านหน้า settings ได้แล้ว แต่ค่า default ในโค้ดยังเป็นค่าประมาณ
+  ถ้า user ให้ตัวเลขจริง ต้องแก้ default ใน `financial/model.py` + `settings_registry`
+  และเปลี่ยน `origin` เป็น `confirmed`
+- **ไซต์นี้ไม่มีมิเตอร์วัดกำลังผลิตจริง** — ข้อจำกัดถาวร (มีผลกับหน้า Verification)
+- gotcha ที่ต้องจำ: `routes_verification` ต้อง include **ก่อน** `routes_forecast` ·
+  panel บน ForecastPage ห้ามใช้คลาส `.ems-*` (EnergyReportPage เป็น lazy route) ·
+  ต้องรัน `ruff check` เองก่อน push (sandbox ไม่รันให้) · รัน pytest ทีละ package
+  (basename ซ้ำกันข้าม package ทำให้ collect error ถ้ารันรวม)
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **ถาม/รอคำตอบ user ว่าจะ publish GEF ตัวไหน** — TGO 0.4999 (default ปัจจุบัน),
+   กกพ 0.4758, หรือ ~0.407 (ปี 2565) เมื่อได้คำตอบให้แก้ผ่านหน้า settings หรือ
+   เปลี่ยน default ใน `green_savings.py` + `settings_registry.py`
+2. **เช็ค CI ให้เขียว** หลัง push รอบนี้
+3. **Live-verify ด้วย browser จริง** — panel ใหม่ 4 ตัว (Soiling / Verification /
+   Health / Expansion) + หน้า settings + กลุ่ม green ที่เพิ่งเพิ่ม (ยังไม่เคยเปิดดูของจริง)
+4. **ขอตัวเลข Financial จริง 3 ตัว** (CAPEX / WACC / BOI) มาแทน placeholder
+5. งาน Track 2 (UI / AI assistant / visitor network) เป็นของอีกบัญชี — ไม่แตะ

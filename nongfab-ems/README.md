@@ -593,3 +593,49 @@ consumer, a zone capacity moves the expansion baseline, phases can be turned off
 or added, CAPEX halves the payback, a window changes the default look-back, and a
 feed limit changes the diagnostics verdict. api 280 / simulation 90 / features
 102 / financial 31 all pass; ruff clean.
+
+### 2026-07-25 - Editable system values, part 4: tariffs, carbon, and the emission factor nobody should decide silently (Track 1)
+
+Continuing the other account's round. Their EGAT commit ended with a finding they
+deliberately did **not** act on: กกพ's own UGT criteria document puts Thailand's
+Grid Emission Factor at **0.4758 tCO2/MWh** (and ~0.407 for 2565), while
+`green_savings.py` hardcodes **0.4999** (TGO). That number multiplies straight
+into the avoided-CO2, tree-equivalent and carbon-credit figures published on the
+Energy Report, so changing it moves numbers the user shows other people. Their
+call, not ours - and correctly left alone.
+
+This commit resolves the *mechanism* without touching the *decision*: the whole
+Savings/Green group becomes editable through the settings system from part 1,
+with **every default byte-identical to what shipped before**. Nothing published
+moves until somebody deliberately publishes a new value.
+
+Seven new settings under `green.*` (registry now 73 settings / 9 groups): the
+normal PEA rate (฿4.1025/kWh), the UGT1 premium (฿0.0375/kWh), the UGT2 rate
+(฿4.0423/kWh), the emission factor (0.4999 kgCO2/kWh), carbon-credit units per
+kWp-year (0.901), trees per kWp-year (101), and the carbon price
+(฿100/tonne). The emission factor's `note` names **both** official figures and
+their sources, so whoever edits it is choosing between two real published values
+rather than typing a number they half-remember - which is the honest way to
+present a conflict you are not entitled to settle.
+
+UGT1 stays **derived** (`normal + premium`) rather than becoming its own field.
+It is defined as a premium over the normal tariff, and two independently editable
+numbers could be set to a combination that contradicts that definition.
+
+`green_savings.py` gained a `GreenAssumptions` frozen dataclass +
+`DEFAULT_ASSUMPTIONS`, threaded as an explicit `params` argument through
+`compute_metrics()` and `assumptions()` - the same "no global mutable state in a
+pure package" pattern `SoilingParams` established, so the module still computes
+the same answer for the same inputs regardless of what any database says.
+`routes_savings.py` resolves the effective values **once per request** and passes
+that one object to every zone row and the combined row, so a mid-request publish
+can't produce a report whose rows disagree with each other.
+
+Tests: api +4 - that the shipped default is still 0.4999 and its note names both
+sources, that publishing an emission factor really moves the avoided CO2, that
+publishing a tariff moves the bill saving while UGT1 stays derived from it, and
+that a carbon price moves the credit value. Full regression: api 303 / forecast
+190 / features+financial 133 / simulation 90 / web 491 all pass; ruff clean.
+
+**Still the user's decision:** which GEF to publish - TGO 0.4999 (current
+default), กกพ 0.4758, or ~0.407 for 2565.

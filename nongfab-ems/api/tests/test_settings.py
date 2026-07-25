@@ -356,3 +356,70 @@ def test_a_published_feed_limit_changes_the_diagnostics_verdict(engine, tmp_path
         client.put("/settings", json={"values": {"diagnostics.cloud_max_age_minutes": 30}}, headers=headers)
         after = client.get("/diagnostics/feeds", headers=headers).json()
     assert next(f for f in after["feeds"] if f["name"] == "cloud_history")["limit_minutes"] == 30
+
+
+# --- green savings: tariffs + carbon (2026-07-25) ----------------------------
+
+
+def test_the_conflicting_emission_factor_ships_unchanged_and_names_both_sources():
+    """กกพ's UGT criteria doc quotes 0.4758 where the code uses TGO's 0.4999.
+    Two official Thai sources disagree, so the value became SETTABLE rather than
+    silently switched: the default must still be the one the published carbon
+    figures were computed with, and the note must name the alternative so the
+    choice is informed."""
+    spec = BY_KEY["green.ef_scope2_kg_per_kwh"]
+    assert spec.default == 0.4999
+    assert "0.4758" in spec.note
+    assert "0.4999" in spec.note
+
+
+def test_publishing_an_emission_factor_changes_the_avoided_co2(engine, tmp_path):
+    from nongfab_api.auth import create_access_token
+
+    app, settings = _file_backed_app(engine, tmp_path)
+    with TestClient(app) as client:
+        token = create_access_token("tester", "admin", settings, app.state.deploy_id)
+        headers = {"Authorization": f"Bearer {token}"}
+        before = client.get("/savings/summary", headers=headers).json()
+        assert before["assumptions"]["ef_scope2_kg_per_kwh"] == 0.4999
+        co2_before = before["zones"][0]["periods"]["year"]["scope2_co2_avoided_kg"]
+
+        # Switch to กกพ's figure.
+        client.put("/settings", json={"values": {"green.ef_scope2_kg_per_kwh": 0.4758}}, headers=headers)
+        after = client.get("/savings/summary", headers=headers).json()
+
+    # The footnote quotes what is actually in force, not the shipped default.
+    assert after["assumptions"]["ef_scope2_kg_per_kwh"] == 0.4758
+    co2_after = after["zones"][0]["periods"]["year"]["scope2_co2_avoided_kg"]
+    assert co2_after == pytest.approx(co2_before * 0.4758 / 0.4999)
+
+
+def test_publishing_a_tariff_changes_the_bill_saving_and_keeps_ugt1_derived(engine, tmp_path):
+    from nongfab_api.auth import create_access_token
+
+    app, settings = _file_backed_app(engine, tmp_path)
+    with TestClient(app) as client:
+        token = create_access_token("tester", "admin", settings, app.state.deploy_id)
+        headers = {"Authorization": f"Bearer {token}"}
+        client.put("/settings", json={"values": {"green.normal_rate_thb_per_kwh": 5.0}}, headers=headers)
+        body = client.get("/savings/summary", headers=headers).json()
+
+    assumptions = body["assumptions"]
+    assert assumptions["normal_rate_thb_per_kwh"] == 5.0
+    # UGT1 is derived (normal + premium), so it must follow rather than go stale.
+    assert assumptions["ugt1_rate_thb_per_kwh"] == pytest.approx(5.0 + assumptions["ugt1_premium_thb_per_kwh"])
+    year = body["zones"][0]["periods"]["year"]
+    assert year["bill_saving_thb"] == pytest.approx(year["energy_kwh"] * 5.0)
+
+
+def test_publishing_a_carbon_price_changes_the_credit_value(engine, tmp_path):
+    from nongfab_api.auth import create_access_token
+
+    app, settings = _file_backed_app(engine, tmp_path)
+    with TestClient(app) as client:
+        token = create_access_token("tester", "admin", settings, app.state.deploy_id)
+        headers = {"Authorization": f"Bearer {token}"}
+        client.put("/settings", json={"values": {"green.carbon_price_thb_per_tonne": 250.0}}, headers=headers)
+        body = client.get("/savings/summary", headers=headers).json()
+    year = body["zones"][0]["periods"]["year"]
+    assert year["carbon_credit_value_thb"] == pytest.approx(year["carbon_credit_units"] * 250.0)

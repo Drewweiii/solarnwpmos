@@ -37,6 +37,7 @@ GROUP_WINDOWS = "windows"
 GROUP_DIAGNOSTICS = "diagnostics"
 GROUP_HAND = "hand"
 GROUP_EXPANSION = "expansion"
+GROUP_GREEN = "green"
 
 GROUP_LABELS: dict[str, str] = {
     GROUP_SITE: "ข้อมูลไซต์และคลัง (Site & facility)",
@@ -47,6 +48,7 @@ GROUP_LABELS: dict[str, str] = {
     GROUP_DIAGNOSTICS: "เกณฑ์ตรวจสุขภาพระบบ (Diagnostics thresholds)",
     GROUP_HAND: "ความไวการควบคุมด้วยมือ (Hand control)",
     GROUP_EXPANSION: "แผนขยายกำลังผลิต (Expansion plan)",
+    GROUP_GREEN: "ค่าไฟและคาร์บอนสำหรับหน้า Savings (Tariff & carbon)",
 }
 
 # --- where a default came from ---------------------------------------------
@@ -794,6 +796,93 @@ SPECS: tuple[SettingSpec, ...] = (
         maximum=100.0,
         step=1.0,
         origin=ORIGIN_TUNING,
+    ),
+    # --- I. green savings: tariffs + carbon (2026-07-25) --------------------
+    SettingSpec(
+        key="green.normal_rate_thb_per_kwh",
+        group=GROUP_GREEN,
+        label="ค่าไฟปกติที่โซลาร์ไปแทน (TOU Peak, HV)",
+        unit="บาท/kWh",
+        default=4.1025,
+        minimum=0.0,
+        maximum=30.0,
+        step=0.0001,
+        origin=ORIGIN_LITERATURE,
+        note="จากประกาศอัตราค่าไฟประเภทที่ 4 กิจการขนาดใหญ่ (ผู้ใช้ส่งไฟล์อ้างอิงมา 2026-07-19) · ประกาศใหม่ทุกปี จึงควรอัปเดตได้เอง",
+    ),
+    SettingSpec(
+        key="green.ugt1_premium_thb_per_kwh",
+        group=GROUP_GREEN,
+        label="ส่วนเพิ่ม UGT1 (premium)",
+        unit="บาท/kWh",
+        default=0.0375,
+        minimum=0.0,
+        maximum=5.0,
+        step=0.0001,
+        origin=ORIGIN_LITERATURE,
+        note="UGT1 = ค่าไฟปกติ (รวม Ft) + ส่วนเพิ่มนี้ · ระบบคิดต่อให้อัตโนมัติ ไม่ต้องกรอกยอดรวม",
+    ),
+    SettingSpec(
+        key="green.ugt2_rate_thb_per_kwh",
+        group=GROUP_GREEN,
+        label="อัตรา UGT2 (Portfolio A, HV)",
+        unit="บาท/kWh",
+        default=4.0423,
+        minimum=0.0,
+        maximum=30.0,
+        step=0.0001,
+        origin=ORIGIN_LITERATURE,
+    ),
+    SettingSpec(
+        key="green.ef_scope2_kg_per_kwh",
+        group=GROUP_GREEN,
+        label="ค่าการปล่อยคาร์บอนของกริด (Grid Emission Factor)",
+        unit="kgCO₂/kWh",
+        default=0.4999,
+        minimum=0.0,
+        maximum=2.0,
+        step=0.0001,
+        origin=ORIGIN_LITERATURE,
+        note=(
+            "⚠️ แหล่งราชการไทย 2 แห่งให้ตัวเลขไม่ตรงกัน: TGO grid-mix (จากไฟล์อ้างอิงที่ผู้ใช้ส่งมา 2026-07-19) = "
+            "0.4999 · เอกสารหลักเกณฑ์ UGT ของ กกพ. = 0.4758 (และ ~0.407 สำหรับปี 2565) — "
+            "ค่าเริ่มต้นยังเป็น 0.4999 ตามเดิม ยังไม่แก้ให้เอง เพราะกระทบตัวเลขคาร์บอนที่เผยแพร่ทั้งหน้า Savings"
+        ),
+    ),
+    SettingSpec(
+        key="green.carbon_credit_unit_per_kwp_year",
+        group=GROUP_GREEN,
+        label="คาร์บอนเครดิตต่อกำลังติดตั้ง",
+        unit="ตัน CO₂eq/kWp/ปี",
+        default=0.901,
+        minimum=0.0,
+        maximum=10.0,
+        step=0.001,
+        origin=ORIGIN_LITERATURE,
+        note="กฎง่ายๆ ที่ผู้ใช้ให้มา: 1 kWp → 901 kgCO₂/ปี · คิดจากกำลังติดตั้ง ไม่ได้คิดจากพลังงานที่ผลิตจริง",
+    ),
+    SettingSpec(
+        key="green.trees_per_kwp_year",
+        group=GROUP_GREEN,
+        label="เทียบเท่าต้นไม้ต่อกำลังติดตั้ง",
+        unit="ต้น/kWp/ปี",
+        default=101.0,
+        minimum=0.0,
+        maximum=1000.0,
+        step=1.0,
+        origin=ORIGIN_LITERATURE,
+    ),
+    SettingSpec(
+        key="green.carbon_price_thb_per_tonne",
+        group=GROUP_GREEN,
+        label="ราคาคาร์บอนเครดิตอ้างอิง",
+        unit="บาท/ตัน CO₂eq",
+        default=100.0,
+        minimum=0.0,
+        maximum=10_000.0,
+        step=10.0,
+        origin=ORIGIN_LITERATURE,
+        note="ราคาตลาดอ้างอิงจากเอกสาร workshop คาร์บอนเครดิต · ราคาจริงผันผวนตามตลาด",
     ),
 )
 

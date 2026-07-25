@@ -39,6 +39,7 @@ from pydantic import BaseModel
 
 from . import green_savings
 from .auth import require_role
+from .settings_store import effective
 
 router = APIRouter(tags=["savings"])
 
@@ -100,11 +101,31 @@ def _zone_generation_kwh(zone_id: str, year: int, month: int) -> dict[str, float
     }
 
 
-def _periods(generation: dict[str, float], dc_capacity_kwp: float) -> SavingsPeriodsOut:
+def _green_assumptions() -> green_savings.GreenAssumptions:
+    """The tariff/carbon figures as the user has them set (settings_registry's
+    `green.*` group), defaulting to the constants green_savings ships with.
+
+    These are all published national rates and factors that change on somebody
+    else's schedule, which is why they are editable at all - see the registry's
+    note on `green.ef_scope2_kg_per_kwh`, where two official Thai sources
+    disagree and the choice is deliberately left to the user.
+    """
+    return green_savings.GreenAssumptions(
+        normal_rate_thb_per_kwh=effective("green.normal_rate_thb_per_kwh"),
+        ugt1_premium_thb_per_kwh=effective("green.ugt1_premium_thb_per_kwh"),
+        ugt2_rate_thb_per_kwh=effective("green.ugt2_rate_thb_per_kwh"),
+        ef_scope2_kg_per_kwh=effective("green.ef_scope2_kg_per_kwh"),
+        carbon_credit_unit_per_kwp_year=effective("green.carbon_credit_unit_per_kwp_year"),
+        trees_per_kwp_year=effective("green.trees_per_kwp_year"),
+        carbon_price_thb_per_tonne=effective("green.carbon_price_thb_per_tonne"),
+    )
+
+
+def _periods(generation: dict[str, float], dc_capacity_kwp: float, params: green_savings.GreenAssumptions) -> SavingsPeriodsOut:
     cells = {
         horizon: SavingsMetricsOut(
             **green_savings.compute_metrics(
-                generation[horizon], dc_capacity_kwp, _YEARS[horizon]
+                generation[horizon], dc_capacity_kwp, _YEARS[horizon], params
             ).as_dict()
         )
         for horizon in ("day", "month", "year", "lifetime")
@@ -122,6 +143,9 @@ async def get_savings_summary(_user=Depends(require_role("viewer"))) -> SavingsS
     zones: list[ZoneSavingsOut] = []
     combined_gen = {"day": 0.0, "month": 0.0, "year": 0.0, "lifetime": 0.0}
     combined_kwp = 0.0
+    # Resolved once per request, so every zone row and the combined row are all
+    # priced with the same figures.
+    params = _green_assumptions()
 
     for zone_id in REAL_ZONE_IDS:
         zone_obj = registry.zone(zone_id)
@@ -136,7 +160,7 @@ async def get_savings_summary(_user=Depends(require_role("viewer"))) -> SavingsS
                 label=zone_obj.name_full or zone_id,
                 simulated=zone_obj.simulated,
                 dc_capacity_kwp=dc_kwp,
-                periods=_periods(generation, dc_kwp),
+                periods=_periods(generation, dc_kwp, params),
             )
         )
 
@@ -146,8 +170,8 @@ async def get_savings_summary(_user=Depends(require_role("viewer"))) -> SavingsS
             label="รวม 3 กลุ่ม (ISB + GIS + Jetty)",
             simulated=any(registry.zone(z).simulated for z in REAL_ZONE_IDS),
             dc_capacity_kwp=combined_kwp,
-            periods=_periods(combined_gen, combined_kwp),
+            periods=_periods(combined_gen, combined_kwp, params),
         )
     )
 
-    return SavingsSummaryResponse(zones=zones, assumptions=green_savings.assumptions())
+    return SavingsSummaryResponse(zones=zones, assumptions=green_savings.assumptions(params))
