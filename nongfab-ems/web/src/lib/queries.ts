@@ -7,6 +7,7 @@ import {
   getExpansion,
   getGridCarbon,
   getBifacial,
+  getTou,
   getDcAc,
   getOrientation,
   getGridToday,
@@ -163,6 +164,18 @@ export function useGridToday() {
 // Cached server-side; depends only on capacities and the sun, so it is static
 // within a deploy - same reasoning as useOrientation.
 // Static within a deploy, same as the other design-physics routes.
+// Depends on the tariff calendar and the generation shape - static within a
+// deploy unless a setting changes, same as the other design-physics routes.
+export function useTou() {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['tou'],
+    queryFn: () => getTou(token!),
+    enabled: Boolean(token),
+    staleTime: Infinity,
+  })
+}
+
 export function useBifacial() {
   const { token } = useAuth()
   return useQuery({

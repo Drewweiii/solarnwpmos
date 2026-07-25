@@ -44,6 +44,7 @@ from . import (
     routes_soiling,
     routes_solar3d,
     routes_sources,
+    routes_tou,
     routes_verification,
     routes_weather,
     ws_chat,
@@ -260,6 +261,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     app.include_router(routes_orientation.router)
     app.include_router(routes_dc_ac.router)
     app.include_router(routes_bifacial.router)
+    app.include_router(routes_tou.router)
     app.include_router(routes_grid.router)
     app.include_router(routes_grid_carbon.router)
     app.include_router(routes_sources.router)

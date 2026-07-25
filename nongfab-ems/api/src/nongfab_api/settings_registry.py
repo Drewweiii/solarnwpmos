@@ -982,6 +982,37 @@ SPECS: tuple[SettingSpec, ...] = (
         ),
     ),
     SettingSpec(
+        key="green.offpeak_rate_thb_per_kwh",
+        group=GROUP_GREEN,
+        label="ค่าไฟช่วง Off-Peak (TOU)",
+        unit="บาท/kWh",
+        default=4.1025,
+        minimum=0.0,
+        maximum=30.0,
+        step=0.0001,
+        origin=ORIGIN_PLACEHOLDER,
+        note=(
+            "ยังไม่มีอัตรา Off-Peak จริงในระบบ จึงตั้งเท่ากับอัตรา Peak ไว้ก่อน = ผลลัพธ์เท่าเดิมทุกประการ "
+            "ไม่มีตัวเลขไหนขยับเงียบๆ · หน้า /tou คำนวณแล้วว่า ~32% ของพลังงานทั้งปีตกนอกช่วง Peak "
+            "(เสาร์-อาทิตย์ทั้งวัน + ช่วง 06:00–09:00 ของวันทำงาน) พอกรอกอัตราจริงจากประกาศ ตัวเลขประหยัดจะแม่นขึ้นทันที"
+        ),
+    ),
+    SettingSpec(
+        key="green.offpeak_holiday_days",
+        group=GROUP_GREEN,
+        label="วันหยุดที่คิดเป็น Off-Peak ทั้งวัน",
+        unit="วัน/ปี",
+        default=0.0,
+        minimum=0.0,
+        maximum=40.0,
+        step=1.0,
+        origin=ORIGIN_PLACEHOLDER,
+        note=(
+            "กฟภ./กฟน. คิดเฉพาะวันหยุดในรายการที่ประกาศไว้เป็น Off-Peak ไม่ใช่ทุกวันหยุดราชการ "
+            "ตั้ง 0 ไว้ก่อนเพื่อให้สัดส่วน Peak ที่รายงานเป็น 'เพดานบน' — ของจริง Off-Peak มีแต่จะมากกว่านี้ ไม่มีน้อยกว่า"
+        ),
+    ),
+    SettingSpec(
         key="green.carbon_credit_unit_per_kwp_year",
         group=GROUP_GREEN,
         label="คาร์บอนเครดิตต่อกำลังติดตั้ง",

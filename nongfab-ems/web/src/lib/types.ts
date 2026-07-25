@@ -1148,3 +1148,30 @@ export interface BifacialResponse {
   method_note: string
   unlock_note: string
 }
+
+/** Generation split by TOU tariff window (project G, 2026-07-25). */
+export interface ZoneTou {
+  zone_id: string
+  peak_kwh: number
+  offpeak_kwh: number
+  peak_share_pct: number
+  offpeak_share_pct: number
+}
+
+export interface TouResponse {
+  zones: ZoneTou[]
+  total_peak_kwh: number
+  total_offpeak_kwh: number
+  offpeak_share_pct: number
+  peak_rate_thb_per_kwh: number
+  offpeak_rate_thb_per_kwh: number
+  blended_rate_thb_per_kwh: number
+  overstatement_pct: number
+  /** False until somebody enters the real Off-Peak rate; while false the
+   * blended rate equals the peak rate and nothing published has moved. */
+  offpeak_rate_is_set: boolean
+  offpeak_holiday_days: number
+  window_note: string
+  finding_note: string
+  holiday_note: string
+}

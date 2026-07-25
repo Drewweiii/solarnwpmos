@@ -20,6 +20,7 @@ import type {
   BifacialResponse,
   DcAcResponse,
   GridTodayResponse,
+  TouResponse,
   OrientationResponse,
   IrradianceMapResponse,
   MoonPathResponse,
@@ -284,4 +285,6 @@ export const getOrientation = (token: string): Promise<OrientationResponse> => r
 export const getDcAc = (token: string): Promise<DcAcResponse> => request('/dc-ac', token)
 
 export const getBifacial = (token: string): Promise<BifacialResponse> => request('/bifacial', token)
+
+export const getTou = (token: string): Promise<TouResponse> => request('/tou', token)
 export const getOfficialSources = (token: string): Promise<SourcesResponse> => request('/sources', token)

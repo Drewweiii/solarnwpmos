@@ -23,6 +23,7 @@ import { FeatureImportancePanel } from '../components/FeatureImportancePanel'
 import { DataHealthPanel } from '../components/DataHealthPanel'
 import { ForecastVerificationPanel } from '../components/ForecastVerificationPanel'
 import { BifacialPanel } from '../components/BifacialPanel'
+import { TouPanel } from '../components/TouPanel'
 import { DcAcPanel } from '../components/DcAcPanel'
 import { GridCarbonPanel } from '../components/GridCarbonPanel'
 import { GridContextPanel } from '../components/GridContextPanel'
@@ -743,6 +744,7 @@ export function ForecastPage() {
       <OrientationPanel />
       <DcAcPanel />
       <BifacialPanel />
+      <TouPanel />
     </div>
   )
 }

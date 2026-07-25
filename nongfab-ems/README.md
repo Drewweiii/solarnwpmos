@@ -1055,3 +1055,56 @@ report - rather than pinning percentages that rest on assumptions. api 375 /
 features 114 / web 554 pass; ruff clean; build clean; lint clean.
 
 Source: [Trina Vertex N TSM-NEG21C.20 datasheet](https://static.trinasolar.com/sites/default/files/Datasheet_NEG21C.20.pdf) (power bifaciality 80 ± 5%)
+
+### 2026-07-25 - Project G: does the array produce during the expensive hours? (Track 1)
+
+`green_savings.py` prices every kWh at the TOU **Peak** rate, and its own
+docstring already called that "a documented approximation - it does not net out
+weekend/holiday off-peak hours; refine if a real half-hourly consumption profile
+appears". It turns out no consumption profile was needed: the tariff calendar
+and the array's own generation shape are enough.
+
+**The windows** (PEA/MEA Type 4): On Peak is 09:00–22:00 Monday to Friday.
+Everything else is Off Peak, including the whole of Saturday and Sunday.
+
+**The measurement: 32.3% of annual generation - 274,719 kWh - lands outside the
+peak window**, and the site currently values all of it at the peak rate.
+
+Two effects, and the second is the one that gets missed:
+
+  1. **Weekends.** Two days in seven produce entirely at the off-peak rate.
+     Nothing about the array changes; the calendar simply pays less for it.
+  2. **Mornings.** Peak does not open until 09:00, but the array starts
+     producing around 06:00 - so three hours of every working day are off-peak
+     too. A test pins `is_peak_hour` at both boundaries, because an off-by-one
+     there moves exactly those three hours and looks perfectly reasonable in a
+     total.
+
+**Shipping this moves nothing.** `green.offpeak_rate_thb_per_kwh` defaults
+EQUAL to the peak rate, so the blended rate reproduces today's figure exactly -
+verified by a test - and the panel says "ยังบอกไม่ได้" rather than "+0.0%" for the
+overstatement, because with two identical placeholder rates the gap is unknown,
+not zero. Enter the real Off-Peak rate from the announcement and the difference
+appears on its own. At an illustrative ฿2.60 off-peak the blended rate would be
+฿3.617 against the ฿4.1025 in use, but that rate is not in the system and is not
+being claimed.
+
+**Holidays are not counted, deliberately.** PEA/MEA treat only a published list
+of holidays as off-peak, not every public holiday, and that list is issued
+annually. Rather than guess it, the count is a setting defaulting to zero - which
+makes the reported peak share a **ceiling**: the true off-peak share can only be
+higher. A test asserts that supplying holidays moves energy toward off-peak and
+never the other way, so that "conservative floor" claim stays true.
+
+Weekday counts come from the real calendar rather than a 5/7 approximation -
+month lengths and start days move the true ratio by more than a day, and this
+feeds a money figure.
+
+Registry now 88 settings / 10 groups. Tests: simulation +8, api +5, web +4.
+api 380 / simulation 114 / web 558 pass; ruff clean; build clean; lint clean.
+
+**Still wanted:** the Off-Peak rate for Type 4 HV from the tariff announcement,
+and PEA's list of off-peak holidays. Both are single settings away from being
+live.
+
+Source: [MEA - วันที่คิดค่าไฟฟ้าเป็น Off Peak](https://www.mea.or.th/electricity/electricity-tariffs/B0kv94Yol)
