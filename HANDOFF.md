@@ -1676,3 +1676,85 @@ financial 31 · web 464 = **1,134 tests** · ruff + tsc + oxlint clean
    (ตอนนี้ต้องเปิดหน้าเว็บดูเอง), และเพิ่ม aerosol/AOD เข้า `rank_cause` ของ anomaly
    (ตอนนี้ส่ง `aod=None` เพราะ daily_conditions ยังไม่คืน AOD รายวัน)
 6. งาน Track 2 (UI/AI assistant/visitor network) เป็นของอีกบัญชี — ไม่แตะ
+
+## 2026-07-25 03:05 ICT
+
+**Track 1 — เนื้อหาเชิงวิชาการ (Content/Engineering)**
+
+รอบต่อจากเอนทรีก่อนหน้า (ซึ่งจบที่ 4 นวัตกรรม A–D). รอบนี้ user สั่ง "ทำให้ค่าต่างๆ
+ทางระบบเปลี่ยนหรือกรอกเองได้" และเลือก **ทั้ง 8 กลุ่ม** + โมเดลสิทธิ์แบบ hybrid
+**ทำเสร็จเฉพาะ part 1 (backend) แล้วหยุดเพราะเครดิตใกล้หมด — UI ยังไม่ได้ทำ**
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+**`1f6a836` — Editable system values, part 1: settings backend (46 ค่า, 8 กลุ่ม)**
+
+- `api/settings_registry.py` — **แกนของงานนี้**: ประกาศทุกค่าที่แก้ได้เป็น *data*
+  (key, group, label ไทย, หน่วย, default, min/max/step) → API อธิบายตัวเองได้
+  ฟอร์มเดียวบน frontend เรนเดอร์ได้ทั้ง 8 กลุ่ม เพิ่มค่าใหม่ = เพิ่ม 1 entry
+  ไม่ต้องทำ route + หน้าจอใหม่. **ทุกค่าเป็นตัวเลขทั้งหมดโดยเจตนา** (validation
+  เหลือแค่เช็คขอบเขต) และนั่นคือเหตุผลที่เฟสขยายเป็นเลข "kW ที่เพิ่ม" 3 ตัว
+  ไม่ใช่ list ที่แก้ได้ (ใส่ 0 = ปิดเฟสนั้น)
+- **ฟิลด์ `origin`** — บอกว่าค่าเริ่มต้นแต่ละตัวมาจากไหน: `confirmed` (user ยืนยัน:
+  โหลด 13.5 MW, ค่าไฟ 300 ล้าน, ภาษี 20%) / `as-built` (กำลังติดตั้ง, เฟสขยาย) /
+  `placeholder` (CAPEX, WACC, BOI, tariff — ยังไม่ยืนยัน) / `literature` / `tuning`
+  เพื่อไม่ให้ใครแก้ค่าจริงเพราะคิดว่าเป็นค่าเดา หรือเชื่อค่าเดาเพราะคิดว่าวัดมา
+- **ที่เก็บ:** ตาราง `system_settings` (`SystemSettingORM`) ใน app DB ไม่ใช่
+  `RealDataStore` (ที่หายเมื่อ container รีไซเคิล) — เก็บ **เฉพาะค่าที่ override**
+  ค่าที่ยังเป็น default ไม่มี row เลย → "reset" = DELETE และ registry ยังเป็น
+  แหล่งความจริงเดียวว่า default คืออะไร. มี `updated_by`/`updated_at`.
+  key ที่เก็บไว้แต่ registry รุ่นนี้ไม่รู้จัก → **ข้าม ไม่ลบ** (deploy rollback
+  ไม่ควรทำลายค่าที่คนบันทึกไว้)
+- **ทำให้มีผลจริง 2 ทาง:**
+  (ก) *อ่านตอน request* — windows / diagnostics / expansion / financial
+  (`/financial` slider ยังชนะต่อ request เหมือนเดิม แต่ถ้าไม่ส่งอะไรมาจะใช้ค่าที่ admin บันทึก)
+  (ข) *inject* — `nongfab_common.assets.set_asset_overrides` (merge **ก่อน**
+  validate → override หลบ schema ไม่ได้; `load_assets` อ่าน YAML ใหม่ทุกครั้ง
+  จึงไม่มี cache ต้อง invalidate) และ `loss_model.set_loss_overrides`.
+  `apply_effective_settings()` เคลียร์ `annual_shading_loss_pct` lru_cache ด้วย
+  (มันคำนวณจากมุมเอียง ถ้าไม่เคลียร์จะคืนค่าเก่าไปตลอดอายุ process)
+- `soiling_dynamics` ย้ายสัมประสิทธิ์ไปเป็น `SoilingParams` **ส่งเข้าเป็นพารามิเตอร์**
+  ไม่ใช่ mutable module state (features/ ต้องไม่มี global ที่ผู้เรียกสองคนแก้ทับกัน)
+- **API:** `GET /settings` (viewer อ่านได้) · `PUT /settings` + `DELETE /settings/{key}`
+  + `POST /settings/reset` (**admin เท่านั้น**) · validate ทั้งฟอร์มก่อนเขียน 1 ค่า
+  → ฟิลด์เดียวผิด = ตีกลับทั้งฟอร์ม ไม่บันทึกครึ่งๆ
+
+**ผลรัน:** api **280** · simulation 90 · features 102 · financial 31 · ruff clean
+(เทสต์ settings ใหม่ 23 ตัว พิสูจน์ว่าค่ามีผลจริง: loss factor → `default_loss_factors`,
+ค่าไซต์ → ทุก consumer ของ `load_assets`, กำลังโซน → ฐาน Expansion, ปิด/เพิ่มเฟสได้,
+CAPEX ครึ่ง → payback ครึ่ง, window → default look-back, feed limit → verdict ของ
+diagnostics, และค่าที่บันทึกอยู่รอด restart)
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- **branch** `claude/solar-optimization-forecasting-jryux7`, HEAD `1f6a836`, push แล้ว
+- **CI:** run #149/#150 **เขียวทั้งคู่** → run #148 ที่แดง เป็น `docker/setup-buildx-action@v3`
+  ล้มชั่วคราว (step build ถูก skip) ไม่ใช่โค้ด · **run #151 (`1f6a836`) ยังรันอยู่
+  session หน้าเช็คก่อน**
+- **สถานะที่ค้าง (ไม่พัง แค่ไม่ครบ):** ค่าทั้ง 46 ตัวแก้ได้แล้ว **แต่ต้องยิง API ตรงๆ**
+  (`PUT /settings`) — ยังไม่มีหน้าจอ. ไม่มีอะไรครึ่งๆ กลางๆ ในโค้ด: commit นี้เป็น
+  "part 1" ที่ใช้งานได้จบในตัวเอง
+- **ค่า `hand.*` 7 ตัวมี `frontend_only=True`** — เก็บฝั่งเซิร์ฟเวอร์ได้แล้ว แต่
+  Solar3DScene/handControl **ยังไม่อ่าน** (ยังใช้ค่า hardcode) ต้องต่อใน part 2
+- **Financial placeholder เหลือ 3 ตัว** (CAPEX/WACC/BOI) — ตอนนี้แก้ผ่าน settings ได้
+  แล้ว แต่ค่า default ในโค้ดยังเป็นค่าประมาณ ถ้า user ให้ตัวเลขจริงมา ควรแก้ default
+  ใน `financial/model.py` + `settings_registry` (และเปลี่ยน `origin` เป็น `confirmed`)
+- **ไซต์นี้ไม่มีมิเตอร์วัดกำลังผลิตจริง** (ดูเอนทรีก่อนหน้า) — ข้อจำกัดนี้ยังอยู่
+- gotcha ที่ต้องจำ: `routes_verification` include **ก่อน** `routes_forecast` ·
+  panel บน ForecastPage ห้ามใช้คลาส `.ems-*` (EnergyReportPage เป็น lazy route) ·
+  ต้องรัน `ruff check` เองก่อน push (sandbox ไม่รันให้)
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **เช็ค CI run #151 (`1f6a836`)** ให้เขียวก่อนทำอย่างอื่น
+2. **Part 2 — หน้า UI กรอกค่า** (งานหลักที่เหลือ): ฟอร์มเดียวอ่าน `GET /settings`
+   แล้วเรนเดอร์ทั้ง 8 กลุ่มจาก metadata (label/unit/min/max/step/origin) — ไม่ต้อง
+   hardcode ฟิลด์. ต้องมี: draft เก็บใน `localStorage` (viewer ลองเล่นเอง) ·
+   ปุ่ม "บันทึกเป็นค่ากลาง" โชว์เฉพาะเมื่อ `can_publish=true` · ปุ่ม reset ต่อฟิลด์
+   (โชว์เมื่อ `overridden=true`) และ reset ทั้งหมด · แสดง `origin_label` + `note`
+   + ใครแก้ล่าสุดเมื่อไร
+3. **Part 3 — ให้ระบบมืออ่านค่า `hand.*`** จาก settings (ตอนนี้ค่าอยู่แต่ยังไม่ถูกใช้):
+   `DEFAULT_HAND_CONTROL_CONFIG` และค่าความเร็วใน `Solar3DScene` ต้องรับจาก props/hook
+4. Live-verify ด้วย browser จริง: panel ใหม่ 4 ตัวจากรอบก่อน + หน้า settings ใหม่
+5. ขอตัวเลข Financial จริง 3 ตัว (CAPEX/WACC/BOI) มาแทน placeholder
+6. งาน Track 2 (UI/AI assistant/visitor network) เป็นของอีกบัญชี — ไม่แตะ
