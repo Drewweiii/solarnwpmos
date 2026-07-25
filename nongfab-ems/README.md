@@ -919,3 +919,47 @@ ruff clean; build clean; lint clean.
 **Worth asking the user for:** a measured tilt and azimuth. It is the one input
 that would turn the gain column from "distance from an assumption" into a real
 finding about the built array.
+
+### 2026-07-25 - The whole site now models tilted panels as tilted (Track 1)
+
+Project D found it; this fixes it. Every irradiance source here publishes GHI -
+irradiance on a HORIZONTAL surface - and the PV model consumed it directly, so
+tilt reached the self-shading number and nothing else. A 10-degree array and a
+flat one produced identical yield. The user asked for this to be corrected
+site-wide knowing it moves published figures.
+
+`features/poa.py` does the standard two steps: **Erbs** infers how much of a GHI
+reading arrived as beam versus scattered (they land on a tilted plane very
+differently, and no source here reports the split), then **Hay-Davies**
+transposes beam, sky-diffuse and ground-reflected onto the array plane.
+
+The transposition happens inside `simulate_zone_baseline`, not in its callers.
+One place knows a panel is tilted, and all seven call sites - /simulate,
+/performance, /energy-report, ws/live, the irradiance map, grid carbon - get it
+without changes or the chance to forget.
+
+**Effect on the published numbers: 377,081 -> 385,774 kWh/year, +2.31%.** The
+old figure reproduced exactly before the change, which is what confirms the
+delta is the transposition and not drift. The site had been understating its own
+yield by treating tilted panels as flat; payback improves accordingly.
+
+**A test failed for the right reason, and is worth reading.** `ws_live` asserted
+the GIS inverter clipped to exactly 50.0 kW at synthetic noon; it now reads
+49.3. In JULY at 12.7 N the sun passes NORTH of overhead, so a south-facing
+10-degree array is tilted slightly AWAY from it at solar noon and lands just
+under the clip. That is the physics arriving, not a regression - over the full
+year south still wins comfortably (project D). The assertion was relaxed to a
+band with that reasoning recorded, since what the test is really about - reading
+the row nearest now rather than the always-dark 23:00 row - is unchanged.
+
+Honest about what POA is: a model. There is no pyranometer in the array plane
+here, any more than there is a generation meter, so POA is inferred from GHI the
+way commercial yield software does it. The uncertainty that adds is real and
+small next to the error it removes.
+
+Tests: features +6, covering the flat-surface shortcut, the hemisphere
+convention (a sign flip here would invert every orientation conclusion in the
+system and nothing else would catch it), night staying dark despite Erbs'
+after-sunset diffuse, and a tz-naive index being read as UTC once rather than
+guessed per caller. api 366 / features 102 / simulation 99 / financial 74 / web
+544 pass; ruff clean; build clean.

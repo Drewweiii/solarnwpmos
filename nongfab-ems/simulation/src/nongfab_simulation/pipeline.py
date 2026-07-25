@@ -16,6 +16,12 @@ import numpy as np
 import pandas as pd
 from nongfab_common.assets import Zone, load_assets
 from nongfab_features.clearsky import compute_clearsky_and_position, nong_fab_site_location
+from nongfab_features.panel_geometry import (
+    DEFAULT_AZIMUTH_DEG,
+    DEFAULT_TILT_DEG,
+    JETTY_DEFAULT_AZIMUTH_DEG,
+)
+from nongfab_features.poa import poa_from_ghi
 from nongfab_forecast.pv_conversion import STC_TEMP_C, default_params_from_capacity, predict_power_kw
 
 from .loss_model import LossFactors, apply_losses, clip_to_inverter_capacity, default_loss_factors, loss_breakdown_summary
@@ -84,6 +90,21 @@ class ZoneBaseline:
         return loss_breakdown_summary(self.loss_factors, self.inverter_efficiency_pct)
 
 
+def _zone_orientation(zone) -> tuple[float, float]:
+    """A zone's tilt and azimuth, falling back to `panel_geometry`'s defaults.
+
+    Reuses that module's defaults rather than defining a second set: it is
+    already the single answer to "what angle do we believe this array is at",
+    and two answers would eventually disagree. Every zone falls back today -
+    config/assets.yaml has `tilt_deg: null` throughout - which is why the
+    orientation panel labels the angle as assumed rather than measured.
+    """
+    tilt = zone.tilt_deg if zone.tilt_deg is not None else DEFAULT_TILT_DEG
+    default_azimuth = JETTY_DEFAULT_AZIMUTH_DEG if zone.id == "Jetty" else DEFAULT_AZIMUTH_DEG
+    azimuth = zone.azimuth_deg if zone.azimuth_deg is not None else default_azimuth
+    return tilt, azimuth
+
+
 def simulate_zone_baseline(
     zone_id: str, irradiance_w_m2: np.ndarray | pd.Series, temp_c: np.ndarray | pd.Series, index: pd.DatetimeIndex,
 ) -> ZoneBaseline:
@@ -98,8 +119,17 @@ def simulate_zone_baseline(
     registry = load_assets()
     zone = registry.zone(zone_id)  # raises KeyError for an unknown zone id - let callers translate to their own error type
 
+    # Callers hand us GHI - irradiance on a HORIZONTAL surface - because that is
+    # what every source here publishes (GFS SSRD, Himawari, PVGIS, clear-sky).
+    # Transposing to the array's own plane happens HERE rather than in each
+    # caller so there is one place that knows a panel is tilted, and so a zone's
+    # tilt reaches the yield instead of only reaching the shading number
+    # (2026-07-25 - see features.poa for the two-step model and its limits).
+    tilt_deg, azimuth_deg = _zone_orientation(zone)
+    poa_w_m2 = poa_from_ghi(irradiance_w_m2, index, tilt_deg, azimuth_deg)
+
     pv_params = default_params_from_capacity(zone.dc_capacity_kwp)
-    dc_power = pd.Series(predict_power_kw(irradiance_w_m2, temp_c, pv_params), index=index)
+    dc_power = pd.Series(predict_power_kw(poa_w_m2, temp_c, pv_params), index=index)
 
     factors = default_loss_factors(zone_id)
     inverter_efficiency_pct = zone.inverter_detail.efficiency_pct if zone.inverter_detail else DEFAULT_INVERTER_EFFICIENCY_PCT

@@ -39,7 +39,16 @@ def test_zone_snapshot_uses_the_row_nearest_now_not_always_the_last_row(monkeypa
     # recomputing them per zone - build the synthetic day here and pass it in.
     idx, ssrd, temp = dev_data.synthetic_day_irradiance_temp()
     snapshot = ws_live._zone_snapshot("GIS", idx, ssrd, temp)
-    assert snapshot["current_ac_kw"] == pytest.approx(50.0, rel=1e-3)
+    # Substantial midday output, not the exact 50.0 kW inverter clip this used
+    # to assert. Since 2026-07-25 the pipeline transposes GHI onto the array's
+    # own plane, and in JULY at 12.7 N the sun passes NORTH of overhead - so a
+    # south-facing 10-degree array is tilted slightly AWAY from it at solar
+    # noon and lands just under the clip. That is the physics being right, not
+    # a regression: over the full year south still wins comfortably (see
+    # simulation/tilt_optimizer). What this test is actually about is unchanged
+    # - that the snapshot reads the row nearest NOW rather than the always-dark
+    # 23:00 row, which a near-capacity reading proves just as well.
+    assert 40.0 < snapshot["current_ac_kw"] <= 50.0
 
 
 def test_ws_live_pushes_a_snapshot_for_every_zone(app, token_factory):
