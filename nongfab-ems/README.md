@@ -963,3 +963,49 @@ system and nothing else would catch it), night staying dark despite Erbs'
 after-sunset diffuse, and a tz-naive index being read as UTC once rather than
 guessed per caller. api 366 / features 102 / simulation 99 / financial 74 / web
 544 pass; ruff clean; build clean.
+
+### 2026-07-25 - Project F: what the inverters throw away, and what they could still take (Track 1)
+
+Two questions this site had never asked. The answers went the opposite way to
+what the numbers suggest at a glance.
+
+**Clipping is a non-issue here.** GIS runs DC:AC = 1.20 and assets.yaml's own
+note says "expect midday clipping" - but measured, it loses **0.10%, 122 kWh a
+year**. The reason is the loss stack: after ~20% of losses the AC side almost
+never reaches the inverter's 50 kW rating, so there is nothing to clip. Jetty at
+1.14 clips nothing at all. Site-wide clipping is 122 kWh/year, which is noise.
+The panel says this out loud rather than leaving a reader to infer trouble from
+the ratio.
+
+**ISB has free inverter capacity, and that is the actionable finding.** Its
+DC:AC is **0.93** - the inverter is LARGER than the array - leaving **9.9 kWp**
+that could be filled with modules and no inverter spend. At ISB's specific yield
+that is about **2,056 kWh per added kWp per year**, the full unclipped value,
+because nothing is being clipped there to begin with.
+
+**It deliberately names no "optimal" ratio.** More DC always yields more energy,
+just with diminishing returns, so "maximise energy" answers "add modules
+forever". The economically right ratio needs a real module cost, and CAPEX here
+is still the estimate the user chose to keep. Publishing an optimum derived from
+a placeholder would dress a guess as an answer. The marginal yield of the next
+kWp is reported instead - divide a real EPC quote by it and the decision falls
+out of real numbers.
+
+**The optimisation that made it usable.** Sweeping ~30 ratios by re-running the
+pipeline took 91 seconds. `predict_power_kw` is strictly linear in installed
+capacity - verified, doubling kWp doubles every sample - so the curve is scaled
+from ONE reference run per month and only the clipping, which is the non-linear
+part, is applied after scaling. Same numbers, **5.3 seconds**, and a test pins
+the built point against the array's real capacity so a scaling error could not
+pass silently.
+
+Built on the same representative days, the same POA transposition and the same
+loss stack the published annual figure uses, so these numbers cannot drift away
+from what /energy-report says the array makes.
+
+Tests: simulation +7, api +5, web +6 - including that clipping is zero below a
+ratio of 1.0 (clipping at 0.8 would mean the loss stack was applied in the wrong
+order) and that the 1.0 boundary between "free headroom" and "over-sized" is
+labelled the right way round, since inverting it would invert the panel's only
+recommendation. api 371 / simulation 106 / web 550 pass; ruff clean; build
+clean; lint clean.

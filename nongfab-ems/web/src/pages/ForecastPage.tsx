@@ -22,6 +22,7 @@ import { WeatherStrip } from '../components/WeatherStrip'
 import { FeatureImportancePanel } from '../components/FeatureImportancePanel'
 import { DataHealthPanel } from '../components/DataHealthPanel'
 import { ForecastVerificationPanel } from '../components/ForecastVerificationPanel'
+import { DcAcPanel } from '../components/DcAcPanel'
 import { GridCarbonPanel } from '../components/GridCarbonPanel'
 import { GridContextPanel } from '../components/GridContextPanel'
 import { OrientationPanel } from '../components/OrientationPanel'
@@ -739,6 +740,7 @@ export function ForecastPage() {
       <GridContextPanel />
       <GridCarbonPanel />
       <OrientationPanel />
+      <DcAcPanel />
     </div>
   )
 }

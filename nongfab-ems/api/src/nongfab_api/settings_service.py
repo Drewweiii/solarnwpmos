@@ -98,9 +98,11 @@ def apply_effective_settings() -> None:
     would otherwise keep answering with pre-edit values for the life of the
     process: `annual_shading_loss_pct` (per zone, from tilt/azimuth/geometry)
     `/grid/carbon`'s cached clear-sky day profile (per date, from each zone's
-    capacity, tilt and loss factors), and `/orientation`'s cached tilt sweep
-    (per zone, from its tilt, azimuth and row pitch).
+    capacity, tilt and loss factors), `/orientation`'s cached tilt sweep
+    (per zone, from its tilt, azimuth and row pitch), and `/dc-ac`'s cached
+    clipping curve (per zone, from its capacities and loss factors).
     """
+    from nongfab_simulation.dc_ac_ratio import analyse_zone
     from nongfab_simulation.tilt_optimizer import optimise_zone
 
     from .routes_grid_carbon import _profile_for_day
@@ -110,4 +112,5 @@ def apply_effective_settings() -> None:
     annual_shading_loss_pct.cache_clear()
     _profile_for_day.cache_clear()
     optimise_zone.cache_clear()
+    analyse_zone.cache_clear()
     logger.debug("settings applied to assets + loss model")

@@ -6,6 +6,7 @@ import {
   getFeatureImportance,
   getExpansion,
   getGridCarbon,
+  getDcAc,
   getOrientation,
   getGridToday,
   getOfficialSources,
@@ -158,6 +159,18 @@ export function useGridToday() {
 // plenty and keeps the merit-order solve off the critical path.
 // The sweep is cached server-side and depends only on the sun path and the
 // zone geometry, so it never changes between page loads within a deploy.
+// Cached server-side; depends only on capacities and the sun, so it is static
+// within a deploy - same reasoning as useOrientation.
+export function useDcAc() {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['dc-ac'],
+    queryFn: () => getDcAc(token!),
+    enabled: Boolean(token),
+    staleTime: Infinity,
+  })
+}
+
 export function useOrientation() {
   const { token } = useAuth()
   return useQuery({

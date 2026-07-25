@@ -25,6 +25,7 @@ from . import (
     ingestion_scheduler,
     metrics,
     routes_assets,
+    routes_dc_ac,
     routes_diagnostics,
     routes_energy_report,
     routes_expansion,
@@ -256,6 +257,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     app.include_router(routes_diagnostics.router)
     app.include_router(routes_expansion.router)
     app.include_router(routes_orientation.router)
+    app.include_router(routes_dc_ac.router)
     app.include_router(routes_grid.router)
     app.include_router(routes_grid_carbon.router)
     app.include_router(routes_sources.router)

@@ -1095,3 +1095,32 @@ export interface OrientationResponse {
   unmeasured_note: string
   expansion_note: string
 }
+
+/** One DC:AC ratio on the clipping curve (project F, 2026-07-25). */
+export interface RatioPoint {
+  dc_ac_ratio: number
+  dc_capacity_kwp: number
+  delivered_kwh: number
+  clipped_kwh: number
+  clipping_loss_pct: number
+  specific_yield_kwh_per_kwp: number
+}
+
+export interface ZoneRatio {
+  zone_id: string
+  ac_capacity_kw: number
+  built: RatioPoint
+  curve: RatioPoint[]
+  /** Inverter larger than the array: DC can be added with no inverter spend. */
+  has_headroom: boolean
+  headroom_kwp: number
+  marginal_kwh_per_added_kwp: number | null
+}
+
+export interface DcAcResponse {
+  zones: ZoneRatio[]
+  total_clipped_kwh: number
+  total_headroom_kwp: number
+  method_note: string
+  no_optimum_note: string
+}
