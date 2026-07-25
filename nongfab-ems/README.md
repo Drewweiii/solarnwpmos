@@ -416,3 +416,61 @@ that page is lazy-loaded, so borrowing its `.ems-panel` classes would have left
 the panel unstyled.
 
 Tests: forecast +17, api +6, web +5 (454 total). ruff/tsc/oxlint clean.
+
+### 2026-07-25 - System Health & Anomalies + a correction to the Verification panel (Track 1)
+
+Innovation C, scoped by the user to **C1** after a finding that changed what was
+buildable.
+
+**The finding (and the correction it forced).** C was originally "compare actual
+vs expected output and flag underperformance". This site has **no metered
+generation at all** - `real_data.pv_params_for_zone` states it outright, and the
+inverter portal is permanently closed (see forecast/README). The "Actual power"
+series on the site is `record_generated_power`: this system's own physics model
+evaluated on real weather. So an actual-vs-expected detector would compare a model
+against itself - always zero, and any non-zero result an artifact. The user chose
+C1 (feed health + seasonal anomalies) instead, and confirmed there is no route to
+real meter data.
+
+That same finding forced a correction to the Verification panel shipped hours
+earlier: its caption said the figures were "the real result once the hour
+arrived", which overstates them. The comparison side is the physics estimate on
+verified weather, so the metric is NWP forecast error propagated through physics -
+genuinely useful, but not accuracy against a meter. Fixed in the panel, the route
+docstring, and a new `reference_note` field carried in every response so no
+consumer can read it the wrong way.
+
+**1. Data feed health** (`GET /diagnostics/feeds`). When an external source
+silently stops, the model keeps answering - it just falls back to defaults, with
+nothing on screen saying so. That is exactly how the CAMS aerosol feed broke
+earlier the same day. The key design point (`forecast/health.py`, pure, 10 tests)
+is that feeds come in two shapes and conflating them misreports both:
+- **observation** feeds (satellite cloud, UV) are healthy while their NEWEST row
+  is recent;
+- **coverage** feeds (NWP, aerosol - forecasts that legitimately extend into the
+  future) are healthy while their newest row still reaches FORWARD of now. A
+  coverage feed that is merely "recent" has already run out of the window the
+  model's leads need - the aerosol bug's exact signature, and now a `stale`
+  verdict with an explicit "ครอบคลุมล่วงหน้าไม่พอ" reason.
+Limits come from each source's own publish + poll cadence with one missed tick of
+slack; `uv_history` is keyed by date, so its freshness is measured from the end of
+its newest day rather than reading as 18 hours stale by evening.
+
+**2. Seasonal output anomalies** (`GET /diagnostics/{zone}/anomalies`). Days whose
+expected energy fell below 70% of that month's own norm (from the same seasonal
+monthly estimates the Energy Report chart uses, so the two can't disagree), newest
+first. The today-in-progress day is dropped, or its partial total would look like
+a dramatic shortfall on every call. Causes are **ranked, not asserted**: whichever
+measured driver (cloud / rain / soiling / aerosol) deviated most from its own
+window median, each scaled onto a comparable 0..1 footing, and `unknown` when
+nothing was measured that day rather than blaming the nearest candidate. A driver
+*better* than median is never blamed. Every response carries `basis_note` saying
+both sides are model estimates and this is not a claim that the array itself
+underperformed.
+
+`DataHealthPanel` on /forecast: overall status pill, a per-feed table with the
+status colour carried on the row (so a dead feed is findable by scanning), and the
+flagged-days table with its ranked cause. Feed health is the one diagnostic that
+polls briskly - a stale reading of staleness is useless.
+
+Tests: forecast +10, api +6, web +5 (459 total). ruff/tsc/oxlint clean.

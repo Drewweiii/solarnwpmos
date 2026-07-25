@@ -1,10 +1,12 @@
 import type {
+  AnomaliesResponse,
   AssetRegistry,
   ChatMessage,
   OnlineUser,
   CloudConditionsResponse,
   CurrentConditionsResponse,
   FeatureImportanceResponse,
+  FeedsResponse,
   EnergyReportResponse,
   SavingsSummaryResponse,
   FeedbackItem,
@@ -128,6 +130,11 @@ export const getCurrentConditions = (token: string): Promise<CurrentConditionsRe
 
 export const getFeatureImportance = (token: string, zone: string): Promise<FeatureImportanceResponse> =>
   request(`/forecast/${zone}/feature-importance`, token)
+
+export const getFeedHealth = (token: string): Promise<FeedsResponse> => request('/diagnostics/feeds', token)
+
+export const getOutputAnomalies = (token: string, zone: string, days = 45): Promise<AnomaliesResponse> =>
+  request(`/diagnostics/${zone}/anomalies?days=${days}`, token)
 
 export const getForecastVerification = (token: string, zone: string, days = 30): Promise<VerificationResponse> =>
   request(`/forecast/${zone}/verification?days=${days}`, token)

@@ -46,6 +46,7 @@ const base: VerificationResponse = {
     { lead_bucket: '24h+', metrics: metrics({ n: 0, rmse_kw: 0 }) },
   ],
   lead_time_note: 'forecast_history เก็บเฉพาะ issuance ล่าสุดของแต่ละชั่วโมง',
+  reference_note: 'ไซต์นี้ไม่มีมิเตอร์วัดกำลังผลิตจริง',
 }
 
 describe('ForecastVerificationPanel', () => {

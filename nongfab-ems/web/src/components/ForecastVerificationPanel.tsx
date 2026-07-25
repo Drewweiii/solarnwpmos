@@ -9,6 +9,12 @@
 // > 0 means the model genuinely adds information, 0 means it's no better than
 // assuming nothing changes, < 0 means it's worse than doing nothing.
 //
+// Scope limit stated on screen: this site has no metered output (see
+// forecast/README - the inverter portal is permanently closed), so the "actual"
+// side is the physics model evaluated on the weather that actually verified. That
+// makes this a measure of NWP forecast error propagated through physics, which is
+// meaningful, but it is NOT accuracy against a meter.
+//
 // Honesty rules the panel keeps: `available: false` shows the server's reason;
 // null metrics render as "—" and say why; the daylight-only figures are the
 // headline with the all-hours figures shown beside them, since night hours are
@@ -136,8 +142,13 @@ export function ForecastVerificationPanel({ zone, days = 30 }: ForecastVerificat
         Skill score &gt; 0 = เก่งกว่าการเดาว่า "อีก k ชั่วโมงจะเท่ากับตอนนี้" ซึ่งเป็น baseline มาตรฐานของงานพยากรณ์แสงอาทิตย์
       </p>
       <p className="forecast-status forecast-status-caption">
-        ตัวเลขชุดนี้<b>ไม่ใช่</b>ค่า error จากการเทรน (RMSE ในกราฟ Model Competition คือ hold-out ตอน fit โมเดล) — ชุดนี้คือผลจริง
-        หลังเวลานั้นมาถึงแล้ว
+        ตัวเลขชุดนี้<b>ไม่ใช่</b>ค่า error จากการเทรน (RMSE ในกราฟ Model Competition คือ hold-out ตอน fit โมเดล) — ชุดนี้คือการ
+        ตรวจย้อนหลังว่า forecast ที่ออกไปแล้วตรงกับ<b>ค่าที่ประเมินได้ ณ เวลานั้นจริงๆ</b> แค่ไหน
+      </p>
+      <p className="forecast-status forecast-status-caption">
+        <b>ข้อจำกัดที่ต้องรู้:</b> ไซต์นี้<b>ไม่มีมิเตอร์วัดกำลังผลิตจริง</b> (ดู forecast/README) ฝั่ง &ldquo;ค่าจริง&rdquo; ที่ใช้เทียบจึงเป็น
+        ค่าที่คำนวณจากโมเดลฟิสิกส์ + สภาพอากาศที่<b>เกิดขึ้นจริง</b> ณ ชั่วโมงนั้น ดังนั้นตัวเลขนี้วัด &ldquo;error ของพยากรณ์อากาศที่ส่งผ่าน
+        ฟิสิกส์&rdquo; ไม่ใช่ความคลาดเคลื่อนเทียบมิเตอร์
       </p>
       <p className="forecast-status forecast-status-caption">{data.lead_time_note}</p>
     </section>

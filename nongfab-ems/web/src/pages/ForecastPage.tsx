@@ -20,6 +20,7 @@ import {
 import { ZoneSelector } from '../components/ZoneSelector'
 import { WeatherStrip } from '../components/WeatherStrip'
 import { FeatureImportancePanel } from '../components/FeatureImportancePanel'
+import { DataHealthPanel } from '../components/DataHealthPanel'
 import { ForecastVerificationPanel } from '../components/ForecastVerificationPanel'
 import { useAuth } from '../lib/auth'
 import {
@@ -714,6 +715,11 @@ export function ForecastPage() {
           score against persistence. Distinct from the training hold-out RMSE
           shown in the Model Competition panel above. */}
       <ForecastVerificationPanel zone={zoneId === ALL_ZONES_ID ? 'GIS' : zoneId} />
+
+      {/* System Health & Anomalies (2026-07-25) - which external feeds are alive
+          (a silently-dead feed makes the model fall back to defaults without
+          saying so) and which days came in well under the monthly norm. */}
+      <DataHealthPanel zone={zoneId === ALL_ZONES_ID ? 'GIS' : zoneId} />
     </div>
   )
 }

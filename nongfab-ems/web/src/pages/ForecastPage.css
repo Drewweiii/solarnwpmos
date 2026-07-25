@@ -645,3 +645,44 @@
 .verify-panel {
   margin-top: 20px;
 }
+
+/* System Health & Anomalies (2026-07-25). Status colour is carried on the row so
+   a dead feed is findable by scanning, not by reading every detail cell. */
+.health-overall {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 12px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #334155);
+  background: var(--surface-2, #1e293b);
+  font-size: 13.5px;
+}
+.health-overall-icon {
+  font-size: 17px;
+  line-height: 1;
+}
+.health-overall.health-stale {
+  border-color: #f59e0b;
+}
+.health-overall.health-missing {
+  border-color: #ef4444;
+}
+.verify-table tr.health-stale td,
+.verify-table tr.health-stale th {
+  color: #fbbf24;
+}
+.verify-table tr.health-missing td,
+.verify-table tr.health-missing th {
+  color: #f87171;
+}
+.health-detail {
+  text-align: left;
+  white-space: normal;
+  min-width: 220px;
+}
+.health-subtitle {
+  margin: 18px 0 6px;
+  font-size: 14px;
+}

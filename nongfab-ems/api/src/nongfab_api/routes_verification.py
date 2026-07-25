@@ -11,8 +11,13 @@ constraints (daylight-only headline figures; pairs only where a real actual
 exists).
 
 Both sides come from `forecast_history`: the hour-ahead issuances under the
-"hour" horizon, and the recorded actual output under
-`serving.GENERATED_POWER_HORIZON`. Because that table keys on
+"hour" horizon, and the recorded output under `serving.GENERATED_POWER_HORIZON`.
+**That second side is not a meter.** This site has no metered generation at all
+(see `nongfab_forecast.real_data.pv_params_for_zone` - a deliberate, permanent
+scope decision), so it is the physics model evaluated on the weather that
+actually verified. Scoring against it therefore measures NWP forecast error
+propagated through physics - a real and useful thing to measure, but the response
+and the UI both say plainly that it is not accuracy against a meter. Because that table keys on
 (zone, horizon, target_time), only each hour's freshest issuance survives, so
 `lead_time_note` states plainly that the lead-time breakdown covers whichever
 issuance each hour last had rather than a full lead matrix.
@@ -45,6 +50,14 @@ MAX_WINDOW_DAYS = 90
 # The verified horizon. Hour-ahead is the one with both a real issuance history
 # and a matching hourly actual to score against.
 VERIFIED_HORIZON = "hour"
+
+# Stated in every response so a consumer can't read these figures as
+# meter-verified accuracy. See the module docstring.
+REFERENCE_NOTE = (
+    "ไซต์นี้ไม่มีมิเตอร์วัดกำลังผลิตจริง ฝั่ง 'ค่าจริง' ที่ใช้เทียบคือค่าที่คำนวณจากโมเดลฟิสิกส์ "
+    "บวกสภาพอากาศที่เกิดขึ้นจริง ณ ชั่วโมงนั้น จึงเป็นการวัด error ของพยากรณ์อากาศที่ส่งผ่านฟิสิกส์ "
+    "ไม่ใช่ความคลาดเคลื่อนเทียบมิเตอร์"
+)
 
 _LEAD_NOTE = (
     "forecast_history เก็บเฉพาะ issuance ล่าสุดของแต่ละชั่วโมง (PRIMARY KEY zone+horizon+target_time) "
@@ -80,6 +93,7 @@ class VerificationResponse(BaseModel):
     all_hours: MetricsOut | None = None
     by_lead: list[LeadMetricsOut] = []
     lead_time_note: str = _LEAD_NOTE
+    reference_note: str = REFERENCE_NOTE
 
 
 def _out(metrics: VerificationMetrics) -> MetricsOut:

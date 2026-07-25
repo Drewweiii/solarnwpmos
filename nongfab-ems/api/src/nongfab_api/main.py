@@ -25,6 +25,7 @@ from . import (
     ingestion_scheduler,
     metrics,
     routes_assets,
+    routes_diagnostics,
     routes_energy_report,
     routes_feedback,
     routes_financial,
@@ -234,6 +235,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     app.include_router(routes_irradiance_map.router)
     app.include_router(routes_weather.router)
     app.include_router(routes_soiling.router)
+    app.include_router(routes_diagnostics.router)
     app.include_router(routes_feedback.router)
     app.include_router(ws_live.router)
     app.include_router(ws_chat.router)

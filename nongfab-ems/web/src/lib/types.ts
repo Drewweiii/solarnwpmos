@@ -278,6 +278,59 @@ export interface FeatureImportanceResponse {
   new_features_total: number | null
 }
 
+// GET /diagnostics/feeds - one verdict per external data source (2026-07-25).
+// `kind` matters: an 'observation' feed (satellite cloud, UV) is healthy while
+// its newest row is RECENT, while a 'coverage' feed (NWP, aerosol - forecasts
+// that legitimately run into the future) is healthy while its newest row still
+// reaches FORWARD of now. A coverage feed that is merely "recent" has already
+// run out of the forward window the model needs - that was the aerosol failure
+// mode this endpoint exists to name.
+export interface FeedHealth {
+  name: string
+  label: string
+  kind: string
+  status: string // 'ok' | 'stale' | 'missing'
+  rows: number
+  latest: string | null
+  // Minutes into the PAST; negative for a coverage feed reaching into the future.
+  age_minutes: number | null
+  // Minutes FORWARD of now the feed reaches; null for observation feeds.
+  lead_minutes: number | null
+  limit_minutes: number
+  detail: string
+}
+
+export interface FeedsResponse {
+  overall_status: string
+  checked_at: string
+  feeds: FeedHealth[]
+}
+
+// GET /diagnostics/{zone}/anomalies - days whose expected energy fell well below
+// the month's norm, with the likely weather driver RANKED (not asserted). Both
+// the energy and the norm are model estimates and there is no metered output, so
+// `basis_note` states that this never claims the array itself underperformed.
+export interface OutputAnomaly {
+  day: string
+  energy_kwh: number
+  norm_kwh: number
+  ratio: number
+  shortfall_kwh: number
+  likely_cause: string // 'cloud' | 'rain' | 'soiling' | 'aerosol' | 'unknown'
+  cause_detail: string
+}
+
+export interface AnomaliesResponse {
+  available: boolean
+  zone: string
+  window_days: number
+  reason: string | null
+  days_assessed: number
+  norm_kwh_per_day: number | null
+  anomalies: OutputAnomaly[]
+  basis_note: string
+}
+
 // GET /forecast/{zone}/verification - how good the forecasts this system has
 // actually ISSUED turned out to be (2026-07-25). Distinct from `error`/
 // `candidate_errors` elsewhere in this file, which are TRAINING hold-out errors
@@ -315,6 +368,9 @@ export interface VerificationResponse {
   all_hours: VerificationMetrics | null
   by_lead: VerificationLeadMetrics[]
   lead_time_note: string
+  // States that the "actual" side is the physics estimate, not a meter - this
+  // site has no metered generation at all.
+  reference_note: string
 }
 
 // GET /soiling/{zone} - the Soiling & Cleaning Advisor (2026-07-25). How dirty

@@ -4,7 +4,9 @@ import {
   getCloudConditions,
   getCurrentConditions,
   getFeatureImportance,
+  getFeedHealth,
   getForecastVerification,
+  getOutputAnomalies,
   getSoiling,
   getEnergyReport,
   getSavingsSummary,
@@ -126,6 +128,30 @@ export function useFeatureImportance(zone: string) {
     queryFn: () => getFeatureImportance(token!, zone),
     enabled: Boolean(token),
     staleTime: 5 * 60 * 1000,
+  })
+}
+
+// Feed health is the one diagnostic worth polling briskly: its whole purpose is
+// to notice a source going quiet, and a stale reading of staleness is useless.
+export function useFeedHealth() {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['diagnostics-feeds'],
+    queryFn: () => getFeedHealth(token!),
+    enabled: Boolean(token),
+    refetchInterval: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
+  })
+}
+
+// Anomalies only change as whole days complete.
+export function useOutputAnomalies(zone: string, days = 45) {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['diagnostics-anomalies', zone, days],
+    queryFn: () => getOutputAnomalies(token!, zone, days),
+    enabled: Boolean(token),
+    staleTime: 30 * 60 * 1000,
   })
 }
 
