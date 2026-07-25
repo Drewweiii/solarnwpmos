@@ -31,8 +31,12 @@ MODULE_NOTE = (
     "แผงที่ติดตั้งจริงคือ Trina Vertex N TSM-NEG21C.20 แบบ bifacial dual-glass "
     "ผู้ผลิตระบุค่า power bifaciality 80 ± 5% แปลว่าแสงที่ตกด้านหลัง 100 W/m² ให้กำลังเท่าแสง 80 W/m² ที่ด้านหน้า"
 )
+# Plain text, no markdown: the panel renders this straight into a <p>, so a
+# `**bold**` here shows up as literal asterisks on screen (it did - caught in the
+# 2026-07-25 browser pass). Emphasis comes from the ⚠️ and the .orientation-warning
+# styling instead.
 NOT_APPLIED_NOTE = (
-    "⚠️ ตัวเลขนี้ยัง**ไม่ได้**ถูกนำไปบวกในพลังงานที่เว็บเผยแพร่ และตั้งใจไม่บวก — "
+    "⚠️ ตัวเลขนี้ยังไม่ได้ถูกนำไปบวกในพลังงานที่เว็บเผยแพร่ และตั้งใจไม่บวก — "
     "แสงด้านหน้าคำนวณจากเรขาคณิตล้วน แต่แสงด้านหลังขึ้นกับ 2 ค่าที่ไม่มีใครวัดไว้: "
     "ค่าการสะท้อนแสงของพื้น (albedo) และความสูงที่ติดตั้งเหนือพื้น "
     "การเอา 5–15% ไปบวกใน payback โดยอิงค่าเดา 2 ตัวคือสิ่งที่ระบบนี้ไม่ทำในที่อื่นๆ อยู่แล้ว"
