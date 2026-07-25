@@ -64,6 +64,11 @@ ORIGIN_PLACEHOLDER = "placeholder"
 ORIGIN_LITERATURE = "literature"
 # TUNING: an interface/threshold choice with no external truth - pure taste.
 ORIGIN_TUNING = "tuning"
+# DERIVED: computed from a real public record AT THIS SITE'S OWN COORDINATES.
+# Stronger than LITERATURE (which means "measured somewhere else") but weaker
+# than CONFIRMED (nobody at the project signed it off); the note must name the
+# dataset and period so the figure can be re-derived, not just trusted.
+ORIGIN_DERIVED = "derived"
 
 ORIGIN_LABELS: dict[str, str] = {
     ORIGIN_CONFIRMED: "ผู้ใช้ยืนยันแล้ว (ค่าจริงของไซต์นี้)",
@@ -71,6 +76,7 @@ ORIGIN_LABELS: dict[str, str] = {
     ORIGIN_PLACEHOLDER: "ค่าประมาณ ยังไม่ยืนยันกับโครงการนี้",
     ORIGIN_LITERATURE: "ค่าอ้างอิงจากงานวิจัย/มาตรฐาน ไม่ได้วัดที่ไซต์นี้",
     ORIGIN_TUNING: "ค่าตั้งไว้เพื่อความรู้สึกใช้งาน ไม่มีค่าถูก/ผิด",
+    ORIGIN_DERIVED: "คำนวณจากข้อมูลจริงย้อนหลังที่พิกัดไซต์นี้",
 }
 
 ZONES = ("GIS", "ISB", "Jetty")
@@ -319,16 +325,20 @@ SPECS: tuple[SettingSpec, ...] = (
         group=GROUP_FINANCIAL,
         label="ความแปรปรวนของพลังงานรายปี (สำหรับ P50/P90)",
         unit="% ของค่าเฉลี่ย",
-        default=4.0,
+        default=2.11,
         minimum=0.0,
         maximum=30.0,
-        step=0.5,
-        origin=ORIGIN_LITERATURE,
+        step=0.01,
+        origin=ORIGIN_DERIVED,
         note=(
             "ผลผลิตแต่ละปีไม่เท่ากันเพราะปีที่เมฆมาก/ฝนมากต่างกัน ค่านี้คือส่วนเบี่ยงเบน "
-            "มาตรฐานคิดเป็น % ของค่าเฉลี่ย · งานวิจัยพื้นที่มรสุมเขตร้อนส่วนใหญ่อยู่ราว 3-5% "
-            "จึงใช้ 4% เป็นค่ากลาง — ยังไม่ใช่ค่าที่วัดจากหนองแฟบ เพราะโรงยังใหม่และไม่มีมิเตอร์ "
-            "ตั้งเป็น 0 = ถือว่าทุกปีเท่ากันเป๊ะ แล้ว P90 จะเท่ากับ P50"
+            "มาตรฐานคิดเป็น % ของค่าเฉลี่ย · คำนวณจากรังสีอาทิตย์รายวันจริงของ NASA POWER "
+            "(ALLSKY_SFC_SW_DWN) ที่พิกัดหนองแฟบ 12.71 N / 101.15 E ครบ 26 ปี (2000-2025): "
+            "เฉลี่ย 1,852.6 kWh/m²/ปี · SD 39.0 · ปีแย่สุด 2011 = 1,792.1 · ปีดีสุด 2004 = 1,939.1 "
+            "· เดิมใช้ 4% ตามงานวิจัยเขตร้อน (3-5%) ซึ่งกว้างเกินจริงเกือบเท่าตัวสำหรับไซต์นี้ "
+            "· ยังไม่ใช่ค่าที่วัดจากมิเตอร์หน้างาน (โรงยังใหม่) และเป็นความแปรปรวนของ 'แสง' "
+            "ไม่ใช่ของ 'ไฟที่ผลิตได้' โดยตรง · ตั้งเป็น 0 = ถือว่าทุกปีเท่ากันเป๊ะ แล้ว P90 จะเท่ากับ P50 "
+            "· คำนวณซ้ำได้ด้วย financial/scripts/derive_annual_cv.py"
         ),
     ),
     SettingSpec(

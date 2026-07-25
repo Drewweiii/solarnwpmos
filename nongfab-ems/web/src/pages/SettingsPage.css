@@ -252,11 +252,19 @@
   color: #0ea5e9;
 }
 
-/* Origin colouring: confirmed/as-built read as trustworthy, placeholder as
-   "do not quote this figure", the rest neutral. */
+/* Origin colouring: confirmed/as-built/derived read as trustworthy, placeholder
+   as "do not quote this figure", the rest neutral. */
 .settings-origin-confirmed {
   border-color: #16a34a;
   color: #16a34a;
+}
+
+/* derived = computed from a real public record at this site's coordinates.
+   Deliberately NOT the same green as confirmed: nobody at the project signed
+   it off, so it must not be mistaken for a figure the user supplied. */
+.settings-origin-derived {
+  border-color: #0d9488;
+  color: #0d9488;
 }
 
 .settings-origin-as-built {

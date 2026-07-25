@@ -50,12 +50,22 @@ import numpy as np
 from .model import DEFAULT_CAPEX_PER_KWP_THB, FinancialAssumptions, compute_financial_analysis
 
 # Year-to-year variability of annual solar yield, as a coefficient of variation
-# (std as a % of the mean). Published interannual variability for tropical
-# monsoon sites generally falls around 3-5%; 4% is the mid-point taken here.
-# LITERATURE DEFAULT, not measured at Nong Fab - there is no multi-year on-site
-# record to derive it from, and inventing one would be exactly the kind of
-# fabricated precision this repo forbids.
-DEFAULT_ANNUAL_YIELD_CV_PCT = 4.0
+# (std as a % of the mean). DERIVED at Nong Fab's own coordinates, not borrowed:
+# summing NASA POWER's daily ALLSKY_SFC_SW_DWN over the 26 complete years
+# 2000-2025 at 12.71 N / 101.15 E gives mean 1,852.6 kWh/m2/yr, std 39.0, so
+# CV = 2.11%. See interannual.py (pure + tested) and scripts/derive_annual_cv.py
+# (re-runs it against the live API).
+#
+# This replaced a 4.0% literature mid-point for tropical monsoon sites (3-5%).
+# The sun here is about twice as steady as that range assumed, so the old
+# default made the P90 band roughly twice as wide as this site warrants -
+# overstating the downside a lender would underwrite on.
+#
+# Still an approximation in one stated way: it is the variability of the
+# IRRADIANCE, used as a stand-in for the variability of AC yield. Over a full
+# year those track closely once temperature and soiling average out, but it is
+# why this is `derived` and not `confirmed`.
+DEFAULT_ANNUAL_YIELD_CV_PCT = 2.11
 
 # Percentile (as a probability of exceedance) that lenders underwrite on.
 P50_EXCEEDANCE = 0.50

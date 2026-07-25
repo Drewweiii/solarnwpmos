@@ -13,7 +13,15 @@ from nongfab_simulation.loss_model import default_loss_factors
 from nongfab_api import settings_store
 from nongfab_api.config import Settings
 from nongfab_api.main import create_app
-from nongfab_api.settings_registry import BY_KEY, GROUP_LABELS, ORIGIN_CONFIRMED, SPECS, validate
+from nongfab_api.settings_registry import (
+    BY_KEY,
+    GROUP_LABELS,
+    ORIGIN_CONFIRMED,
+    ORIGIN_DERIVED,
+    ORIGIN_LABELS,
+    SPECS,
+    validate,
+)
 from nongfab_api.settings_service import apply_effective_settings
 
 
@@ -450,6 +458,46 @@ def test_the_boi_holiday_defaults_are_the_users_confirmed_figures():
     assert jetty.default == 12.0
     assert general.origin == ORIGIN_CONFIRMED
     assert jetty.origin == ORIGIN_CONFIRMED
+
+
+# --- interannual CV: derived from NASA POWER at this site (2026-07-25) -------
+
+
+def test_the_yield_variability_default_is_the_figure_derived_at_this_site():
+    """2.11% replaced a 4% literature mid-point on 2026-07-25, computed from 26
+    complete years of NASA POWER daily irradiance at Nong Fab's own coordinates.
+
+    Pinned because this number sets the WIDTH of the published P90 band: drifting
+    back to 4% would roughly double the shortfall the site advertises to a lender
+    without anything about the plant having changed. `origin` must read `derived`
+    - a reader has to be able to tell a computed figure from a borrowed one."""
+    spec = BY_KEY["financial.annual_yield_cv_pct"]
+
+    assert spec.default == 2.11
+    assert spec.origin == ORIGIN_DERIVED
+    # The note has to carry the dataset and period, or the figure is unauditable.
+    assert "NASA POWER" in spec.note
+    assert "2000-2025" in spec.note
+    # A 0.5 step could not land on 2.11, which would make the shipped default
+    # unreachable from the settings form. Counted in whole steps rather than with
+    # `%`, which on binary floats returns 0.00999... for 2.11 % 0.01.
+    assert spec.default == pytest.approx(round(spec.default / spec.step) * spec.step)
+
+
+def test_every_origin_in_use_has_a_human_readable_label():
+    """The Settings page renders `origin_label`, so an origin without one would
+    ship a raw slug like 'derived' to the user."""
+    for spec in SPECS:
+        assert spec.origin in ORIGIN_LABELS, f"{spec.key} uses an unlabelled origin"
+
+
+def test_the_shipped_uncertainty_default_matches_the_registry():
+    """Same two-sources-of-truth trap as the BOI holiday below: the pure
+    financial package has its own default, and a report computed from one while
+    the playground uses the other would disagree about P90."""
+    from nongfab_financial.uncertainty import DEFAULT_ANNUAL_YIELD_CV_PCT
+
+    assert DEFAULT_ANNUAL_YIELD_CV_PCT == BY_KEY["financial.annual_yield_cv_pct"].default
 
 
 def test_the_shipped_model_default_matches_the_general_area_holiday(engine, tmp_path):

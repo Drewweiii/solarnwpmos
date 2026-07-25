@@ -11,10 +11,13 @@ function makeUncertainty(overrides: Partial<FinancialUncertainty> = {}): Financi
   return {
     available: true,
     reason: null,
-    // Real figures from the installed GIS+ISB array, 2026-07-25.
+    // Real figures from the installed GIS+ISB array, 2026-07-25. The P90 is the
+    // narrower band that came out of the DERIVED 2.11% interannual CV (26 years
+    // of NASA POWER at this site) rather than the 4% literature guess it
+    // replaced - that change halved the shortfall, so it belongs in the fixture.
     yield_levels: [
       { label: 'P50', exceedance: 0.5, annual_energy_kwh: 377_081 },
-      { label: 'P90', exceedance: 0.9, annual_energy_kwh: 357_751 },
+      { label: 'P90', exceedance: 0.9, annual_energy_kwh: 366_884 },
     ],
     samples: 2000,
     metrics: [
@@ -61,13 +64,13 @@ describe('FinancialUncertaintyPanel', () => {
   it('shows P90 below P50 and explains what each means', () => {
     render(<FinancialUncertaintyPanel uncertainty={makeUncertainty()} />)
     expect(screen.getByText('377,081 kWh')).toBeInTheDocument()
-    expect(screen.getByText('357,751 kWh')).toBeInTheDocument()
+    expect(screen.getByText('366,884 kWh')).toBeInTheDocument()
     expect(screen.getByText(/90% ของปีจะทำได้เกิน/)).toBeInTheDocument()
   })
 
   it('reports the P50-to-P90 shortfall a lender would underwrite on', () => {
     render(<FinancialUncertaintyPanel uncertainty={makeUncertainty()} />)
-    expect(screen.getByText(/19,330 kWh\/ปี/)).toBeInTheDocument()
+    expect(screen.getByText(/10,197 kWh\/ปี/)).toBeInTheDocument()
   })
 
   it('puts the LONGER payback in the bad column and the shorter in the good one', () => {
