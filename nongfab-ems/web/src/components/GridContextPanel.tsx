@@ -167,8 +167,17 @@ export function GridContextPanel() {
               label={{ value: 'GW', angle: -90, position: 'insideLeft', fontSize: 11 }}
             />
             <Tooltip
-              formatter={(value: number, name: string) => [`${nf0.format(value)} MW`, name]}
-              labelFormatter={(m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')} น.`}
+              // recharts types these callbacks with widened value/label types, so
+              // annotating them as number does not compile - narrow at runtime.
+              formatter={(value, name) => [
+                typeof value === 'number' ? `${nf0.format(value)} MW` : String(value),
+                name,
+              ]}
+              labelFormatter={(label) =>
+                typeof label === 'number'
+                  ? `${String(Math.floor(label / 60)).padStart(2, '0')}:${String(label % 60).padStart(2, '0')} น.`
+                  : String(label)
+              }
             />
             <Area type="monotone" dataKey="actual" name="ผลิตจริง" stroke="#2563eb" fill="#bfdbfe" fillOpacity={0.5} connectNulls={false} dot={false} />
             <Line type="monotone" dataKey="plan" name="แผนของ กฟผ." stroke="#9333ea" strokeDasharray="5 4" dot={false} strokeWidth={1.5} />

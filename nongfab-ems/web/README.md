@@ -3276,3 +3276,19 @@ pose that flashes by). Full suite 443 passed; tsc + oxlint clean. As with v1 the
 MediaPipe model loads from a CDN, so this cannot be visually confirmed from the
 egress-blocked dev sandbox - the pure control layer is verified by unit test and
 the gesture wiring by type-checking.
+
+### 2026-07-25 - Fix the red CI: recharts tooltip callbacks in GridContextPanel (Track 1)
+
+CI runs #156 and #157 were red on `npm run build` only - lint and all 491 tests
+passed, so nothing caught it locally until the production build ran `tsc -b`.
+`GridContextPanel`'s `<Tooltip formatter>` and `labelFormatter` were annotated
+`(value: number, name: string)` and `(m: number)`, but recharts types both
+callbacks with widened parameters (`ValueType | undefined`, `ReactNode`), so the
+narrower annotations are not assignable (TS2322).
+
+Fixed by dropping the annotations and narrowing at runtime with `typeof x ===
+'number'`, with a `String(x)` fallback - the same fix this repo already applied
+twice to other recharts tooltips. Worth remembering as a repo-wide pattern:
+**never annotate a recharts formatter parameter, narrow inside the body
+instead.** Also worth remembering that `npm run test` does not typecheck - only
+`npm run build` does, so a green test run is not evidence that CI will pass.
