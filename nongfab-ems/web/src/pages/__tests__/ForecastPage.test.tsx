@@ -219,6 +219,28 @@ describe('ForecastPage', () => {
       anomalies: [],
       basis_note: '',
     })
+    // Same reason as the panels above: this page also reads GET /grid/today.
+    vi.spyOn(api, 'getGridToday').mockResolvedValue({
+      available: false,
+      reason: 'no data in test',
+      day: null,
+      actual: [],
+      plan: [],
+      peaks: [],
+      latest_mw: null,
+      latest_at: null,
+      latest_ambient_c: null,
+      peak_so_far_mw: null,
+      peak_so_far_at: null,
+      plan_deviation_mw: null,
+      solar_window_start: null,
+      solar_window_end: null,
+      annual_peak_after_sunset: null,
+      site_dc_capacity_kwp: null,
+      site_share_of_system_pct: null,
+      source_note: '',
+      comparison_note: '',
+    })
   })
 
   afterEach(() => {

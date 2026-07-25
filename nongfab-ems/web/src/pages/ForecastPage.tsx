@@ -22,6 +22,7 @@ import { WeatherStrip } from '../components/WeatherStrip'
 import { FeatureImportancePanel } from '../components/FeatureImportancePanel'
 import { DataHealthPanel } from '../components/DataHealthPanel'
 import { ForecastVerificationPanel } from '../components/ForecastVerificationPanel'
+import { GridContextPanel } from '../components/GridContextPanel'
 import { useAuth } from '../lib/auth'
 import {
   buildCompetitionRows,
@@ -720,6 +721,11 @@ export function ForecastPage() {
           (a silently-dead feed makes the model fall back to defaults without
           saying so) and which days came in well under the monthly norm. */}
       <DataHealthPanel zone={zoneId === ALL_ZONES_ID ? 'GIS' : zoneId} />
+
+      {/* National grid context (2026-07-25) - this 429 kWp site next to the
+          ~26 GW Thai system, from EGAT's own public feed. Site-wide rather than
+          per-zone: the national curve is the same whichever zone is selected. */}
+      <GridContextPanel />
     </div>
   )
 }

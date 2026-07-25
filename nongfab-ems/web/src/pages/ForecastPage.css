@@ -686,3 +686,127 @@
   margin: 18px 0 6px;
   font-size: 14px;
 }
+
+/* National grid context (2026-07-25) - EGAT SysGen next to this site. Lives in
+   ForecastPage.css, not a component stylesheet, for the same reason the verify
+   and health panels do: EnergyReportPage is a lazy route and does not share
+   these classes. */
+.grid-context-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.grid-context-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.grid-context-stat-label {
+  font-size: 0.78rem;
+  color: #6b7280;
+}
+
+.grid-context-stat strong {
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.grid-context-stat-sub {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.grid-context-over {
+  color: #b45309;
+}
+
+.grid-context-under {
+  color: #047857;
+}
+
+/* The headline finding gets its own emphasised block: it is the reason the
+   panel exists, and it should not read as one more caption. */
+.grid-context-finding {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-left: 4px solid #f59e0b;
+  border-radius: 0 8px 8px 0;
+  background: #fffbeb;
+  font-size: 0.88rem;
+  line-height: 1.65;
+}
+
+.grid-context-chart {
+  margin-top: 8px;
+}
+
+.grid-context-legend {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.grid-context-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 8px;
+  border-radius: 2px;
+  vertical-align: middle;
+}
+
+.grid-context-swatch-sun {
+  background: #fde68a;
+}
+
+.grid-context-swatch-actual {
+  background: #bfdbfe;
+  border: 1px solid #2563eb;
+}
+
+.grid-context-swatch-plan {
+  background: repeating-linear-gradient(90deg, #9333ea 0 4px, transparent 4px 7px);
+}
+
+/* Wide on a phone - scrolls inside itself rather than widening the page. */
+.grid-context-peaks-scroll {
+  overflow-x: auto;
+}
+
+.grid-context-peaks {
+  width: 100%;
+  margin-top: 14px;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.grid-context-peaks th,
+.grid-context-peaks td {
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid #f3f4f6;
+  white-space: nowrap;
+}
+
+.grid-context-peaks th {
+  font-weight: 600;
+  color: #6b7280;
+  font-size: 0.78rem;
+}
+
+.grid-context-peaks td:nth-child(2) {
+  font-variant-numeric: tabular-nums;
+}
+
+.grid-context-note {
+  margin: 6px 0 0;
+  font-size: 0.75rem;
+  color: #6b7280;
+  line-height: 1.55;
+}

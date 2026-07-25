@@ -5,6 +5,7 @@ import {
   getCurrentConditions,
   getFeatureImportance,
   getExpansion,
+  getGridToday,
   getFeedHealth,
   getForecastVerification,
   getOutputAnomalies,
@@ -138,6 +139,19 @@ export function useFeatureImportance(zone: string) {
 
 // Expansion scenarios are pure config + seasonal model output - they only change
 // when config/assets.yaml does, so this is effectively static per deploy.
+export function useGridToday() {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['grid-today'],
+    queryFn: () => getGridToday(token!),
+    enabled: Boolean(token),
+    // EGAT publishes one new sample a minute and the API caches for the same
+    // interval, so anything faster than this just re-reads the same snapshot.
+    refetchInterval: 60 * 1000,
+    staleTime: 60 * 1000,
+  })
+}
+
 export function useExpansion() {
   const { token } = useAuth()
   return useQuery({

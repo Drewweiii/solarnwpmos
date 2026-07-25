@@ -16,6 +16,7 @@ import type {
   ForecastHorizon,
   ForecastResponse,
   GeometryResponse,
+  GridTodayResponse,
   IrradianceMapResponse,
   MoonPathResponse,
   PerformanceResponse,
@@ -268,3 +269,5 @@ export const getChatHistory = (
   if (beforeId != null) params.set('before_id', String(beforeId))
   return request(`/chat/history?${params.toString()}`, token)
 }
+
+export const getGridToday = (token: string): Promise<GridTodayResponse> => request('/grid/today', token)

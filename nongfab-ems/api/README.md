@@ -308,6 +308,23 @@ management, config writes) has somewhere to plug in without a schema change.
   real-time temperature exists for an arbitrary instant/location yet), and
   `boundary` (the zone's own 4 corners as a closed polygon ring, for
   Feature E's boundary overlay layer).
+- **`GET /grid/today`** → the whole Thai power system next to this site
+  (2026-07-25), from **EGAT SysGen**, EGAT's own public plan-vs-actual feed:
+  today's actual and planned national generation, EGAT's peak records (this
+  year / last year / all time), and the derived comparison this exists for -
+  Thailand's system peak lands in the EVENING (2026: 35,992 MW at 20:50),
+  hours after Nong Fab's own solar window has closed, so PV here with no
+  battery cannot shave it. The solar window is computed from the same pvlib
+  clear-sky model the forecast uses, at the site's real coordinates, so the
+  claim rests on this site's physics rather than a rule of thumb.
+  **Every timestamp in this feed is ICT, not UTC** - EGAT publishes
+  `[seconds_since_local_midnight, MW, ambient_C]` against a `DD-MM-YYYY`
+  day, so `egat_grid.py` builds Asia/Bangkok timestamps directly and the
+  frontend renders them without a timezone conversion (which would rewrite a
+  Thai time for any viewer abroad). Site-wide, not zone-scoped. Cached for
+  `MIN_REFRESH_SECONDS` (60 s, the upstream's own publish cadence) so a page
+  refresh never becomes one upstream request per viewer.
+  Honest-empty: `available=false` with a reason when EGAT is unreachable.
 - **`GET /metrics`** → Prometheus text exposition (STEP 10): request count
   and latency histograms, labeled by `method`/`path`/`status_code`. `path`
   is the matched route *template* (e.g. `/forecast/{zone}/{horizon}`), not

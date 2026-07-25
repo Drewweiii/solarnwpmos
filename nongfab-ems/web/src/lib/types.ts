@@ -896,3 +896,44 @@ export interface SettingsUpdateResponse {
   updated: Record<string, number>
   settings: SettingItem[]
 }
+
+// GET /grid/today - the national power system from EGAT's own public feed
+// (2026-07-25), so this site can be shown in the context of the grid it sits
+// on. Every timestamp is ICT as EGAT publishes it (see api/egat_grid.py).
+export interface GridPoint {
+  at: string
+  mw: number
+  ambient_c: number | null
+}
+
+export interface GridPeak {
+  label: string
+  mw: number
+  at: string | null
+  ambient_c: number | null
+}
+
+export interface GridTodayResponse {
+  available: boolean
+  reason: string | null
+  day: string | null
+  actual: GridPoint[]
+  plan: GridPoint[]
+  peaks: GridPeak[]
+  latest_mw: number | null
+  latest_at: string | null
+  latest_ambient_c: number | null
+  /** Running maximum SO FAR today, not the day's final peak. */
+  peak_so_far_mw: number | null
+  peak_so_far_at: string | null
+  plan_deviation_mw: number | null
+  solar_window_start: string | null
+  solar_window_end: string | null
+  /** The headline finding: Thailand's annual peak lands after sunset, so PV
+   * here cannot shave it. null when either time was unknown upstream. */
+  annual_peak_after_sunset: boolean | null
+  site_dc_capacity_kwp: number | null
+  site_share_of_system_pct: number | null
+  source_note: string
+  comparison_note: string
+}
