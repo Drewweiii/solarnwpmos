@@ -6,6 +6,7 @@ import {
   getFeatureImportance,
   getExpansion,
   getGridCarbon,
+  getBifacial,
   getDcAc,
   getOrientation,
   getGridToday,
@@ -161,6 +162,17 @@ export function useGridToday() {
 // zone geometry, so it never changes between page loads within a deploy.
 // Cached server-side; depends only on capacities and the sun, so it is static
 // within a deploy - same reasoning as useOrientation.
+// Static within a deploy, same as the other design-physics routes.
+export function useBifacial() {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['bifacial'],
+    queryFn: () => getBifacial(token!),
+    enabled: Boolean(token),
+    staleTime: Infinity,
+  })
+}
+
 export function useDcAc() {
   const { token } = useAuth()
   return useQuery({

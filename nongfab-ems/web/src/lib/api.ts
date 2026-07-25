@@ -17,6 +17,7 @@ import type {
   ForecastResponse,
   GeometryResponse,
   GridCarbonResponse,
+  BifacialResponse,
   DcAcResponse,
   GridTodayResponse,
   OrientationResponse,
@@ -281,4 +282,6 @@ export const getGridCarbon = (token: string): Promise<GridCarbonResponse> => req
 export const getOrientation = (token: string): Promise<OrientationResponse> => request('/orientation', token)
 
 export const getDcAc = (token: string): Promise<DcAcResponse> => request('/dc-ac', token)
+
+export const getBifacial = (token: string): Promise<BifacialResponse> => request('/bifacial', token)
 export const getOfficialSources = (token: string): Promise<SourcesResponse> => request('/sources', token)

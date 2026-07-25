@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+
 from nongfab_features.poa import poa_from_ghi
 
 # Mid-December: the sun is well south, so a south-facing tilt gains clearly.

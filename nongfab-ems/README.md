@@ -1009,3 +1009,49 @@ order) and that the 1.0 boundary between "free headroom" and "over-sized" is
 labelled the right way round, since inverting it would invert the panel's only
 recommendation. api 371 / simulation 106 / web 550 pass; ruff clean; build
 clean; lint clean.
+
+### 2026-07-25 - Project H: the back of the panel, which nothing was counting (Track 1)
+
+`config/assets.yaml` names the installed module: Trina Vertex N TSM-NEG21C.20,
+N-type i-TOPCon **bifacial dual glass**, rated by Trina at **80 ± 5% power
+bifaciality**. Every yield figure this system publishes has modelled it as
+one-sided.
+
+Modelled with pvlib's `infinite_sheds` - the view-factor treatment for a
+repeating row array, which accounts for the row in front blocking part of the
+rear's view of the ground. The naive shortcut (albedo × GHI) ignores that and
+overstates the gain at close row spacing.
+
+| zone | under the panels | rear gain |
+|---|---|---|
+| GIS | open yard, albedo 0.25 | **+10.9%** (10.2–11.6) |
+| ISB | building roof, albedo 0.35 | **+15.3%** (14.3–16.2) |
+| Jetty | **open sea**, albedo 0.07 | **+3.3%** (3.1–3.5) |
+
+**Why the per-zone split matters more than the headline.** The tempting move is
+one site-wide bifacial uplift. Jetty's panels sit on a trestle over the sea,
+which reflects barely a fifth of what a pale roof does - a single average would
+overstate that zone several times over. A test pins Jetty below half of GIS
+specifically to stop that shortcut being reintroduced.
+
+**Not applied to any published figure, deliberately.** Front irradiance needs
+only geometry, which this project has. Rear irradiance turns on two things
+nobody measured: ground albedo, and mounting height above that ground. Adding a
+5–15% uplift to payback on two assumed inputs is exactly what this codebase
+declines to do elsewhere, so the published energy stays monofacial and
+conservative - the same treatment project D gave the unmeasured tilt. Each row
+carries the albedo and height that produced its number, so a reader can see what
+the estimate rests on without leaving the row.
+
+The band is the datasheet's own ±5% tolerance carried through, so the figure can
+never be read as more precise than its input. Measuring the real albedo and
+mounting height is what would promote this from an estimate to a number worth
+adding.
+
+Tests: features +6, api +4, web +4. The assertions are about DIRECTION and
+SENSITIVITY - darker ground reflects less, gain scales linearly with the
+bifaciality factor, the result stays inside the 0–25% range real installations
+report - rather than pinning percentages that rest on assumptions. api 375 /
+features 114 / web 554 pass; ruff clean; build clean; lint clean.
+
+Source: [Trina Vertex N TSM-NEG21C.20 datasheet](https://static.trinasolar.com/sites/default/files/Datasheet_NEG21C.20.pdf) (power bifaciality 80 ± 5%)

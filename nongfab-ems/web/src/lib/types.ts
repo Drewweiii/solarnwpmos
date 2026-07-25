@@ -1124,3 +1124,27 @@ export interface DcAcResponse {
   method_note: string
   no_optimum_note: string
 }
+
+/** Rear-side gain for the bifacial modules installed (project H, 2026-07-25).
+ * NOT included in any published energy figure - it rests on assumed albedo and
+ * mounting height. */
+export interface ZoneBifacial {
+  zone_id: string
+  ground_kind: string
+  ground_label: string
+  gain_pct: number
+  gain_pct_low: number
+  gain_pct_high: number
+  albedo_assumed: number
+  height_m_assumed: number
+  ground_cover_ratio: number
+}
+
+export interface BifacialResponse {
+  zones: ZoneBifacial[]
+  bifaciality: number
+  module_note: string
+  not_applied_note: string
+  method_note: string
+  unlock_note: string
+}
