@@ -118,6 +118,41 @@ class LossFactors:
 # measured-looking number it doesn't have.
 _measured_soiling_pct: dict[str, float] = {}
 
+# --- user-published loss factors (2026-07-25) -------------------------------
+# The user asked for the system's numbers to be editable from the web UI instead
+# of being compiled in. The API publishes admin-saved values here (see
+# api/settings_service) keyed by the LossFactors field name; anything not
+# published keeps the literature default above. Same injection pattern - and the
+# same reason for it - as `_measured_soiling_pct`: this package is pure
+# computation and has no handle on the app's database.
+_loss_overrides: dict[str, float] = {}
+
+# Which fields may be overridden. `soiling_pct` is deliberately NOT here: it has
+# its own richer path (a measured estimate, with the literature fallback split by
+# land vs marine below), and letting a flat override win over a real measurement
+# would quietly undo that.
+OVERRIDABLE_LOSS_FIELDS = ("shading_pct", "mismatch_pct", "dc_wiring_pct", "connections_pct", "availability_pct")
+# The literature soiling fallbacks are overridable under their own names, since
+# they apply only when no measurement exists.
+OVERRIDABLE_SOILING_FALLBACKS = ("soiling_fallback_land_pct", "soiling_fallback_marine_pct")
+
+
+def set_loss_overrides(overrides: dict[str, float]) -> None:
+    """Replace the whole published set (empty dict restores the defaults).
+    Unknown field names raise, so a typo in the settings wiring fails loudly."""
+    unknown = set(overrides) - set(OVERRIDABLE_LOSS_FIELDS) - set(OVERRIDABLE_SOILING_FALLBACKS)
+    if unknown:
+        raise ValueError(f"not overridable loss fields: {sorted(unknown)}")
+    for name, value in overrides.items():
+        if not (0 <= value <= 100):
+            raise ValueError(f"{name} must be a percentage in [0, 100], got {value}")
+    _loss_overrides.clear()
+    _loss_overrides.update(overrides)
+
+
+def loss_overrides() -> dict[str, float]:
+    return dict(_loss_overrides)
+
 
 def set_measured_soiling_pct(zone_id: str, soiling_pct: float) -> None:
     """Publish a measured annual-average soiling loss (%) for one zone."""
@@ -156,13 +191,26 @@ def default_loss_factors(zone_id: str) -> LossFactors:
     """
     measured = measured_soiling_pct(zone_id)
     if measured is None:
-        soiling = DEFAULT_SOILING_PCT_MARINE if zone_id in MARINE_ZONE_IDS else DEFAULT_SOILING_PCT_LAND
+        marine = _loss_overrides.get("soiling_fallback_marine_pct", DEFAULT_SOILING_PCT_MARINE)
+        land = _loss_overrides.get("soiling_fallback_land_pct", DEFAULT_SOILING_PCT_LAND)
+        soiling = marine if zone_id in MARINE_ZONE_IDS else land
         source = SOILING_SOURCE_LITERATURE
     else:
         soiling = measured
         source = SOILING_SOURCE_MEASURED
-    shading = annual_shading_loss_pct(zone_id) + DEFAULT_EXTERNAL_SHADING_PCT
-    return LossFactors(soiling_pct=soiling, shading_pct=shading, soiling_source=source)
+    # The geometric inter-row part is always computed from the real array; only
+    # the external-obstacle allowance on top of it is user-settable.
+    external_shading = _loss_overrides.get("shading_pct", DEFAULT_EXTERNAL_SHADING_PCT)
+    shading = annual_shading_loss_pct(zone_id) + external_shading
+    return LossFactors(
+        soiling_pct=soiling,
+        shading_pct=shading,
+        mismatch_pct=_loss_overrides.get("mismatch_pct", DEFAULT_MISMATCH_PCT),
+        dc_wiring_pct=_loss_overrides.get("dc_wiring_pct", DEFAULT_DC_WIRING_PCT),
+        connections_pct=_loss_overrides.get("connections_pct", DEFAULT_CONNECTIONS_PCT),
+        availability_pct=_loss_overrides.get("availability_pct", DEFAULT_AVAILABILITY_PCT),
+        soiling_source=source,
+    )
 
 
 def combined_derate(factors: LossFactors) -> float:

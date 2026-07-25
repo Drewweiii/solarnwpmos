@@ -28,7 +28,7 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 from nongfab_features.soiling import salt_soiling_index
 from nongfab_features.soiling_dynamics import (
-    MAX_SOILING_LOSS_PCT,
+    SoilingParams,
     daily_soiling_rate_pct,
     days_until_threshold,
     energy_lost_kwh,
@@ -36,6 +36,8 @@ from nongfab_features.soiling_dynamics import (
 )
 from nongfab_forecast.local_store import RealDataStore
 from nongfab_simulation.loss_model import MARINE_ZONE_IDS, set_measured_soiling_pct
+
+from .settings_store import effective
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +63,36 @@ ASSESSMENT_WINDOW_DAYS = 90
 
 
 def salt_exposure(zone_id: str) -> float:
-    return MARINE_SALT_EXPOSURE if zone_id in MARINE_ZONE_IDS else INLAND_SALT_EXPOSURE
+    """How much of the open-sea salt load this zone sees. Reads the user-settable
+    values (see settings_registry), which default to the constants above."""
+    if zone_id in MARINE_ZONE_IDS:
+        return effective("soiling.salt_exposure_marine")
+    return effective("soiling.salt_exposure_inland")
+
+
+def cleaning_trigger_pct() -> float:
+    return effective("soiling.cleaning_trigger_pct")
+
+
+def assessment_window_days() -> int:
+    return int(effective("windows.soiling_days"))
+
+
+def soiling_params() -> SoilingParams:
+    """The soiling model's coefficients as the user has them set. Passed
+    explicitly into the pure model rather than mutating its module constants, so
+    features/ stays free of global state."""
+    return SoilingParams(
+        pm10_reference_ug_m3=effective("soiling.pm10_reference_ug_m3"),
+        pm10_rate_pct_per_day=effective("soiling.pm10_rate_pct_per_day"),
+        salt_rate_pct_per_day=effective("soiling.salt_rate_pct_per_day"),
+        dust_reference_ug_m3=effective("soiling.dust_reference_ug_m3"),
+        dust_rate_pct_per_day=effective("soiling.dust_rate_pct_per_day"),
+        max_loss_pct=effective("soiling.max_loss_pct"),
+        rain_clean_threshold_mm=effective("soiling.rain_clean_threshold_mm"),
+        rain_full_clean_mm=effective("soiling.rain_full_clean_mm"),
+        residual_after_rain_pct=effective("soiling.residual_after_rain_pct"),
+    )
 
 
 @dataclass(frozen=True)
@@ -75,7 +106,7 @@ class DailyConditions:
     precip_mm: float
 
 
-def daily_conditions(store: RealDataStore, window_days: int = ASSESSMENT_WINDOW_DAYS) -> list[DailyConditions]:
+def daily_conditions(store: RealDataStore, window_days: int | None = None) -> list[DailyConditions]:
     """Daily PM10/dust/salt-index/rainfall for the last `window_days`.
 
     PM10 and dust come from aerosol_history (CAMS); the salt index is derived
@@ -85,6 +116,7 @@ def daily_conditions(store: RealDataStore, window_days: int = ASSESSMENT_WINDOW_
     but not the other are kept with the missing side left at 0 rather than
     dropped - a gap in one feed shouldn't erase the day.
     """
+    window_days = assessment_window_days() if window_days is None else window_days
     aero = store.aerosol_history_df()
     nwp = store.nwp_history_df()
     if len(aero) == 0 or len(nwp) == 0:
@@ -153,7 +185,7 @@ def assess_zone(
     zone_id: str,
     annual_clean_energy_kwh: float | None = None,
     tariff_thb_per_kwh: float | None = None,
-    window_days: int = ASSESSMENT_WINDOW_DAYS,
+    window_days: int | None = None,
 ) -> SoilingAssessment:
     """Run the soiling model for one zone over the stored history.
 
@@ -161,6 +193,9 @@ def assess_zone(
     the assessment also reports what the current soiling level costs per year.
     Without them those two fields stay None (no guessed tariff).
     """
+    window_days = assessment_window_days() if window_days is None else window_days
+    params = soiling_params()
+    trigger = cleaning_trigger_pct()
     days = daily_conditions(store, window_days)
     if not days:
         return SoilingAssessment(
@@ -173,8 +208,8 @@ def assess_zone(
             days_since_cleaning_rain=None,
             cleaning_events=0,
             days_until_trigger=None,
-            cleaning_trigger_pct=CLEANING_TRIGGER_PCT,
-            max_loss_pct=MAX_SOILING_LOSS_PCT,
+            cleaning_trigger_pct=trigger,
+            max_loss_pct=params.max_loss_pct,
             annual_energy_lost_kwh=None,
             annual_cost_lost_thb=None,
             series_days=(),
@@ -187,10 +222,10 @@ def assess_zone(
     salt = [d.salt_index * exposure for d in days]
     rain = [d.precip_mm for d in days]
 
-    timeline = simulate_soiling(pm10, salt, rain, dust_ug_m3=dust)
+    timeline = simulate_soiling(pm10, salt, rain, dust_ug_m3=dust, params=params)
     # Today's accumulation rate, from the most recent day's own conditions - what
     # the "days until a wash pays" projection extrapolates on.
-    rate_today = float(daily_soiling_rate_pct(pm10[-1], salt[-1], dust[-1]))
+    rate_today = float(daily_soiling_rate_pct(pm10[-1], salt[-1], dust[-1], params=params))
 
     energy_lost = None
     cost_lost = None
@@ -208,9 +243,9 @@ def assess_zone(
         current_daily_rate_pct=rate_today,
         days_since_cleaning_rain=timeline.days_since_cleaning_rain,
         cleaning_events=timeline.cleaning_events,
-        days_until_trigger=days_until_threshold(timeline.current_loss_pct, rate_today, CLEANING_TRIGGER_PCT),
-        cleaning_trigger_pct=CLEANING_TRIGGER_PCT,
-        max_loss_pct=MAX_SOILING_LOSS_PCT,
+        days_until_trigger=days_until_threshold(timeline.current_loss_pct, rate_today, trigger),
+        cleaning_trigger_pct=trigger,
+        max_loss_pct=params.max_loss_pct,
         annual_energy_lost_kwh=energy_lost,
         annual_cost_lost_thb=cost_lost,
         series_days=tuple(d.day.date().isoformat() for d in days),

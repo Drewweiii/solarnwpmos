@@ -515,3 +515,81 @@ table. Its CSS duplicates the verification-table rules rather than importing
 ForecastPage.css, since only one page's stylesheet is loaded at a time.
 
 Tests: financial +12, api +5, web +5 (464 total). ruff/tsc/oxlint clean.
+
+### 2026-07-25 - Editable system values, part 1: the backend (Track 1)
+
+The user asked for the system's numbers to be changeable from the web UI instead
+of living in code and YAML, and picked **all eight groups** on offer: site &
+facility figures, financial assumptions, loss factors, the soiling model's
+coefficients, look-back windows, diagnostic thresholds, hand-control sensitivity
+and the expansion plan. Persistence model, also their choice: **anyone can try
+values in their own browser; only an admin publishes a shared default.**
+
+This commit is the backend half. The UI is the next one - so nothing user-visible
+changes yet, but every value below is already settable through the API and
+verifiably takes effect.
+
+**The design that makes eight groups affordable.**
+`api/settings_registry.py` declares each editable value as DATA - key, group,
+Thai label, unit, default, min/max/step - so the API describes itself and ONE
+generic form can render all of it later. Adding a setting is one entry in that
+file, not a route plus a screen. 46 settings today.
+
+Every setting is numeric, deliberately: it covers all eight groups while keeping
+validation to "a number inside these bounds", with no free text or structured
+objects to sanitize. It is also why the expansion PHASES are three "additional
+kW" numbers rather than an editable list - same expressive power for this plan,
+none of the list-editing complexity (and 0 turns a phase off).
+
+**`origin` - the honesty field, and the one that earns its keep.** Some defaults
+are figures the user confirmed (the 13.5 MW load, the ฿300M/yr bill); some are
+as-built values from the SLD; some are documented placeholders never verified for
+this project (CAPEX ฿30,000/kWp); some are literature-calibrated coefficients;
+some are pure interface taste. The API returns which, per field, so nobody edits
+a confirmed figure thinking it is a guess or trusts a guess as a measurement.
+
+**Storage** (`system_settings`, via `SystemSettingORM` + `settings_store.py`):
+only OVERRIDES are stored. A setting at its default has no row, which is what
+makes "reset" a plain DELETE and keeps the registry the single source of truth for
+what a default is. It lives in the app database rather than the ephemeral
+`RealDataStore` because an override is a decision somebody made and has to
+outlive the container - with `updated_by`/`updated_at`, since these numbers move
+money and physics figures site-wide. A stored key that this build's registry
+doesn't know is ignored, not deleted: a key can vanish because a deploy rolled
+back, and destroying somebody's saved figure in that window is the worse failure.
+
+**Making them actually take effect** - two paths, and the distinction is the
+point:
+- *Read per request.* Windows, diagnostic thresholds, expansion phases/targets
+  and the financial assumptions are read where they are used. `/financial`'s
+  sliders still win per request (it stays a what-if playground), but an untouched
+  request now answers with the published assumptions.
+- *Injected*, for pure packages that can't reach a database from synchronous
+  physics code - the same pattern `set_measured_soiling_pct` established.
+  `nongfab_common.assets` gained `set_asset_overrides` (merged in BEFORE
+  validation, so an override can't smuggle past the schema; `load_assets`
+  re-reads YAML per call, so there is no cache to invalidate) and
+  `loss_model` gained `set_loss_overrides`. `apply_effective_settings` also
+  clears `annual_shading_loss_pct`'s lru_cache - it is computed from tilt, so a
+  tilt edit would otherwise keep returning the pre-edit answer for the life of
+  the process.
+
+`soiling_dynamics` needed its coefficients settable without becoming globally
+mutable: they moved into a `SoilingParams` dataclass passed explicitly per call.
+The module keeps its constants as the defaults, and features/ stays free of
+global state that two callers could change under each other.
+
+`GET /settings` is viewer-level; `PUT /settings`, `DELETE /settings/{key}` and
+`POST /settings/reset` are admin-only. A submission is validated in FULL before
+anything is written, so one bad field rejects the whole form rather than saving
+half of it.
+
+Tests: api +23, covering the registry's own invariants (every default inside its
+own bounds, unique keys, bounds/NaN/bool rejection), the permission split, whole-
+form rejection, per-key and global reset, survival across a restart - and, the
+part that matters, that a published value changes what the API answers: loss
+factors reach `default_loss_factors`, a site figure reaches every `load_assets`
+consumer, a zone capacity moves the expansion baseline, phases can be turned off
+or added, CAPEX halves the payback, a window changes the default look-back, and a
+feed limit changes the diagnostics verdict. api 280 / simulation 90 / features
+102 / financial 31 all pass; ruff clean.

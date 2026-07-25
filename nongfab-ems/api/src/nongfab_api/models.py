@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import TIMESTAMP, String
+from sqlalchemy import TIMESTAMP, Float, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -100,3 +100,33 @@ class FeedbackMessageORM(Base):
     # they picked. Nullable: rows written before this column existed have none,
     # and application code falls back to `username` for those.
     display_name: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class SystemSettingORM(Base):
+    """One admin-published override of a value from `settings_registry.SPECS`
+    (2026-07-25 - the user asked for the system's numbers to be editable rather
+    than baked into code and YAML).
+
+    Deliberately a narrow key/value table rather than a column per setting: the
+    registry already owns the schema (bounds, units, labels, defaults), so a new
+    editable value should not need a migration. Only overrides are stored - a
+    setting left at its default has NO row here, which is what makes "reset to
+    default" a plain DELETE and keeps the registry the single source of truth for
+    what a default IS.
+
+    `value` is a float because every setting in the registry is numeric (see that
+    module's own docstring for why that limit is deliberate).
+
+    Lives in the app database, not the ephemeral `RealDataStore`: an override is a
+    decision somebody made, and it has to survive the container being recycled the
+    way user accounts and feedback do. `updated_by`/`updated_at` are kept because
+    an edit here changes money and physics figures site-wide - who moved a number
+    and when is part of being able to trust the dashboard.
+    """
+
+    __tablename__ = "system_settings"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[float] = mapped_column(Float)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    updated_by: Mapped[str] = mapped_column(String)

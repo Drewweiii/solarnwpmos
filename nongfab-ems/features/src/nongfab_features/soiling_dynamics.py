@@ -72,7 +72,33 @@ RAIN_FULL_CLEAN_MM = 5.0
 RESIDUAL_AFTER_RAIN_PCT = 0.3
 
 
-def daily_soiling_rate_pct(pm10_ug_m3, salt_index, dust_ug_m3=0.0):
+@dataclass(frozen=True)
+class SoilingParams:
+    """The model's coefficients, overridable per call (2026-07-25).
+
+    The module constants above stay the defaults, but the user asked to be able
+    to change these from the web UI, so every function that reads a coefficient
+    takes them as a parameter instead. Passed EXPLICITLY rather than mutated
+    globally: this package is pure computation shared by training and serving, and
+    a mutable module-level config would make two callers able to silently change
+    each other's results.
+    """
+
+    pm10_reference_ug_m3: float = PM10_REFERENCE_UG_M3
+    pm10_rate_pct_per_day: float = PM10_SOILING_RATE_PCT_PER_DAY
+    salt_rate_pct_per_day: float = SALT_SOILING_RATE_PCT_PER_DAY
+    dust_reference_ug_m3: float = DUST_REFERENCE_UG_M3
+    dust_rate_pct_per_day: float = DUST_SOILING_RATE_PCT_PER_DAY
+    max_loss_pct: float = MAX_SOILING_LOSS_PCT
+    rain_clean_threshold_mm: float = RAIN_CLEAN_THRESHOLD_MM
+    rain_full_clean_mm: float = RAIN_FULL_CLEAN_MM
+    residual_after_rain_pct: float = RESIDUAL_AFTER_RAIN_PCT
+
+
+DEFAULT_PARAMS = SoilingParams()
+
+
+def daily_soiling_rate_pct(pm10_ug_m3, salt_index, dust_ug_m3=0.0, params: SoilingParams = DEFAULT_PARAMS):
     """Percent of output lost per DRY day at these conditions. Vectorized.
 
     Missing/negative inputs are treated as zero contribution rather than
@@ -82,13 +108,13 @@ def daily_soiling_rate_pct(pm10_ug_m3, salt_index, dust_ug_m3=0.0):
     salt = np.clip(np.nan_to_num(np.asarray(salt_index, dtype=float)), 0.0, 1.0)
     dust = np.clip(np.nan_to_num(np.asarray(dust_ug_m3, dtype=float)), 0.0, None)
     return (
-        PM10_SOILING_RATE_PCT_PER_DAY * (pm10 / PM10_REFERENCE_UG_M3)
-        + SALT_SOILING_RATE_PCT_PER_DAY * salt
-        + DUST_SOILING_RATE_PCT_PER_DAY * (dust / DUST_REFERENCE_UG_M3)
+        params.pm10_rate_pct_per_day * (pm10 / params.pm10_reference_ug_m3)
+        + params.salt_rate_pct_per_day * salt
+        + params.dust_rate_pct_per_day * (dust / params.dust_reference_ug_m3)
     )
 
 
-def rain_cleaning_fraction(precip_mm):
+def rain_cleaning_fraction(precip_mm, params: SoilingParams = DEFAULT_PARAMS):
     """How much of the accumulated soiling a day's rainfall removes, 0..1.
 
     Below RAIN_CLEAN_THRESHOLD_MM nothing is washed off (drizzle can even make
@@ -98,8 +124,8 @@ def rain_cleaning_fraction(precip_mm):
     light-but-real rain doesn't read as a full clean.
     """
     mm = np.clip(np.nan_to_num(np.asarray(precip_mm, dtype=float)), 0.0, None)
-    span = RAIN_FULL_CLEAN_MM - RAIN_CLEAN_THRESHOLD_MM
-    return np.clip((mm - RAIN_CLEAN_THRESHOLD_MM) / span, 0.0, 1.0)
+    span = max(params.rain_full_clean_mm - params.rain_clean_threshold_mm, 1e-6)
+    return np.clip((mm - params.rain_clean_threshold_mm) / span, 0.0, 1.0)
 
 
 @dataclass(frozen=True)
@@ -129,6 +155,7 @@ def simulate_soiling(
     precip_mm,
     dust_ug_m3=None,
     initial_loss_pct: float = 0.0,
+    params: SoilingParams = DEFAULT_PARAMS,
 ) -> SoilingTimeline:
     """Walk a series of DAILY aggregates forward through accumulate-then-wash.
 
@@ -145,8 +172,8 @@ def simulate_soiling(
     if n == 0:
         return SoilingTimeline((), 0.0, 0.0, None, 0)
 
-    rates = daily_soiling_rate_pct(pm10[:n], salt[:n], dust[:n])
-    wash = rain_cleaning_fraction(rain[:n])
+    rates = daily_soiling_rate_pct(pm10[:n], salt[:n], dust[:n], params=params)
+    wash = rain_cleaning_fraction(rain[:n], params=params)
 
     loss = float(initial_loss_pct)
     series: list[float] = []
@@ -156,10 +183,10 @@ def simulate_soiling(
         # Accumulate the day's deposition first, then apply that day's rain -
         # a day that both soils and rains ends up clean, which is the physical
         # ordering (the rain falls on the dust that arrived with it).
-        loss = min(loss + float(rates[i]), MAX_SOILING_LOSS_PCT)
+        loss = min(loss + float(rates[i]), params.max_loss_pct)
         w = float(wash[i])
         if w > 0:
-            cleaned = loss * (1 - w) + RESIDUAL_AFTER_RAIN_PCT * w
+            cleaned = loss * (1 - w) + params.residual_after_rain_pct * w
             loss = min(loss, cleaned)
             events += 1
             days_since = 0

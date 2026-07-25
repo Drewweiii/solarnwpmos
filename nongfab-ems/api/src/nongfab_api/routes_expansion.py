@@ -29,6 +29,7 @@ from nongfab_simulation.pipeline import seasonal_annual_ac_energy_kwh
 from pydantic import BaseModel
 
 from .auth import require_role
+from .settings_store import effective
 
 router = APIRouter(tags=["expansion"])
 
@@ -92,17 +93,35 @@ def _implied_tariff(site) -> float | None:
 
 
 def _planned_phases(registry) -> list[ExpansionPhase]:
-    """Every zone's `future_phases`, in zone order. Today only Jetty has any."""
-    phases: list[ExpansionPhase] = []
+    """The phases to model, newest planning input first.
+
+    Each phase's added capacity is user-settable (settings_registry's
+    `expansion.phase_*_additional_ac_kw`), defaulting to what config/assets.yaml
+    records - so an admin can revise the plan, or add a third phase that isn't in
+    the YAML at all, without a redeploy. A phase set to 0 is dropped, which is how
+    one gets turned off. Names come from the YAML where it has them, so the labels
+    still match the project's own phase numbering.
+    """
+    yaml_names: list[str] = []
     for zone_id in ZONES:
         try:
             zone = registry.zone(zone_id)
         except KeyError:
             continue
-        for phase in getattr(zone, "future_phases", []) or []:
-            phases.append(
-                ExpansionPhase(phase=phase.phase, additional_ac_capacity_kw=phase.additional_ac_capacity_kw, note=phase.note)
-            )
+        yaml_names.extend(phase.phase for phase in getattr(zone, "future_phases", []) or [])
+
+    settings_keys = (
+        "expansion.phase_a_additional_ac_kw",
+        "expansion.phase_b_additional_ac_kw",
+        "expansion.phase_c_additional_ac_kw",
+    )
+    phases: list[ExpansionPhase] = []
+    for index, key in enumerate(settings_keys):
+        added = effective(key)
+        if added <= 0:
+            continue
+        name = yaml_names[index] if index < len(yaml_names) else str(index + 1)
+        phases.append(ExpansionPhase(phase=name, additional_ac_capacity_kw=added))
     return phases
 
 
@@ -133,6 +152,7 @@ async def get_expansion(request: Request, _user=Depends(require_role("viewer")))
 
     load_kw = getattr(site, "facility_electrical_load_kw", None)
     tariff = _implied_tariff(site)
+    capex_per_kwp = effective("financial.capex_per_kwp_thb")
     scenarios = build_scenarios(
         current_ac_capacity_kw=current_ac,
         current_dc_capacity_kwp=current_dc,
@@ -140,11 +160,17 @@ async def get_expansion(request: Request, _user=Depends(require_role("viewer")))
         phases=phases,
         facility_load_kw=load_kw,
         tariff_thb_per_kwh=tariff,
+        capex_per_kwp_thb=capex_per_kwp,
     )
 
     targets = []
     if load_kw:
-        for target in TARGET_OFFSETS_PCT:
+        configured_targets = [
+            effective("expansion.target_offset_a_pct"),
+            effective("expansion.target_offset_b_pct"),
+            effective("expansion.target_offset_c_pct"),
+        ]
+        for target in sorted({t for t in configured_targets if t > 0}):
             needed = capacity_for_target_offset(target, current_energy, current_dc, float(load_kw))
             if needed is None:
                 continue
@@ -156,6 +182,7 @@ async def get_expansion(request: Request, _user=Depends(require_role("viewer")))
         available=True,
         facility_load_kw=load_kw,
         implied_tariff_thb_per_kwh=tariff,
+        capex_per_kwp_thb=capex_per_kwp,
         scenarios=[ScenarioOut(**vars(s)) for s in scenarios],
         targets=targets,
     )

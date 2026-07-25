@@ -38,6 +38,7 @@ from nongfab_simulation.pipeline import monthly_ac_energy_estimates
 from pydantic import BaseModel
 
 from .auth import require_role
+from .settings_store import effective
 from .soiling_service import daily_conditions
 
 router = APIRouter(tags=["diagnostics"])
@@ -152,12 +153,26 @@ async def get_feed_health(request: Request, _user=Depends(require_role("viewer")
     uv = store.uv_history_df()
     uv_hourly = store.uv_hourly_history_df()
 
+    # Limits are user-settable (see settings_registry); the module constants above
+    # are their defaults.
     feeds = [
-        evaluate_coverage_feed("nwp_history", _latest(nwp, "valid_time"), len(nwp), now, NWP_MIN_LEAD_MINUTES),
-        evaluate_observation_feed("cloud_history", _latest(cloud, "observed_at"), len(cloud), now, CLOUD_MAX_AGE_MINUTES),
-        evaluate_coverage_feed("aerosol_history", _latest(aerosol, "valid_time"), len(aerosol), now, AEROSOL_MIN_LEAD_MINUTES),
-        evaluate_observation_feed("uv_history", _latest_uv_date(uv), len(uv), now, UV_MAX_AGE_MINUTES),
-        evaluate_observation_feed("uv_hourly_history", _latest(uv_hourly, "observed_at"), len(uv_hourly), now, UV_HOURLY_MAX_AGE_MINUTES),
+        evaluate_coverage_feed(
+            "nwp_history", _latest(nwp, "valid_time"), len(nwp), now, effective("diagnostics.nwp_min_lead_minutes")
+        ),
+        evaluate_observation_feed(
+            "cloud_history", _latest(cloud, "observed_at"), len(cloud), now, effective("diagnostics.cloud_max_age_minutes")
+        ),
+        evaluate_coverage_feed(
+            "aerosol_history", _latest(aerosol, "valid_time"), len(aerosol), now, effective("diagnostics.aerosol_min_lead_minutes")
+        ),
+        evaluate_observation_feed("uv_history", _latest_uv_date(uv), len(uv), now, effective("diagnostics.uv_max_age_minutes")),
+        evaluate_observation_feed(
+            "uv_hourly_history",
+            _latest(uv_hourly, "observed_at"),
+            len(uv_hourly),
+            now,
+            effective("diagnostics.uv_hourly_max_age_minutes"),
+        ),
     ]
     return FeedsResponse(overall_status=worst_status(feeds), checked_at=now, feeds=[_out(f) for f in feeds])
 
@@ -178,11 +193,12 @@ def _latest_uv_date(uv: pd.DataFrame) -> datetime | None:
 async def get_output_anomalies(
     zone: str,
     request: Request,
-    days: int = Query(DEFAULT_ANOMALY_WINDOW_DAYS, ge=7, le=MAX_ANOMALY_WINDOW_DAYS),
+    days: int | None = Query(None, ge=7, le=MAX_ANOMALY_WINDOW_DAYS, description="ไม่ใส่ = ใช้ค่าที่ตั้งไว้ในระบบ (windows.anomaly_days)"),
     _user=Depends(require_role("viewer")),
 ) -> AnomaliesResponse:
     if zone not in ZONES:
         raise HTTPException(status_code=404, detail=f"unknown zone '{zone}'")
+    days = int(effective("windows.anomaly_days")) if days is None else days
     store: RealDataStore = request.app.state.real_data_store
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
@@ -242,7 +258,7 @@ async def get_output_anomalies(
             reason="ยังคำนวณค่าปกติรายเดือนของโซนนี้ไม่ได้",
         )
 
-    anomalies = find_output_anomalies(day_rows, norm)
+    anomalies = find_output_anomalies(day_rows, norm, threshold=effective("diagnostics.anomaly_ratio_threshold"))
     return AnomaliesResponse(
         available=True,
         zone=zone,

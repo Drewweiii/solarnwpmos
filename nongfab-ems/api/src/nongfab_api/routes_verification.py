@@ -41,6 +41,7 @@ from nongfab_forecast.verification import (
 from pydantic import BaseModel
 
 from .auth import require_role
+from .settings_store import effective
 
 router = APIRouter(tags=["forecast"])
 
@@ -126,11 +127,14 @@ def _ac_capacity_kw(zone: str) -> float | None:
 async def get_forecast_verification(
     zone: str,
     request: Request,
-    days: int = Query(DEFAULT_WINDOW_DAYS, ge=1, le=MAX_WINDOW_DAYS),
+    days: int | None = Query(None, ge=1, le=MAX_WINDOW_DAYS, description="ไม่ใส่ = ใช้ค่าที่ตั้งไว้ในระบบ (windows.verification_days)"),
     _user=Depends(require_role("viewer")),
 ) -> VerificationResponse:
     if zone not in ZONES:
         raise HTTPException(status_code=404, detail=f"unknown zone '{zone}'")
+    # An explicit ?days= still wins (it is how the UI offers a one-off look);
+    # otherwise use whatever window the user configured.
+    days = int(effective("windows.verification_days")) if days is None else days
     store: RealDataStore = request.app.state.real_data_store
     since = datetime.now(timezone.utc) - timedelta(days=days)
     capacity = _ac_capacity_kw(zone)
@@ -160,7 +164,7 @@ async def get_forecast_verification(
             reason="มีข้อมูลทั้งสองฝั่ง แต่ยังไม่มีชั่วโมงที่ทับกัน (forecast กับค่าจริงคนละช่วงเวลา)",
         )
 
-    day_pairs = daylight_pairs(pairs)
+    day_pairs = daylight_pairs(pairs, floor_kw=effective("diagnostics.daylight_floor_kw"))
     return VerificationResponse(
         available=True,
         zone=zone,

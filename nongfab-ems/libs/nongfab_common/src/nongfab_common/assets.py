@@ -237,14 +237,61 @@ def _default_assets_path() -> Path:
     return Path(__file__).resolve().parents[4] / "config" / "assets.yaml"
 
 
+# --- runtime overrides (2026-07-25) -----------------------------------------
+# config/assets.yaml stays the as-built source of truth, but the user asked for
+# the site's figures to be editable from the web UI rather than only by editing
+# YAML and redeploying. The API publishes admin-saved values here (see
+# api/settings_service.apply_effective_settings) and every consumer picks them up,
+# because `load_assets` re-reads and re-validates on every call - there is no
+# cached registry to invalidate.
+#
+# Applied AFTER validation, then re-validated, so an override can never smuggle
+# in a value the schema would have rejected. Keys are dotted paths into the
+# validated structure, restricted to the two shapes the settings registry
+# exposes: "site.<field>" and "zone.<id>.<field>".
+_overrides: dict[str, float] = {}
+
+
+def set_asset_overrides(overrides: dict[str, float]) -> None:
+    """Replace the whole override set (an empty dict restores pure-YAML
+    behavior). Whole-set rather than per-key so "reset all" can't leave a
+    stale entry behind."""
+    _overrides.clear()
+    _overrides.update(overrides)
+
+
+def asset_overrides() -> dict[str, float]:
+    return dict(_overrides)
+
+
+def _apply_overrides(raw: dict) -> dict:
+    """Merge `_overrides` into the raw YAML mapping before validation."""
+    if not _overrides:
+        return raw
+    for key, value in _overrides.items():
+        parts = key.split(".")
+        if parts[0] == "site" and len(parts) == 2:
+            raw.setdefault("site", {})[parts[1]] = value
+        elif parts[0] == "zone" and len(parts) == 3:
+            for zone in raw.get("zones", []):
+                if zone.get("id") == parts[1]:
+                    zone[parts[2]] = value
+                    break
+    return raw
+
+
 def load_assets(path: Path | str | None = None) -> AssetRegistry:
     """Loads and validates config/assets.yaml. Path resolution order:
     explicit `path` arg > NONGFAB_ASSETS_PATH env var > repo-relative default.
+
+    Any runtime overrides published via `set_asset_overrides` are merged in
+    before validation, so an admin-edited figure is indistinguishable from a
+    YAML one to every consumer - and still has to satisfy the same schema.
     """
     env_path = os.environ.get("NONGFAB_ASSETS_PATH")
     resolved = Path(path) if path else Path(env_path) if env_path else _default_assets_path()
     raw = yaml.safe_load(resolved.read_text())
-    return AssetRegistry.model_validate(raw)
+    return AssetRegistry.model_validate(_apply_overrides(raw))
 
 
 def target_bbox(registry: AssetRegistry) -> tuple[float, float, float, float]:

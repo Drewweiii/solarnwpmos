@@ -34,6 +34,7 @@ from . import (
     routes_irradiance_map,
     routes_performance,
     routes_savings,
+    routes_settings,
     routes_simulate,
     routes_soiling,
     routes_solar3d,
@@ -46,6 +47,8 @@ from .auth import UserStore, create_access_token, verify_password
 from .config import Settings, get_settings
 from .models import Base
 from .routes_feedback import FeedbackStore
+from .settings_service import apply_effective_settings
+from .settings_store import SettingsStore
 from .ws_chat import ChatStore, ConnectionManager, PresenceRegistry
 
 logger = logging.getLogger(__name__)
@@ -126,6 +129,16 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
         app.state.chat_manager = ConnectionManager()
         app.state.chat_presence = PresenceRegistry()
         app.state.feedback_store = FeedbackStore(eng)
+
+        # User-editable system values (2026-07-25). Loaded into the process cache
+        # BEFORE ingestion starts, so the very first backfill/retrain already runs
+        # against whatever figures an admin published rather than the compiled
+        # defaults, then pushed into the pure packages that need injection rather
+        # than a per-request read (see settings_service).
+        settings_store = SettingsStore(eng)
+        await settings_store.load_into_cache()
+        app.state.settings_store = settings_store
+        apply_effective_settings()
 
         # Real-data ingestion (ingestion_scheduler.py) - one store for this
         # process's whole lifetime, not per-request, so its in-memory default
@@ -238,6 +251,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     app.include_router(routes_soiling.router)
     app.include_router(routes_diagnostics.router)
     app.include_router(routes_expansion.router)
+    app.include_router(routes_settings.router)
     app.include_router(routes_feedback.router)
     app.include_router(ws_live.router)
     app.include_router(ws_chat.router)

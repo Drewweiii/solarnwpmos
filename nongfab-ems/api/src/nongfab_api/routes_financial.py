@@ -72,6 +72,39 @@ class FinancialResponse(BaseModel):
     cash_flows: list[CashFlowYearOut]
 
 
+
+# settings key -> FinancialAssumptions field. `capex_thb` is deliberately absent:
+# the settings registry holds CAPEX per kWp (which is how it is quoted, and what
+# /expansion needs), so the total is derived below from the installed capacity.
+_ASSUMPTION_KEYS = {
+    "financial.opex_pct_of_capex_per_year": "opex_pct_of_capex_per_year",
+    "financial.tariff_thb_per_kwh": "tariff_thb_per_kwh",
+    "financial.tariff_escalation_pct_per_year": "tariff_escalation_pct_per_year",
+    "financial.opex_escalation_pct_per_year": "opex_escalation_pct_per_year",
+    "financial.discount_rate_pct": "discount_rate_pct",
+    "financial.tax_rate_pct": "tax_rate_pct",
+    "financial.boi_tax_holiday_years": "boi_tax_holiday_years",
+    "financial.degradation_pct_per_year": "degradation_pct_per_year",
+    "financial.lifetime_years": "lifetime_years",
+}
+
+
+def _configured_assumptions(installed_dc_capacity_kwp: float) -> dict[str, float]:
+    """The financial assumptions as the user has them set (settings_registry).
+
+    Only keys an admin actually published are returned, so an untouched system
+    still gets `FinancialAssumptions`' own documented defaults rather than a
+    restatement of them. CAPEX is the one translation: the registry holds it per
+    kWp (how it is quoted, and what /expansion needs), so it becomes a total here
+    against the installed capacity.
+    """
+    from .settings_store import effective, is_overridden
+
+    configured = {field: effective(key) for key, field in _ASSUMPTION_KEYS.items() if is_overridden(key)}
+    if is_overridden("financial.capex_per_kwp_thb") and installed_dc_capacity_kwp > 0:
+        configured["capex_thb"] = effective("financial.capex_per_kwp_thb") * installed_dc_capacity_kwp
+    return configured
+
 @router.post("/financial", response_model=FinancialResponse)
 async def get_financial_analysis(req: FinancialRequest, _user=Depends(require_role("operator"))) -> FinancialResponse:
     registry = load_assets()
@@ -89,7 +122,12 @@ async def get_financial_analysis(req: FinancialRequest, _user=Depends(require_ro
         year_1_ac_energy_kwh += seasonal_annual_ac_energy_kwh(zone_id)
         installed_dc_capacity_kwp += registry.zone(zone_id).dc_capacity_kwp
 
-    overrides = req.model_dump(exclude_none=True)
+    # Start from the values the user has configured for this system, then let
+    # the request's own fields win - so /financial's sliders still work as a
+    # per-request what-if playground (2026-07-25), while an untouched request now
+    # answers with the admin-published assumptions instead of the compiled
+    # defaults.
+    overrides = {**_configured_assumptions(installed_dc_capacity_kwp), **req.model_dump(exclude_none=True)}
     try:
         assumptions = FinancialAssumptions(**overrides)
         result = compute_financial_analysis(year_1_ac_energy_kwh, installed_dc_capacity_kwp, assumptions)
