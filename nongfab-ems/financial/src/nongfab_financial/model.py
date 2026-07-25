@@ -42,9 +42,16 @@ DEFAULT_CAPEX_PER_KWP_THB = 30_000.0
 # Typical O&M cost as a percent of CAPEX per year (documented industry
 # rule of thumb, not a site-specific contract figure).
 DEFAULT_OPEX_PCT_OF_CAPEX_PER_YEAR = 1.2
-# PEA industrial-tariff ballpark, blended across TOU periods (documented
-# placeholder - confirm against this site's actual PEA rate structure).
-DEFAULT_TARIFF_THB_PER_KWH = 4.0
+# The real published rate this site pays: Type-4 (large industrial) TOU, Peak
+# energy, HV (>= 69 kV) - the voltage level and tariff structure the user
+# confirmed on 2026-07-19. Kept identical to green_savings.NORMAL_RATE_THB_PER_KWH
+# by a test: the Savings page and the Financial page must not value the same kWh
+# differently. Replaced a round 4.0 that had no source behind it.
+#
+# Documented approximation: solar output is valued at the Peak rate all year,
+# without netting out weekend/holiday off-peak hours. Refining that needs a real
+# half-hourly consumption profile, which does not exist yet.
+DEFAULT_TARIFF_THB_PER_KWH = 4.1025
 DEFAULT_TARIFF_ESCALATION_PCT_PER_YEAR = 3.0
 DEFAULT_OPEX_ESCALATION_PCT_PER_YEAR = 3.0
 # WACC placeholder - confirm against the company's real cost of capital.

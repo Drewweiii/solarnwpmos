@@ -460,6 +460,34 @@ def test_the_boi_holiday_defaults_are_the_users_confirmed_figures():
     assert jetty.origin == ORIGIN_CONFIRMED
 
 
+# --- tariff: one rate for the whole site (2026-07-25) ------------------------
+
+
+def test_financial_and_savings_value_a_kwh_at_the_same_rate():
+    """/financial used to default to a round 4.00 with no source while /savings
+    used the real published Type-4 TOU Peak HV rate of 4.1025. Two pages of the
+    same site pricing the same kWh differently is not a rounding difference - a
+    reader comparing the payback on one page against the baht saved on the other
+    would find they do not reconcile."""
+    from nongfab_api.green_savings import NORMAL_RATE_THB_PER_KWH
+
+    financial = BY_KEY["financial.tariff_thb_per_kwh"]
+    savings = BY_KEY["green.normal_rate_thb_per_kwh"]
+
+    assert financial.default == savings.default == NORMAL_RATE_THB_PER_KWH == 4.1025
+    # 0.05 steps could not reach a 4-decimal published rate.
+    assert financial.step == savings.step
+
+
+def test_the_shipped_model_tariff_matches_the_registry():
+    """Same two-sources-of-truth trap as the BOI holiday: the pure financial
+    package carries its own default for callers that construct assumptions
+    directly, and it has to agree with what the API publishes."""
+    from nongfab_financial.model import DEFAULT_TARIFF_THB_PER_KWH
+
+    assert DEFAULT_TARIFF_THB_PER_KWH == BY_KEY["financial.tariff_thb_per_kwh"].default
+
+
 # --- interannual CV: derived from NASA POWER at this site (2026-07-25) -------
 
 
