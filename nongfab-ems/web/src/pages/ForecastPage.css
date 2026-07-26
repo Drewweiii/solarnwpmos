@@ -948,3 +948,62 @@
   color: var(--text);
   min-height: 1.2em;
 }
+
+/* --- Interval verification (2026-07-25, project A) ------------------------
+   Sits inside .verify-panel, below the point-metric table: same question one
+   level deeper - not "was the line right" but "was the shaded band honest". */
+
+.verify-interval {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.verify-interval-title {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--text-h);
+}
+
+.verify-interval-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.verify-interval-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.verify-interval-label {
+  font-size: 12px;
+  opacity: 0.85;
+  color: var(--text);
+}
+
+.verify-interval-stat strong {
+  font-size: 22px;
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+}
+
+.verify-interval-sub {
+  font-size: 11px;
+  opacity: 0.75;
+  color: var(--text);
+}
+
+/* Only the overconfident direction is coloured as a problem: a band that is
+   too wide is unhelpful, a band that is too narrow is misleading. */
+.verify-interval-bad {
+  color: var(--danger, #d05a5a);
+}
+
+.verify-interval-good {
+  color: var(--success, #4a9d6b);
+}

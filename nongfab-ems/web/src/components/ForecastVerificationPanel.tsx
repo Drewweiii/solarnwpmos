@@ -21,7 +21,7 @@
 // trivially correct and would otherwise flatter every number.
 import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useForecastVerification } from '../lib/queries'
-import type { VerificationMetrics } from '../lib/types'
+import type { VerificationMetrics, VerificationResponse } from '../lib/types'
 
 export interface ForecastVerificationPanelProps {
   zone: string
@@ -137,6 +137,8 @@ export function ForecastVerificationPanel({ zone, days = 30 }: ForecastVerificat
         </div>
       )}
 
+      <IntervalSection data={data} />
+
       <p className="forecast-status forecast-status-caption">
         <b>อ่านอย่างไร:</b> MAE/RMSE ยิ่งต่ำยิ่งดี · MBE เป็นบวก = โมเดลทำนาย<b>สูงเกินจริง</b> เป็นลบ = ทำนายต่ำเกินจริง ·
         Skill score &gt; 0 = เก่งกว่าการเดาว่า "อีก k ชั่วโมงจะเท่ากับตอนนี้" ซึ่งเป็น baseline มาตรฐานของงานพยากรณ์แสงอาทิตย์
@@ -152,5 +154,99 @@ export function ForecastVerificationPanel({ zone, days = 30 }: ForecastVerificat
       </p>
       <p className="forecast-status forecast-status-caption">{data.lead_time_note}</p>
     </section>
+  )
+}
+
+/** Did the band the chart draws actually hold? (2026-07-25, project A)
+ *
+ * The forecast chart shades a nominal 90% prediction interval. Whether reality
+ * landed inside it 90% of the time had never been measured against issued
+ * forecasts - the PICP figure elsewhere in this codebase is computed on a
+ * training hold-out, which is the exact distinction the rest of this panel
+ * exists to draw for the point forecast.
+ *
+ * Coverage is shown next to mean width on purpose. Coverage on its own is
+ * trivially gamed: a band from -∞ to +∞ scores 100%. Pinball loss is included
+ * because it is a proper scoring rule - widening the band cannot improve it.
+ */
+function IntervalSection({ data }: { data: VerificationResponse }) {
+  const interval = data.interval
+  // Older API builds don't send this block at all; a panel that crashed on a
+  // stale backend would be a worse regression than a missing section.
+  if (!interval) return null
+
+  if (interval.n === 0) {
+    return (
+      <p className="forecast-status forecast-status-caption">
+        <b>แถบความเชื่อมั่น:</b> ยังตรวจไม่ได้ในช่วงนี้ — คำพยากรณ์ที่บันทึกไว้ยังไม่มีแถบความเชื่อมั่นแนบมา
+        (โหมดสำรองเชิงฟิสิกส์ไม่ได้เผยแพร่แถบ) ซึ่ง<b>ไม่ได้แปลว่าแถบพลาด</b> แต่แปลว่ายังไม่มีอะไรให้ตรวจ
+      </p>
+    )
+  }
+
+  // Negative gap = narrower than advertised = overconfident. That direction is
+  // the one worth flagging: a viewer reads the shaded band as a promise.
+  const overconfident = interval.coverage_gap_pct < -5
+  const tooWide = interval.coverage_gap_pct > 5
+
+  return (
+    <div className="verify-interval">
+      <h4 className="verify-interval-title">แถบความเชื่อมั่นที่เผยแพร่ เชื่อถือได้แค่ไหน</h4>
+
+      <div className="verify-interval-stats">
+        <div className="verify-interval-stat">
+          <span className="verify-interval-label">ครอบคลุมความจริงได้จริง</span>
+          <strong className={overconfident ? 'verify-interval-bad' : 'verify-interval-good'}>
+            {interval.coverage_pct.toFixed(1)}%
+          </strong>
+          <span className="verify-interval-sub">
+            ควรได้ {interval.nominal_pct.toFixed(0)}% · ต่าง {interval.coverage_gap_pct >= 0 ? '+' : ''}
+            {interval.coverage_gap_pct.toFixed(1)} จุด
+          </span>
+        </div>
+        <div className="verify-interval-stat">
+          <span className="verify-interval-label">ความกว้างเฉลี่ยของแถบ</span>
+          <strong>{interval.mean_width_kw.toFixed(1)} kW</strong>
+          <span className="verify-interval-sub">
+            {interval.pinaw_pct === null ? 'ยังเทียบกับกำลังติดตั้งไม่ได้' : `${interval.pinaw_pct.toFixed(1)}% ของกำลังติดตั้ง`}
+          </span>
+        </div>
+        <div className="verify-interval-stat">
+          <span className="verify-interval-label">Pinball loss</span>
+          <strong>{interval.pinball_kw.toFixed(2)} kW</strong>
+          <span className="verify-interval-sub">ยิ่งต่ำยิ่งดี · ขยายแถบเฉยๆ ไม่ช่วย</span>
+        </div>
+        <div className="verify-interval-stat">
+          <span className="verify-interval-label">พลาดไปทางไหน</span>
+          <strong>
+            ต่ำ {interval.miss_low_pct.toFixed(1)}% / สูง {interval.miss_high_pct.toFixed(1)}%
+          </strong>
+          <span className="verify-interval-sub">พลาดข้างเดียวมากๆ = แถบวางผิดตำแหน่ง ไม่ใช่แค่แคบไป</span>
+        </div>
+      </div>
+
+      <p className="forecast-status forecast-status-caption">
+        {overconfident && (
+          <>
+            <b>ผลตรวจ: แถบแคบเกินจริง</b> — ความจริงหลุดออกนอกแถบบ่อยกว่าที่แถบรับปากไว้ ผู้อ่านกราฟจึงกำลังเห็นความมั่นใจ
+            ที่มากเกินกว่าที่โมเดลมีจริง{' '}
+          </>
+        )}
+        {tooWide && (
+          <>
+            <b>ผลตรวจ: แถบกว้างเกินจำเป็น</b> — ครอบคลุมได้เกินเป้า แปลว่าปลอดภัยไว้ก่อน แต่แถบที่กว้างเกินไปแทบไม่บอกอะไร{' '}
+          </>
+        )}
+        {!overconfident && !tooWide && (
+          <>
+            <b>ผลตรวจ: แถบสมเหตุสมผล</b> — ครอบคลุมได้ใกล้เคียงกับที่รับปากไว้{' '}
+          </>
+        )}
+        (จาก {interval.n} ชั่วโมงที่มีแดดและมีแถบแนบมาจริง)
+      </p>
+
+      {data.interval_note && <p className="forecast-status forecast-status-caption">{data.interval_note}</p>}
+      {data.pinball_note && <p className="forecast-status forecast-status-caption">{data.pinball_note}</p>}
+    </div>
   )
 }

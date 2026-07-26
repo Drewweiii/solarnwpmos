@@ -133,3 +133,87 @@ def test_verification_reports_no_overlap_distinctly_from_no_data(engine, tmp_pat
     body = resp.json()
     assert body["available"] is False
     assert "ทับกัน" in body["reason"]
+
+
+class _BandPoint(_Point):
+    """A forecast point that also carries the published interval."""
+
+    def __init__(self, timestamp: datetime, pred: float, lower: float, upper: float):
+        super().__init__(timestamp, pred)
+        self.lower = lower
+        self.upper = upper
+
+
+def test_verification_scores_the_published_interval_not_just_the_point(engine, tmp_path):
+    """Project A (2026-07-25): the shaded band on the chart is a nominal 90%
+    interval and nothing ever checked whether it held. Here 3 of 12 outcomes are
+    deliberately pushed outside a +/-2 kW band, so the route must report 75%
+    coverage against a 90% nominal - i.e. overconfident - rather than staying
+    silent about the band."""
+    from nongfab_api.auth import create_access_token
+
+    app, settings = _file_backed_app(engine, tmp_path)
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+
+    with TestClient(app) as client:
+        store = app.state.real_data_store
+        for h in range(1, 13):
+            target = now - timedelta(hours=h)
+            actual_kw = 20.0 + h
+            # The band is centred on the actual, so it contains it - except for
+            # the three hours where the forecast is thrown far enough off that
+            # the actual falls outside.
+            predicted = actual_kw + (10.0 if h <= 3 else 0.5)
+            store.record_forecast_points(
+                "GIS",
+                "hour",
+                target - timedelta(hours=2),
+                [_BandPoint(target, predicted, predicted - 2.0, predicted + 2.0)],
+            )
+            store.record_forecast_points("GIS", GENERATED_POWER_HORIZON, target, [_Point(target, actual_kw)])
+
+        token = create_access_token("tester", "viewer", settings, app.state.deploy_id)
+        resp = client.get("/forecast/GIS/verification?days=7", headers={"Authorization": f"Bearer {token}"})
+
+    body = resp.json()
+    interval = body["interval"]
+    assert interval["n"] == 12
+    assert interval["nominal_pct"] == pytest.approx(90.0)
+    assert interval["coverage_pct"] == pytest.approx(75.0)
+    assert interval["coverage_gap_pct"] == pytest.approx(-15.0)
+    # The three misses are all on one side (forecast far too high), which is a
+    # mis-centred band rather than merely a narrow one.
+    assert interval["miss_low_pct"] == pytest.approx(25.0)
+    assert interval["miss_high_pct"] == pytest.approx(0.0)
+    assert interval["mean_width_kw"] == pytest.approx(4.0)
+    assert interval["pinaw_pct"] == pytest.approx(8.0)  # 4 kW on GIS's 50 kW AC
+    assert interval["pinball_kw"] > 0
+    assert body["interval_note"] and body["pinball_note"]
+
+    by_label = {row["lead_bucket"]: row["interval"] for row in body["interval_by_lead"]}
+    assert by_label["1-3h"]["n"] == 12
+    assert by_label["24h+"]["n"] == 0
+
+
+def test_verification_says_no_band_was_published_rather_than_zero_coverage(engine, tmp_path):
+    """The physics-baseline fallback publishes no interval. That must read as
+    "nothing to check", never as "the band covered 0% of outcomes"."""
+    from nongfab_api.auth import create_access_token
+
+    app, settings = _file_backed_app(engine, tmp_path)
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+
+    with TestClient(app) as client:
+        store = app.state.real_data_store
+        for h in range(1, 5):
+            target = now - timedelta(hours=h)
+            store.record_forecast_points("GIS", "hour", target - timedelta(hours=1), [_Point(target, 20.0 + h)])
+            store.record_forecast_points("GIS", GENERATED_POWER_HORIZON, target, [_Point(target, 20.0 + h)])
+
+        token = create_access_token("tester", "viewer", settings, app.state.deploy_id)
+        resp = client.get("/forecast/GIS/verification?days=7", headers={"Authorization": f"Bearer {token}"})
+
+    body = resp.json()
+    assert body["available"] is True
+    assert body["daylight"]["n"] == 4  # the point forecast still scores fine
+    assert body["interval"]["n"] == 0

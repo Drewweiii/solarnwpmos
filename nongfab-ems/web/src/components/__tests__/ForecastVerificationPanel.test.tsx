@@ -104,3 +104,76 @@ describe('ForecastVerificationPanel', () => {
     expect(screen.getByText(/issuance ล่าสุดของแต่ละชั่วโมง/)).toBeInTheDocument()
   })
 })
+
+// --- Interval verification (2026-07-25, project A) --------------------------
+
+const interval = (over: Partial<NonNullable<VerificationResponse['interval']>> = {}) => ({
+  n: 120,
+  nominal_pct: 90,
+  coverage_pct: 74.2,
+  coverage_gap_pct: -15.8,
+  mean_width_kw: 6.4,
+  pinaw_pct: 12.8,
+  pinball_kw: 0.92,
+  miss_low_pct: 20.0,
+  miss_high_pct: 5.8,
+  ...over,
+})
+
+describe('ForecastVerificationPanel interval section', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('calls out a band that is narrower than it claims', async () => {
+    vi.spyOn(api, 'getForecastVerification').mockResolvedValue({
+      ...base,
+      interval: interval(),
+      interval_note: 'ควอนไทล์ 0.05/0.95',
+    })
+    renderPanel()
+    expect(await screen.findByText('74.2%')).toBeInTheDocument()
+    expect(screen.getByText(/แถบแคบเกินจริง/)).toBeInTheDocument()
+    expect(screen.getByText(/ควอนไทล์ 0.05\/0.95/)).toBeInTheDocument()
+  })
+
+  it('calls a well-calibrated band reasonable rather than flagging it', async () => {
+    vi.spyOn(api, 'getForecastVerification').mockResolvedValue({
+      ...base,
+      interval: interval({ coverage_pct: 89.1, coverage_gap_pct: -0.9 }),
+    })
+    renderPanel()
+    expect(await screen.findByText(/แถบสมเหตุสมผล/)).toBeInTheDocument()
+    expect(screen.queryByText(/แถบแคบเกินจริง/)).not.toBeInTheDocument()
+  })
+
+  it('flags an over-wide band as uninformative, not as a success', async () => {
+    // Coverage alone can be gamed by widening; the panel must not read 99% as
+    // simply "better than 90%".
+    vi.spyOn(api, 'getForecastVerification').mockResolvedValue({
+      ...base,
+      interval: interval({ coverage_pct: 99.5, coverage_gap_pct: 9.5 }),
+    })
+    renderPanel()
+    expect(await screen.findByText(/แถบกว้างเกินจำเป็น/)).toBeInTheDocument()
+  })
+
+  it('says nothing was published rather than reporting zero coverage', async () => {
+    vi.spyOn(api, 'getForecastVerification').mockResolvedValue({
+      ...base,
+      interval: interval({ n: 0, coverage_pct: 0, coverage_gap_pct: -90 }),
+    })
+    renderPanel()
+    expect(await screen.findByText(/ยังไม่มีอะไรให้ตรวจ/)).toBeInTheDocument()
+    expect(screen.queryByText(/แถบแคบเกินจริง/)).not.toBeInTheDocument()
+  })
+
+  it('renders nothing extra against an older API that omits the block', async () => {
+    // A stale backend must not crash the panel - the point metrics still show.
+    vi.spyOn(api, 'getForecastVerification').mockResolvedValue({ ...base })
+    renderPanel()
+    // Skill renders in both the headline and the daylight row, hence findAll.
+    expect(await screen.findAllByText('0.390')).toHaveLength(2)
+    expect(screen.queryByText(/แถบความเชื่อมั่นที่เผยแพร่/)).not.toBeInTheDocument()
+  })
+})

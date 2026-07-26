@@ -49,13 +49,24 @@ class ForecastActualPair:
     happened, and what persistence would have said. `persistence_kw` is None
     where the actual it needed (the observation one lead-time earlier) is
     missing - those pairs still score the model, they just can't contribute to
-    the skill score."""
+    the skill score.
+
+    `lower_kw`/`upper_kw` carry the interval that was published alongside the
+    point forecast, so the band can be scored too (see `compute_interval_metrics`).
+    Both None for the physics-baseline fallback, which publishes no interval.
+    """
 
     target_time: datetime
     lead_hours: float
     predicted_kw: float
     actual_kw: float
     persistence_kw: float | None = None
+    lower_kw: float | None = None
+    upper_kw: float | None = None
+
+    @property
+    def has_interval(self) -> bool:
+        return self.lower_kw is not None and self.upper_kw is not None
 
 
 @dataclass(frozen=True)
@@ -150,13 +161,170 @@ def metrics_by_lead(
     return out
 
 
+# --- Scoring the published interval (2026-07-25) ----------------------------
+# Both the LightGBM and Random Forest hour-ahead candidates publish their band at
+# quantiles 0.05/0.95 (see hour_ahead.LightGbmCandidate.interval_quantiles), i.e.
+# a nominal 90% interval: 90 out of 100 outcomes are supposed to land inside it.
+#
+# Whether they actually do had never been checked. `metrics.picp` exists, but it
+# is computed during TRAINING on a hold-out split - exactly the distinction this
+# module was written for, applied to the point forecast and then left undone for
+# the band. The interval the site draws on its chart has been unverified since
+# the day it was drawn.
+NOMINAL_QUANTILES: tuple[float, float] = (0.05, 0.95)
+
+
+def nominal_coverage_pct(quantiles: tuple[float, float] = NOMINAL_QUANTILES) -> float:
+    """The coverage the band advertises, as a percentage.
+
+    Rounded because binary floating point makes 100 * (0.95 - 0.05) come out as
+    89.99999999999999 - harmless in arithmetic, but this figure is a LABEL: it
+    is printed next to the measured coverage as the number being compared
+    against, and "นับได้ 89.99999999999999%" on screen would look like a bug in
+    the very panel whose job is to look trustworthy.
+    """
+    return round(100.0 * (quantiles[1] - quantiles[0]), 6)
+
+
+NOMINAL_COVERAGE_PCT = nominal_coverage_pct()
+
+
+@dataclass(frozen=True)
+class IntervalMetrics:
+    """How the published prediction interval actually behaved."""
+
+    n: int
+    nominal_pct: float
+    # PICP: the share of outcomes that fell inside the band. The single number
+    # this whole section exists to produce.
+    coverage_pct: float
+    mean_width_kw: float
+    # Mean width as a percentage of AC capacity (PINAW). None without capacity.
+    # Coverage alone can be gamed by a band wide enough to contain anything, so
+    # the two are only meaningful read together.
+    pinaw_pct: float | None
+    # Mean pinball (quantile) loss across both published quantiles, in kW.
+    # A proper scoring rule, so unlike coverage it cannot be improved by simply
+    # widening the band. NOT a CRPS: a full CRPS needs the whole predictive
+    # distribution and only two quantiles are published.
+    pinball_kw: float
+    # Which side the misses fall on. An interval that misses evenly is merely
+    # too narrow; one that misses mostly on a single side is also mis-centred,
+    # which is a different defect with a different fix.
+    miss_low_pct: float
+    miss_high_pct: float
+
+    @property
+    def coverage_gap_pct(self) -> float:
+        """Signed distance from nominal. Negative = overconfident (the band is
+        too narrow and reality escapes it more often than advertised), which is
+        the failure mode that matters, because a viewer reads the band as a
+        promise."""
+        return self.coverage_pct - self.nominal_pct
+
+
+EMPTY_INTERVAL_METRICS = IntervalMetrics(
+    n=0,
+    nominal_pct=NOMINAL_COVERAGE_PCT,
+    coverage_pct=0.0,
+    mean_width_kw=0.0,
+    pinaw_pct=None,
+    pinball_kw=0.0,
+    miss_low_pct=0.0,
+    miss_high_pct=0.0,
+)
+
+
+def interval_pairs(pairs: list[ForecastActualPair]) -> list[ForecastActualPair]:
+    """Only the pairs that actually carry a band. Kept separate from the point
+    metrics' pair set on purpose: the physics-baseline fallback publishes no
+    interval, and counting those rows as misses would invent a failure that the
+    model never claimed anything about."""
+    return [p for p in pairs if p.has_interval]
+
+
+def _pinball(actual: float, quantile_value: float, q: float) -> float:
+    """Pinball loss for one quantile forecast. Asymmetric by design: at q=0.05
+    being above the outcome is penalised 19x harder than being below it, which
+    is what makes it reward an honestly-placed quantile rather than a safe one."""
+    delta = actual - quantile_value
+    return q * delta if delta >= 0 else (q - 1) * delta
+
+
+def compute_interval_metrics(
+    pairs: list[ForecastActualPair],
+    capacity_kw: float | None = None,
+    quantiles: tuple[float, float] = NOMINAL_QUANTILES,
+) -> IntervalMetrics:
+    """Score the published band over pairs that have one.
+
+    Empty input yields n=0 rather than a fabricated 0% coverage - "no band was
+    ever published in this window" and "the band never contained anything" are
+    opposite findings and must not render identically.
+    """
+    scored = interval_pairs(pairs)
+    if not scored:
+        return EMPTY_INTERVAL_METRICS
+
+    lower = np.array([p.lower_kw for p in scored], dtype=float)
+    upper = np.array([p.upper_kw for p in scored], dtype=float)
+    actual = np.array([p.actual_kw for p in scored], dtype=float)
+
+    inside = (actual >= lower) & (actual <= upper)
+    below = actual < lower
+    above = actual > upper
+    n = len(scored)
+
+    widths = upper - lower
+    mean_width = float(np.mean(widths))
+    pinaw = (mean_width / capacity_kw * 100) if capacity_kw and capacity_kw > 0 else None
+
+    lo_q, hi_q = quantiles
+    pinball = float(
+        np.mean(
+            [
+                (_pinball(a, lo, lo_q) + _pinball(a, hi, hi_q)) / 2
+                for a, lo, hi in zip(actual, lower, upper)
+            ]
+        )
+    )
+
+    return IntervalMetrics(
+        n=n,
+        nominal_pct=nominal_coverage_pct(quantiles),
+        coverage_pct=100.0 * float(np.sum(inside)) / n,
+        mean_width_kw=mean_width,
+        pinaw_pct=pinaw,
+        pinball_kw=pinball,
+        miss_low_pct=100.0 * float(np.sum(below)) / n,
+        miss_high_pct=100.0 * float(np.sum(above)) / n,
+    )
+
+
+def interval_metrics_by_lead(
+    pairs: list[ForecastActualPair], capacity_kw: float | None = None, buckets=LEAD_BUCKETS
+) -> list[tuple[str, IntervalMetrics]]:
+    """Coverage per lead-time bucket - the reliability breakdown.
+
+    A band should be narrow and still honest at short lead, and wider further
+    out. Coverage that stays flat while width grows means the extra width is
+    not buying anything; coverage that collapses at long lead means the model
+    knows less than its band admits out there.
+    """
+    return [
+        (label, compute_interval_metrics([p for p in pairs if low <= p.lead_hours < high], capacity_kw))
+        for label, low, high in buckets
+    ]
+
+
 def build_pairs(
-    issuances: list[tuple[datetime, datetime, float]],
+    issuances: list[tuple],
     actual_by_time: dict[datetime, float],
 ) -> list[ForecastActualPair]:
     """Join stored forecast issuances to recorded actuals.
 
-    `issuances` is (target_time, issued_at, predicted_kw) - what
+    `issuances` is (target_time, issued_at, predicted_kw) with two optional
+    trailing fields (lower_kw, upper_kw) - what
     `RealDataStore.forecast_history_issuances` returns, already parsed to
     datetimes. `actual_by_time` maps a target hour to the recorded actual output.
 
@@ -166,7 +334,12 @@ def build_pairs(
     left None when that hour isn't in the actuals.
     """
     pairs: list[ForecastActualPair] = []
-    for target_time, issued_at, predicted_kw in issuances:
+    for row in issuances:
+        target_time, issued_at, predicted_kw = row[0], row[1], row[2]
+        # 3-tuples stay valid: the interval columns were added later (2026-07-25)
+        # and a caller that doesn't have them still gets point metrics.
+        lower = row[3] if len(row) > 3 else None
+        upper = row[4] if len(row) > 4 else None
         actual = actual_by_time.get(target_time)
         if actual is None:
             continue
@@ -183,6 +356,8 @@ def build_pairs(
                 predicted_kw=float(predicted_kw),
                 actual_kw=float(actual),
                 persistence_kw=actual_by_time.get(reference_hour),
+                lower_kw=None if lower is None else float(lower),
+                upper_kw=None if upper is None else float(upper),
             )
         )
     return pairs

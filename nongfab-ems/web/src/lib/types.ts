@@ -393,6 +393,31 @@ export interface VerificationLeadMetrics {
   metrics: VerificationMetrics
 }
 
+// How the published prediction interval actually behaved (2026-07-25). The
+// band the chart draws is a nominal 90% interval (quantiles 0.05/0.95); until
+// this existed, whether it really contained 90% of outcomes had never been
+// measured - `picp` elsewhere in the codebase is a TRAINING-time figure.
+export interface VerificationIntervalMetrics {
+  n: number
+  nominal_pct: number
+  coverage_pct: number
+  // Signed distance from nominal. Negative = the band is narrower than it
+  // claims, i.e. overconfident - the failure mode that misleads a reader.
+  coverage_gap_pct: number
+  mean_width_kw: number
+  pinaw_pct: number | null
+  // Proper scoring rule: widening the band does not improve it, unlike
+  // coverage. Not a full CRPS - only two quantiles are published.
+  pinball_kw: number
+  miss_low_pct: number
+  miss_high_pct: number
+}
+
+export interface VerificationIntervalLead {
+  lead_bucket: string
+  interval: VerificationIntervalMetrics
+}
+
 export interface VerificationResponse {
   available: boolean
   zone: string
@@ -406,10 +431,17 @@ export interface VerificationResponse {
   daylight: VerificationMetrics | null
   all_hours: VerificationMetrics | null
   by_lead: VerificationLeadMetrics[]
+  // Optional so fixtures and responses predating 2026-07-25 still typecheck -
+  // the rule this repo learned the hard way when a required new field broke
+  // every existing test fixture (CI #172/#173).
+  interval?: VerificationIntervalMetrics | null
+  interval_by_lead?: VerificationIntervalLead[]
   lead_time_note: string
   // States that the "actual" side is the physics estimate, not a meter - this
   // site has no metered generation at all.
   reference_note: string
+  interval_note?: string
+  pinball_note?: string
 }
 
 // GET /soiling/{zone} - the Soiling & Cleaning Advisor (2026-07-25). How dirty

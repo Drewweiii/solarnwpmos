@@ -387,11 +387,18 @@ class RealDataStore:
         return len(rows)
 
     def forecast_history_issuances(self, zone: str, horizon: str, since: datetime) -> list[tuple]:
-        """Rows `(target_time, issued_at, pred)` for one zone/horizon,
-        `target_time >= since`, oldest first - what `forecast_history_points`
-        returns plus the ISSUE time, so a caller can recover each row's lead
-        time (target_time - issued_at). Added 2026-07-25 for the forecast
-        verification/skill-score route.
+        """Rows `(target_time, issued_at, pred, lower, upper)` for one
+        zone/horizon, `target_time >= since`, oldest first - what
+        `forecast_history_points` returns plus the ISSUE time, so a caller can
+        recover each row's lead time (target_time - issued_at). Added 2026-07-25
+        for the forecast verification/skill-score route.
+
+        `lower`/`upper` joined the tuple later the same day, so the published
+        prediction interval could be scored against outcomes too and not just
+        the point forecast (`verification.compute_interval_metrics`). They are
+        NULL for rows written by the physics-baseline fallback, which publishes
+        no interval - a caller must treat that as "no band claimed here", not as
+        a band of zero width.
 
         Note the table's PRIMARY KEY (zone, horizon, target_time) and
         `record_forecast_points`' INSERT OR REPLACE: only the FRESHEST issuance
@@ -403,7 +410,7 @@ class RealDataStore:
         """
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT target_time, issued_at, pred FROM forecast_history "
+                "SELECT target_time, issued_at, pred, lower, upper FROM forecast_history "
                 "WHERE zone = ? AND horizon = ? AND target_time >= ? ORDER BY target_time",
                 (zone, horizon, since.isoformat()),
             ).fetchall()

@@ -32,10 +32,13 @@ from nongfab_common.assets import load_assets
 from nongfab_forecast.local_store import RealDataStore
 from nongfab_forecast.serving import GENERATED_POWER_HORIZON
 from nongfab_forecast.verification import (
+    IntervalMetrics,
     VerificationMetrics,
     build_pairs,
+    compute_interval_metrics,
     compute_metrics,
     daylight_pairs,
+    interval_metrics_by_lead,
     metrics_by_lead,
 )
 from pydantic import BaseModel
@@ -81,6 +84,40 @@ class LeadMetricsOut(BaseModel):
     metrics: MetricsOut
 
 
+class IntervalMetricsOut(BaseModel):
+    """How the published band behaved. Every field optional-friendly on the
+    frontend side: these were added 2026-07-25 and older UI builds must not
+    break on their absence."""
+
+    n: int
+    nominal_pct: float
+    coverage_pct: float
+    coverage_gap_pct: float
+    mean_width_kw: float
+    pinaw_pct: float | None
+    pinball_kw: float
+    miss_low_pct: float
+    miss_high_pct: float
+
+
+class IntervalLeadOut(BaseModel):
+    lead_bucket: str
+    interval: IntervalMetricsOut
+
+
+_INTERVAL_NOTE = (
+    "แถบความเชื่อมั่นที่โมเดลเผยแพร่ตั้งไว้ที่ควอนไทล์ 0.05/0.95 คือ 'ควรครอบคลุมความจริง 90%' "
+    "ตัวเลข coverage ด้านล่างคือสัดส่วนที่ครอบคลุมได้จริงจากคำพยากรณ์ที่ออกไปแล้ว ไม่ใช่ค่า PICP ตอนเทรน "
+    "ต่ำกว่า 90% = แถบแคบเกินจริง (มั่นใจเกินไป) · สูงกว่ามาก = แถบกว้างจนแทบไม่ให้ข้อมูล "
+    "จึงต้องอ่านคู่กับความกว้างเฉลี่ยและ pinball loss เสมอ"
+)
+
+_PINBALL_NOTE = (
+    "pinball loss เป็น proper scoring rule — ขยายแถบให้กว้างขึ้นเฉยๆ ไม่ได้ทำให้คะแนนนี้ดีขึ้น ต่างจาก coverage "
+    "ไม่ใช่ CRPS เต็มรูปแบบ เพราะโมเดลเผยแพร่แค่ 2 ควอนไทล์ ไม่ใช่การแจกแจงทั้งก้อน"
+)
+
+
 class VerificationResponse(BaseModel):
     available: bool
     zone: str
@@ -93,8 +130,14 @@ class VerificationResponse(BaseModel):
     daylight: MetricsOut | None = None
     all_hours: MetricsOut | None = None
     by_lead: list[LeadMetricsOut] = []
+    # The published interval, scored over the same daylight pairs as the
+    # headline point metrics (2026-07-25).
+    interval: IntervalMetricsOut | None = None
+    interval_by_lead: list[IntervalLeadOut] = []
     lead_time_note: str = _LEAD_NOTE
     reference_note: str = REFERENCE_NOTE
+    interval_note: str = _INTERVAL_NOTE
+    pinball_note: str = _PINBALL_NOTE
 
 
 def _out(metrics: VerificationMetrics) -> MetricsOut:
@@ -106,6 +149,20 @@ def _out(metrics: VerificationMetrics) -> MetricsOut:
         nrmse_pct=metrics.nrmse_pct,
         persistence_rmse_kw=metrics.persistence_rmse_kw,
         skill_score=metrics.skill_score,
+    )
+
+
+def _interval_out(metrics: IntervalMetrics) -> IntervalMetricsOut:
+    return IntervalMetricsOut(
+        n=metrics.n,
+        nominal_pct=metrics.nominal_pct,
+        coverage_pct=metrics.coverage_pct,
+        coverage_gap_pct=metrics.coverage_gap_pct,
+        mean_width_kw=metrics.mean_width_kw,
+        pinaw_pct=metrics.pinaw_pct,
+        pinball_kw=metrics.pinball_kw,
+        miss_low_pct=metrics.miss_low_pct,
+        miss_high_pct=metrics.miss_high_pct,
     )
 
 
@@ -152,7 +209,12 @@ async def get_forecast_verification(
         )
 
     actual_by_time = {_parse(row[0]): float(row[1]) for row in actual_rows}
-    issuances = [(_parse(target), _parse(issued), float(pred)) for target, issued, pred in issuance_rows]
+    # lower/upper stay None where the row came from the physics-baseline
+    # fallback - it publishes no interval, and a None must reach the metrics as
+    # "no band claimed" rather than as a zero-width one.
+    issuances = [
+        (_parse(row[0]), _parse(row[1]), float(row[2]), row[3], row[4]) for row in issuance_rows
+    ]
     pairs = build_pairs(issuances, actual_by_time)
     if not pairs:
         return VerificationResponse(
@@ -174,4 +236,12 @@ async def get_forecast_verification(
         daylight=_out(compute_metrics(day_pairs, capacity)),
         all_hours=_out(compute_metrics(pairs, capacity)),
         by_lead=[LeadMetricsOut(lead_bucket=label, metrics=_out(m)) for label, m in metrics_by_lead(day_pairs, capacity)],
+        # Scored over the same daylight pairs as the headline point metrics, so
+        # the two sections describe the same forecasts. Night hours would push
+        # coverage toward 100% for free (everyone predicts zero and is right).
+        interval=_interval_out(compute_interval_metrics(day_pairs, capacity)),
+        interval_by_lead=[
+            IntervalLeadOut(lead_bucket=label, interval=_interval_out(m))
+            for label, m in interval_metrics_by_lead(day_pairs, capacity)
+        ],
     )

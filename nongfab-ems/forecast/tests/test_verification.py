@@ -11,8 +11,10 @@ from nongfab_forecast.verification import (
     LEAD_BUCKETS,
     ForecastActualPair,
     build_pairs,
+    compute_interval_metrics,
     compute_metrics,
     daylight_pairs,
+    interval_metrics_by_lead,
     metrics_by_lead,
 )
 
@@ -165,3 +167,112 @@ def test_build_pairs_floors_a_mid_hour_issue_time_onto_the_actuals_grid():
     actuals = {_T0: 7.0, _T0 + timedelta(hours=2): 22.0}
     pairs = build_pairs(issuances, actuals)
     assert pairs[0].persistence_kw == 7.0
+
+
+# --- Scoring the published interval (2026-07-25, project A) ------------------
+
+
+def _band_pair(hour: int, predicted: float, actual: float, lower: float | None, upper: float | None, lead: float = 1.0):
+    return ForecastActualPair(
+        target_time=_T0 + timedelta(hours=hour),
+        lead_hours=lead,
+        predicted_kw=predicted,
+        actual_kw=actual,
+        lower_kw=lower,
+        upper_kw=upper,
+    )
+
+
+def test_coverage_counts_the_outcomes_that_landed_inside_the_band():
+    # 3 of 4 inside -> 75% against a nominal 90%, i.e. overconfident.
+    pairs = [
+        _band_pair(0, 10, 10, 5, 15),
+        _band_pair(1, 10, 6, 5, 15),
+        _band_pair(2, 10, 14, 5, 15),
+        _band_pair(3, 10, 30, 5, 15),
+    ]
+    metrics = compute_interval_metrics(pairs)
+    assert metrics.n == 4
+    assert metrics.coverage_pct == 75.0
+    assert metrics.nominal_pct == 90.0
+    assert metrics.coverage_gap_pct == pytest.approx(-15.0)
+
+
+def test_the_bounds_themselves_count_as_inside():
+    # A closed interval: an outcome exactly on the published bound was covered.
+    pairs = [_band_pair(0, 10, 5, 5, 15), _band_pair(1, 10, 15, 5, 15)]
+    assert compute_interval_metrics(pairs).coverage_pct == 100.0
+
+
+def test_misses_are_split_by_side_because_the_two_mean_different_things():
+    # Every miss below the band: not merely too narrow, also sitting too high.
+    pairs = [
+        _band_pair(0, 10, 1, 5, 15),
+        _band_pair(1, 10, 2, 5, 15),
+        _band_pair(2, 10, 10, 5, 15),
+        _band_pair(3, 10, 10, 5, 15),
+    ]
+    metrics = compute_interval_metrics(pairs)
+    assert metrics.miss_low_pct == 50.0
+    assert metrics.miss_high_pct == 0.0
+
+
+def test_pairs_without_a_band_are_excluded_not_counted_as_misses():
+    # The physics fallback publishes no interval. Counting those rows would
+    # invent a failure about a claim the model never made.
+    pairs = [
+        _band_pair(0, 10, 10, 5, 15),
+        _band_pair(1, 10, 99, None, None),
+        _band_pair(2, 10, 99, 5, None),
+    ]
+    metrics = compute_interval_metrics(pairs)
+    assert metrics.n == 1
+    assert metrics.coverage_pct == 100.0
+
+
+def test_no_band_at_all_reports_n_zero_rather_than_zero_coverage():
+    # "No interval was ever published" and "the interval never contained
+    # anything" are opposite findings; they must not render the same.
+    metrics = compute_interval_metrics([_band_pair(0, 10, 10, None, None)])
+    assert metrics.n == 0
+    assert metrics.coverage_pct == 0.0
+
+
+def test_width_is_normalized_by_capacity_so_coverage_cannot_be_read_alone():
+    # A band 20 kW wide on a 50 kW inverter covers everything and says nothing.
+    pairs = [_band_pair(0, 25, 25, 15, 35)]
+    metrics = compute_interval_metrics(pairs, capacity_kw=50.0)
+    assert metrics.mean_width_kw == 20.0
+    assert metrics.pinaw_pct == pytest.approx(40.0)
+
+
+def test_pinball_loss_punishes_a_lazily_wide_band_where_coverage_would_not():
+    # Both bands cover the outcome, so coverage cannot tell them apart. The
+    # tight one must score better - that is the point of a proper scoring rule.
+    tight = [_band_pair(0, 10, 10, 9, 11)]
+    lazy = [_band_pair(0, 10, 10, -100, 100)]
+    assert compute_interval_metrics(tight).coverage_pct == compute_interval_metrics(lazy).coverage_pct
+    assert compute_interval_metrics(tight).pinball_kw < compute_interval_metrics(lazy).pinball_kw
+
+
+def test_interval_metrics_by_lead_reports_empty_buckets_instead_of_dropping_them():
+    pairs = [_band_pair(0, 10, 10, 5, 15, lead=0.5), _band_pair(1, 10, 99, 5, 15, lead=0.5)]
+    by_lead = interval_metrics_by_lead(pairs)
+    assert [label for label, _ in by_lead] == [label for label, _, _ in LEAD_BUCKETS]
+    first = dict(by_lead)["0-1h"]
+    assert first.n == 2
+    assert first.coverage_pct == 50.0
+    assert dict(by_lead)["24h+"].n == 0
+
+
+def test_build_pairs_carries_the_interval_through_and_tolerates_rows_without_one():
+    issued = _T0 - timedelta(hours=1)
+    rows = [
+        (_T0, issued, 10.0, 5.0, 15.0),
+        (_T0 + timedelta(hours=1), issued, 20.0),  # legacy 3-tuple, no band
+    ]
+    actual = {_T0: 11.0, _T0 + timedelta(hours=1): 21.0}
+    pairs = build_pairs(rows, actual)
+    assert [p.has_interval for p in pairs] == [True, False]
+    assert pairs[0].lower_kw == 5.0
+    assert pairs[0].upper_kw == 15.0
