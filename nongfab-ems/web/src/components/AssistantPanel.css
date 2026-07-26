@@ -244,3 +244,48 @@
     max-height: min(580px, calc(100vh - 100px - var(--assistant-keyboard-inset, 0px)));
   }
 }
+
+/* Voice input (2026-07-26). Push-to-talk, so the button has two visibly
+   different states - a mic that looks identical whether or not it is
+   listening is the fastest way to make someone talk to a closed microphone. */
+
+.assistant-mic-button {
+  display: block;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.assistant-mic-button:hover {
+  border-color: var(--accent, #f0a500);
+}
+
+.assistant-mic-listening {
+  border-color: var(--danger, #d05a5a);
+  color: var(--danger, #d05a5a);
+  animation: assistant-mic-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes assistant-mic-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* Someone who turned on "reduce motion" asked not to have things pulse at
+   them; the colour change alone still distinguishes the two states. */
+@media (prefers-reduced-motion: reduce) {
+  .assistant-mic-listening {
+    animation: none;
+  }
+}

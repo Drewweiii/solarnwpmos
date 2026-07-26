@@ -10,6 +10,8 @@ import { findCategoryById, findGroupById, groupsForRole } from '../lib/assistant
 import { useAuth } from '../lib/auth'
 import { MASCOT_INTERACTIONS, type MascotInteraction } from '../lib/mascotInteractions'
 import { speakText } from '../lib/tts'
+import { createSpeechListener, isSpeechRecognitionSupported, speechErrorMessage } from '../lib/speech'
+import type { SpeechListener } from '../lib/speech'
 import './AssistantPanel.css'
 
 interface ChatMessage {
@@ -128,6 +130,12 @@ export function AssistantPanel({ isOpen, onClose, onAnswered, onInteract }: Assi
   const [input, setInput] = useState('')
   const [isThinking, setIsThinking] = useState(false)
   const [showPlay, setShowPlay] = useState(false)
+  // Voice input (2026-07-26). `supportsVoice` is read ONCE at mount rather
+  // than on every render: it cannot change during a session, and re-checking
+  // would risk the mic button appearing and vanishing between renders.
+  const [supportsVoice] = useState(isSpeechRecognitionSupported)
+  const [isListening, setIsListening] = useState(false)
+  const listenerRef = useRef<SpeechListener | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLElement>(null)
   const titleId = useId()
@@ -315,6 +323,46 @@ export function AssistantPanel({ isOpen, onClose, onAnswered, onInteract }: Assi
           </div>
         )}
       </div>
+
+      {supportsVoice && (
+        <button
+          type="button"
+          className={isListening ? 'assistant-mic-button assistant-mic-listening' : 'assistant-mic-button'}
+          onClick={() => {
+            if (isListening) {
+              listenerRef.current?.stop()
+              return
+            }
+            // Built fresh per press: a recognition object that has ended cannot
+            // be restarted reliably across engines, and one instance per
+            // utterance matches the push-to-talk model exactly.
+            const listener = createSpeechListener({
+              onInterim: (text) => setInput(text),
+              onFinal: (text) => {
+                setInput('')
+                void send(text)
+              },
+              onError: (reason) => {
+                setInput('')
+                setMessages((prev) => [
+                  ...prev,
+                  { id: `speech-${Date.now()}`, role: 'assistant', text: speechErrorMessage(reason) },
+                ])
+              },
+              onEnd: () => setIsListening(false),
+            })
+            if (!listener) return
+            listenerRef.current = listener
+            setInput('')
+            setIsListening(true)
+            listener.start()
+          }}
+          aria-label={isListening ? 'หยุดฟัง' : 'กดเพื่อพูดคำถาม'}
+          aria-pressed={isListening}
+        >
+          {isListening ? '🔴 กำลังฟัง…' : '🎤 พูดถาม'}
+        </button>
+      )}
 
       <form
         className="assistant-panel-input-row"
