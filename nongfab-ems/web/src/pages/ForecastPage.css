@@ -1013,3 +1013,41 @@
 .verify-sky-empty {
   opacity: 0.5;
 }
+
+/* --- Ramp panel (2026-07-25, project B) -----------------------------------
+   The alert line is the panel: a viewer who reads nothing else should still
+   know whether a cliff is coming. Steep and moderate are distinguished because
+   a warning that looks the same at 20%/h and 60%/h trains people to ignore it. */
+
+.ramp-alert {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  border: 1px solid var(--border);
+}
+
+.ramp-alert-quiet {
+  opacity: 0.85;
+}
+
+.ramp-alert-moderate {
+  border-color: var(--warning, #d99b2b);
+}
+
+.ramp-alert-steep {
+  border-color: var(--danger, #d05a5a);
+}
+
+.ramp-steep {
+  color: var(--danger, #d05a5a);
+  font-weight: 600;
+}
+
+.ramp-moderate {
+  color: var(--warning, #d99b2b);
+}
+
+.ramp-calm {
+  opacity: 0.8;
+}

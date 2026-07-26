@@ -731,6 +731,34 @@ SPECS: tuple[SettingSpec, ...] = (
         origin=ORIGIN_LITERATURE,
         note="kt = GHI จริง ÷ GHI ท้องฟ้าใส · ตั้งแต่ค่านี้ขึ้นไปนับเป็นฟ้าใส (ค่าที่งานวิจัยนิยมใช้ ไม่ใช่ค่าที่วัดที่ไซต์นี้)",
     ),
+    # Ramp severity bands (project B, 2026-07-25). Percent of the zone's AC
+    # capacity per hour, so one threshold means the same thing on GIS and Jetty.
+    # Conventions chosen for this project so a table can be read at a glance -
+    # not a property of the site, hence adjustable.
+    SettingSpec(
+        key="diagnostics.ramp_moderate_pct",
+        group=GROUP_DIAGNOSTICS,
+        label="เกณฑ์ 'เปลี่ยนแปลงปานกลาง' ของ ramp",
+        unit="% ของกำลังติดตั้ง/ชม.",
+        default=20.0,
+        minimum=5.0,
+        maximum=60.0,
+        step=1.0,
+        origin=ORIGIN_TUNING,
+        note="กำลังผลิตเปลี่ยนเร็วเกินค่านี้ต่อชั่วโมง = ramp ระดับปานกลาง",
+    ),
+    SettingSpec(
+        key="diagnostics.ramp_steep_pct",
+        group=GROUP_DIAGNOSTICS,
+        label="เกณฑ์ 'เปลี่ยนแปลงรุนแรง' ของ ramp",
+        unit="% ของกำลังติดตั้ง/ชม.",
+        default=40.0,
+        minimum=10.0,
+        maximum=100.0,
+        step=1.0,
+        origin=ORIGIN_TUNING,
+        note="ระดับที่ถือว่าชันมาก เช่น แนวเมฆพาดผ่านทั้งแถว",
+    ),
     SettingSpec(
         key="diagnostics.sky_overcast_kt",
         group=GROUP_DIAGNOSTICS,

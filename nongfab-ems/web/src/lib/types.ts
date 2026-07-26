@@ -457,6 +457,52 @@ export interface VerificationResponse {
   pinball_note?: string
 }
 
+// GET /forecast/{zone}/ramp - how fast output is about to change (2026-07-25).
+// Every forecast surface answers "how much"; none answered "how fast", and a
+// level forecast that is right at both ends still never says a cliff sits
+// between them. `pct_of_capacity_per_h` is the comparable figure - raw kW/h
+// means different things on a 50 kW zone and a 200 kW one.
+export interface RampStep {
+  from_time: string
+  to_time: string
+  from_kw: number
+  to_kw: number
+  delta_kw: number
+  rate_kw_per_h: number
+  pct_of_capacity_per_h: number | null
+  direction: 'up' | 'down' | 'flat' | string
+  severity: 'calm' | 'moderate' | 'steep' | string
+}
+
+export interface RampHistoryStats {
+  n_steps: number
+  n_moderate_down: number
+  n_steep_down: number
+  n_moderate_up: number
+  n_steep_up: number
+  worst_down_pct_per_h: number | null
+  worst_up_pct_per_h: number | null
+  busiest_down_hour_ict: number | null
+  busiest_down_hour_count: number
+}
+
+export interface RampResponse {
+  available: boolean
+  zone: string
+  reason: string | null
+  ac_capacity_kw: number | null
+  history_days: number
+  upcoming: RampStep[]
+  // Null is the normal case on a clear day: "nothing notable ahead", not a
+  // missing value.
+  alert: RampStep | null
+  history: RampHistoryStats | null
+  moderate_pct_per_h: number
+  steep_pct_per_h: number
+  no_action_note: string
+  method_note: string
+}
+
 // GET /soiling/{zone} - the Soiling & Cleaning Advisor (2026-07-25). How dirty
 // the array is now, how fast it's getting dirtier, when rain last washed it,
 // what the dirt costs, and roughly when a wash is worth scheduling - all derived

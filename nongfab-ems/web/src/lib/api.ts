@@ -35,6 +35,7 @@ import type {
   SunPathResponse,
   UvHistoryResponse,
   UvHourlyHistoryResponse,
+  RampResponse,
   VerificationResponse,
   WeatherStripResponse,
   Zone,
@@ -150,6 +151,9 @@ export const getOutputAnomalies = (token: string, zone: string, days = 45): Prom
 
 export const getForecastVerification = (token: string, zone: string, days = 30): Promise<VerificationResponse> =>
   request(`/forecast/${zone}/verification?days=${days}`, token)
+
+export const getForecastRamp = (token: string, zone: string, days = 30): Promise<RampResponse> =>
+  request(`/forecast/${zone}/ramp?days=${days}`, token)
 
 export const getSoiling = (token: string, zone: string): Promise<SoilingResponse> => request(`/soiling/${zone}`, token)
 

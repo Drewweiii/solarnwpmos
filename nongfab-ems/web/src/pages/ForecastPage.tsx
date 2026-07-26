@@ -29,6 +29,7 @@ import { GridCarbonPanel } from '../components/GridCarbonPanel'
 import { GridContextPanel } from '../components/GridContextPanel'
 import { OrientationPanel } from '../components/OrientationPanel'
 import { ForecastKpiBlock } from '../components/ForecastKpiBlock'
+import { RampPanel } from '../components/RampPanel'
 import { useAuth } from '../lib/auth'
 import {
   buildCompetitionRows,
@@ -755,6 +756,7 @@ export function ForecastPage() {
           per-zone: the national curve is the same whichever zone is selected. */}
       <GridContextPanel />
       <GridCarbonPanel />
+      <RampPanel zone={zoneId} />
       <OrientationPanel />
       <DcAcPanel />
       <BifacialPanel />

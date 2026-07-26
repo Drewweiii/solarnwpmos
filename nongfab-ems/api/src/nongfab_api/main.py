@@ -38,6 +38,7 @@ from . import (
     routes_irradiance_map,
     routes_orientation,
     routes_performance,
+    routes_ramp,
     routes_savings,
     routes_settings,
     routes_simulate,
@@ -246,6 +247,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     # would otherwise match /forecast/{zone}/verification first and 404 it as an
     # unknown horizon (FastAPI matches in registration order).
     app.include_router(routes_verification.router)
+    app.include_router(routes_ramp.router)
     app.include_router(routes_forecast.router)
     app.include_router(routes_simulate.router)
     app.include_router(routes_performance.router)

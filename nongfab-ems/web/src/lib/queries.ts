@@ -13,6 +13,7 @@ import {
   getGridToday,
   getOfficialSources,
   getFeedHealth,
+  getForecastRamp,
   getForecastVerification,
   getOutputAnomalies,
   getSoiling,
@@ -275,6 +276,19 @@ export function useForecastVerification(zone: string, days = 30) {
     queryFn: () => getForecastVerification(token!, zone, days),
     enabled: Boolean(token),
     staleTime: 15 * 60 * 1000,
+  })
+}
+
+export function useForecastRamp(zone: string, days = 30) {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['forecast-ramp', zone, days],
+    queryFn: () => getForecastRamp(token!, zone, days),
+    enabled: Boolean(token),
+    // Shorter than verification's 15 minutes: the upcoming half of this answer
+    // moves with every new issuance, and a stale ramp warning is worse than
+    // none - it describes a cliff that may already have passed.
+    staleTime: 5 * 60 * 1000,
   })
 }
 
