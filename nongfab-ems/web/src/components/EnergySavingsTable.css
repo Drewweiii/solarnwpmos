@@ -171,13 +171,11 @@
   opacity: 0.75;
 }
 
-@media (prefers-color-scheme: dark) {
-  .savings-sim-badge {
-    color: #fde68a;
-    background: rgba(180, 83, 9, 0.28);
-  }
-}
-
+/* Was duplicated across a `prefers-color-scheme` media query and this
+   attribute selector; the media half is gone as of 2026-07-26 (project R).
+   Keeping it would have meant a viewer who forced light mode still got the
+   dark badge, because a media query does not know about the override. The
+   attribute is stamped before first paint, so this is the only rule needed. */
 :root[data-theme='dark'] .savings-sim-badge {
   color: #fde68a;
   background: rgba(180, 83, 9, 0.28);

@@ -7,6 +7,7 @@ import { AIAssistant } from './AIAssistant'
 import { ChatProfileSetup } from './ChatProfileSetup'
 import { OrgLogos } from './OrgLogos'
 import { SiteCredit } from './SiteCredit'
+import { ThemeToggle } from './ThemeToggle'
 import { VisitorNetwork } from './VisitorNetwork'
 
 export function Layout() {
@@ -87,6 +88,7 @@ export function Layout() {
           )}
         </nav>
         <div className="app-header-user">
+          <ThemeToggle />
           <span>
             {chatProfile?.displayName || username} <span className="app-header-role">({role})</span>
           </span>

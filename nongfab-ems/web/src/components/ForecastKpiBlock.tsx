@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { computeForecastKpi, pointsAhead, pointsForTomorrow } from '../lib/forecastKpi'
 import { formatHourIct } from '../lib/timeScrub'
 import type { ForecastPoint } from '../lib/types'
+import { useCountUp } from '../lib/useCountUp'
 import { Provenanced } from './Provenanced'
 
 /** The big-number block for the forecast itself (2026-07-25).
@@ -85,6 +86,12 @@ export function ForecastKpiBlock({ points, horizon, isLoading, hasError, nowIso 
     }
   }, [points, horizon, now])
 
+  // Only the two headline figures animate. Rolling every tile at once reads as
+  // decoration; rolling the two a viewer is watching reads as the number
+  // moving. Never animates on mount - see useCountUp.
+  const animatedEnergy = useCountUp(kpi.energyKwh)
+  const animatedPeak = useCountUp(kpi.peakKw)
+
   if (isLoading) {
     return (
       <section className="forecast-kpi-block" aria-label="Forecast headline figures">
@@ -118,7 +125,7 @@ export function ForecastKpiBlock({ points, horizon, isLoading, hasError, nowIso 
         <div className="forecast-kpi-tiles">
           <BigTile
             label="พลังงานที่คาดว่าจะผลิตได้"
-            value={kpi.energyKwh === null ? '—' : nf0.format(kpi.energyKwh)}
+            value={animatedEnergy === null ? '—' : nf0.format(animatedEnergy)}
             unit="kWh"
             sub={`จาก ${kpi.pointCount} จุดพยากรณ์ ทุก ${nf1.format(kpi.stepHours)} ชม.`}
             accent
@@ -126,7 +133,7 @@ export function ForecastKpiBlock({ points, horizon, isLoading, hasError, nowIso 
           />
           <BigTile
             label="กำลังผลิตสูงสุดที่คาด"
-            value={kpi.peakKw === null ? '—' : nf1.format(kpi.peakKw)}
+            value={animatedPeak === null ? '—' : nf1.format(animatedPeak)}
             unit="kW"
             sub={kpi.peakAtIso ? `เวลา ${formatHourIct(kpi.peakAtIso)} น.` : undefined}
           />

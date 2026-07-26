@@ -195,8 +195,16 @@
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
+/* Dark palette. Lives on an attribute rather than inside
+   `@media (prefers-color-scheme: dark)` as of 2026-07-26 (project R), so a
+   viewer can override the OS - and so the palette exists in exactly one place.
+   Duplicating it between a media query and an attribute selector is how those
+   two drift apart, and print.css already has to carry a third copy.
+
+   `index.html` stamps `data-theme` synchronously in <head> before first paint,
+   so this always matches something; there is no flash and no no-JS gap worth
+   a duplicate block, because with no JS this React app renders nothing at all. */
+:root[data-theme='dark'] {
     --text: #9ca3af;
     --text-h: #f3f4f6;
     --bg: #16171d;
@@ -240,6 +248,98 @@
 
   #social .button-icon {
     filter: invert(1) brightness(2);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+/* Projector mode (2026-07-26, project R).
+   Not "light mode with bigger text". A projector in a lit room loses the low
+   end of the contrast range entirely - the screen palette's `--text: #6b6375`
+   on white is a mid-grey that simply does not arrive at the wall. So: near
+   black on pure white, borders that survive, a larger base size, and chart
+   strokes thickened via CSS because recharts draws real SVG. Chart hues are
+   the darkest usable version of each series so they stay distinguishable
+   after a projector's washed-out gamma. */
+:root[data-theme='present'] {
+  color-scheme: light;
+
+  --text: #14121a;
+  --text-h: #000;
+  --bg: #fff;
+  --border: #9b99a3;
+  --code-bg: #eeede6;
+  --accent: #7c2bc4;
+  --accent-bg: rgba(124, 43, 196, 0.12);
+  --accent-border: rgba(124, 43, 196, 0.65);
+  --social-bg: rgba(238, 237, 230, 0.6);
+  --card-bg: #fff;
+
+  --chart-forecast: #1d4ed8;
+  --chart-pi: #047857;
+  --chart-rainy: #b45309;
+  --chart-lgbm: #15803d;
+  --chart-rf: #b45309;
+  --chart-sumk: #0f766e;
+  --chart-minute: #b91c1c;
+  --chart-error: #44403c;
+  --chart-actual-today: #be185d;
+  --chart-actual-past: #78350f;
+  --chart-irradiance: #a16207;
+  --chart-clearsky: #0369a1;
+  --chart-temp: #c2410c;
+  --chart-rh: #0e7490;
+  --chart-wind: #334155;
+  --chart-cosz: #4338ca;
+  --chart-khat: #4d7c0f;
+  --chart-uv: #6d28d9;
+  --chart-salt: #0f766e;
+  --chart-aod: #92400e;
+  --chart-pm25: #be185d;
+  --chart-pm10: #7e22ce;
+  --chart-dust: #854d0e;
+
+  --danger: #b91c1c;
+  --danger-bg: rgba(185, 28, 28, 0.12);
+  --ok: #15803d;
+
+  font-size: 22px;
+}
+
+/* recharts draws SVG, so its stroke widths are reachable from CSS. A 1px line
+   is invisible from the back of a room. */
+:root[data-theme='present'] .recharts-curve,
+:root[data-theme='present'] .recharts-line-curve {
+  stroke-width: 3.2;
+}
+
+:root[data-theme='present'] .recharts-cartesian-axis-tick text {
+  font-weight: 600;
+}
+
+/* Motion tokens (2026-07-26, project R). Shared so transitions across the app
+   agree with each other instead of each component inventing a duration. */
+:root {
+  --dur-fast: 120ms;
+  --dur-base: 220ms;
+  --dur-slow: 420ms;
+  /* Fast out of the gate, settling gently - movement that decelerates reads as
+     physical, linear movement reads as a progress bar. */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+/* A backstop, not a replacement for the per-component reduced-motion blocks
+   already in this codebase - it catches anything added later that forgets. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

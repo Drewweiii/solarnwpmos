@@ -1,0 +1,33 @@
+/* Theme cycle button (project R, 2026-07-26). */
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.theme-toggle:hover,
+.theme-toggle:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* The icon alone is ambiguous (a moon could mean "it is dark" or "make it
+   dark"), so the label carries the meaning and only drops on narrow screens
+   where the header has no room for it. */
+@media (max-width: 720px) {
+  .theme-toggle-label {
+    display: none;
+  }
+}

@@ -3486,3 +3486,63 @@ for content that fits on one, which is how the appendix's `break-before: page`
 was confirmed to fire.
 
 Gates: oxlint clean, 652 tests across 69 files (+6), `tsc -b` + vite build clean.
+
+### 2026-07-26 - A theme you can choose, a mode for projectors, and motion tokens (project R, Track 1)
+
+Dark mode existed only as `@media (prefers-color-scheme: dark)`, which nobody
+could override. Two consequences. A visitor whose laptop is in dark mode could
+not produce a light screenshot for a document. And this project gets shown **on
+a projector in a lit room**, where the screen palette's `--text: #6b6375` on
+white is a mid-grey that does not survive the trip to the wall.
+
+`ThemeToggle` cycles ตามระบบ → สว่าง → มืด → **นำเสนอ**. The last one is a real
+theme rather than light mode with bigger text: near-black on pure white,
+stronger borders, a 22px base, the darkest usable version of each of the 23
+chart hues, and `stroke-width: 3.2` on recharts curves - reachable from CSS
+because recharts draws real SVG, and a 1px line is invisible from the back of a
+room. The hint text spells out what it does, since "นำเสนอ" on a button tells
+nobody.
+
+**The palette now lives in one place.** The dark tokens moved from the media
+query onto `:root[data-theme='dark']`, and `index.html` stamps `data-theme`
+synchronously in `<head>` before first paint - so there is no flash, and no
+reason to keep the palette duplicated between a media query and an attribute
+selector, which is exactly how those two drift apart. `print.css` already has to
+carry a third copy; a fourth was not worth it. With no JS this React app renders
+nothing at all, so the media-query fallback protected no one.
+
+That also made a **dead rule live**: `EnergySavingsTable.css` already had a
+`:root[data-theme='dark']` selector that nothing ever activated, sitting next to
+a duplicate media-query version. The media half is gone - keeping it would have
+meant a viewer who forced light mode still got the dark badge, because a media
+query does not know about the override.
+
+**Motion**: shared `--dur-*` / `--ease-*` tokens so components stop inventing
+durations, plus a global `prefers-reduced-motion` backstop behind the eight
+per-component blocks already here.
+
+**`useCountUp`** rolls the two headline KPI figures between values, and enforces
+two rules that are really about honesty. It **never animates on mount** -
+counting up from zero would walk the viewer through a sequence of outputs the
+plant never produced and make a reading look like a computation; only a *change*
+is animated, because a change is what actually happened. And it **lands
+exactly**, assigning the target on the final frame rather than trusting the
+easing, so a polled figure cannot settle a fraction off and sit there wrong.
+`null` passes straight through instead of easing down to zero, which would turn
+missing data into a confident nothing.
+
+**A bug this round introduced and caught.** `ThemeToggle` called `matchMedia`
+unguarded. jsdom has no implementation, so six unrelated `Layout` tests went red
+with "matchMedia is not a function" - and any environment lacking it would have
+taken the whole app shell down, not just the toggle. Fixed at the source with
+`prefersDarkNow()` / `subscribeToOsTheme()`, both of which degrade to "light,
+no subscription", with a test that asserts the guard by checking `matchMedia`
+really is absent under jsdom.
+
+Verified by rendering all three themes through headless Chromium in separate
+frames - the first attempt put `data-theme` on a nested `<div>` and every pane
+came out light, because `:root` only matches `<html>`. Corrected: dark renders
+dark, and `present` reports a computed base of 22px with visibly darker series
+colours.
+
+Gates: oxlint clean, 669 tests across 72 files (+17), `tsc -b` + vite build clean.
