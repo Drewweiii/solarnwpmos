@@ -22,6 +22,7 @@
 import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useForecastVerification } from '../lib/queries'
 import type { VerificationMetrics, VerificationResponse } from '../lib/types'
+import { Provenanced } from './Provenanced'
 
 export interface ForecastVerificationPanelProps {
   zone: string
@@ -91,7 +92,8 @@ export function ForecastVerificationPanel({ zone, days = 30 }: ForecastVerificat
           {data.daylight.skill_score == null ? '—' : data.daylight.skill_score.toFixed(3)}
         </span>
         <span className="verify-headline-label">
-          Skill score เทียบ persistence · {verdict.label}
+          <Provenanced valueKey="verification.skill_score">Skill score เทียบ persistence</Provenanced> ·{' '}
+          {verdict.label}
         </span>
       </div>
 

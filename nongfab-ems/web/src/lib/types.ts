@@ -1308,3 +1308,41 @@ export interface TouResponse {
   finding_note: string
   holiday_note: string
 }
+
+/** GET /provenance/{key} — the chain behind one published number (project O,
+ * 2026-07-26).
+ *
+ * A step's `origin`, `registry_note` and `default_value` are read live from the
+ * backend settings registry on every request, never stored alongside the chain,
+ * so this shape carries whatever the registry says right now rather than what
+ * it said when the chain was written. */
+export interface ProvenanceStep {
+  kind: 'source' | 'setting' | 'model' | 'computation'
+  label: string
+  detail: string
+  setting_key: string | null
+  origin: string | null
+  origin_label: string
+  registry_note: string
+  default_value: number | null
+  unit: string
+}
+
+export interface ProvenanceResponse {
+  key: string
+  label: string
+  unit: string
+  steps: ProvenanceStep[]
+  caveat: string
+  shown_on: string[]
+  /** The weakest link in the chain, not the best or the average — this is the
+   * headline the popover leads with. */
+  weakest_origin: string | null
+  weakest_origin_label: string
+  weakest_note: string
+}
+
+export interface ProvenanceIndexResponse {
+  intro: string
+  keys: string[]
+}

@@ -137,6 +137,15 @@ def _zone_specs() -> list[SettingSpec]:
                     origin=ORIGIN_AS_BUILT,
                     note="0 = ใช้ค่าจาก assets.yaml",
                 ),
+                # Tilt and azimuth are NOT as-built, unlike the capacities above.
+                # `assets.yaml` carries `tilt_deg: null` and `azimuth_deg: null`
+                # for every zone - nobody has measured them, and the SLD is an
+                # electrical document that does not record them either. See
+                # routes_orientation.py, which has said so on screen since it
+                # shipped. Marking these `as-built` put a blue "from the project's
+                # as-built/SLD documents" chip on an angle no document contains;
+                # caught 2026-07-26 by the provenance inspector (project O), whose
+                # whole purpose is surfacing exactly this kind of drift.
                 SettingSpec(
                     key=f"zone.{zone}.tilt_deg",
                     group=GROUP_SITE,
@@ -146,8 +155,12 @@ def _zone_specs() -> list[SettingSpec]:
                     minimum=0.0,
                     maximum=90.0,
                     step=0.5,
-                    origin=ORIGIN_AS_BUILT,
-                    note="0 = ใช้ค่าจาก assets.yaml · เปลี่ยนค่านี้กระทบทั้งฟิสิกส์ 3D และการคำนวณเงา",
+                    origin=ORIGIN_PLACEHOLDER,
+                    note=(
+                        "⚠️ ยังไม่เคยวัดจริง — assets.yaml ระบุ tilt_deg: null ทุกโซน "
+                        "(SLD เป็นเอกสารไฟฟ้า ไม่ได้ระบุมุม) · 0 = ใช้ค่าที่ระบบตั้งให้เอง "
+                        "· เปลี่ยนค่านี้กระทบทั้งฟิสิกส์ 3D และการคำนวณเงา"
+                    ),
                 ),
                 SettingSpec(
                     key=f"zone.{zone}.azimuth_deg",
@@ -158,8 +171,11 @@ def _zone_specs() -> list[SettingSpec]:
                     minimum=0.0,
                     maximum=360.0,
                     step=1.0,
-                    origin=ORIGIN_AS_BUILT,
-                    note="0 = ใช้ค่าจาก assets.yaml",
+                    origin=ORIGIN_PLACEHOLDER,
+                    note=(
+                        "⚠️ ยังไม่เคยวัดจริง — assets.yaml ระบุ azimuth_deg: null ทุกโซน "
+                        "· 0 = ใช้ค่าที่ระบบตั้งให้เอง"
+                    ),
                 ),
             ]
         )

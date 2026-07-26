@@ -3,6 +3,7 @@ import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis
 import { EnergySavingsTable } from '../components/EnergySavingsTable'
 import { EnergyManagementPanel } from '../components/EnergyManagementPanel'
 import { ExpansionPlannerPanel } from '../components/ExpansionPlannerPanel'
+import { Provenanced } from '../components/Provenanced'
 import { SoilingAdvisorPanel } from '../components/SoilingAdvisorPanel'
 import { SLDViewer } from '../components/SLDViewer'
 import { ZoneSelector } from '../components/ZoneSelector'
@@ -108,7 +109,12 @@ export function EnergyReportPage() {
           <section className="energy-report-section" aria-label="Annual generation">
             <h2>Annual generation (estimated)</h2>
             <div className="energy-report-cards">
-              <SummaryCard label="Annual energy" value={report.data.annual.ac_energy_kwh.toFixed(0)} unit="kWh/yr" />
+              <SummaryCard
+                label="Annual energy"
+                value={report.data.annual.ac_energy_kwh.toFixed(0)}
+                unit="kWh/yr"
+                provenanceKey="simulation.annual_energy_kwh"
+              />
               <SummaryCard
                 label="Specific yield"
                 value={report.data.annual.specific_yield_kwh_per_kwp.toFixed(0)}
@@ -210,7 +216,12 @@ export function EnergyReportPage() {
           <section className="energy-report-section" aria-label="Environmental impact">
             <h2>Environmental impact</h2>
             <div className="energy-report-cards">
-              <SummaryCard label="CO₂ saved" value={(report.data.co2_saved_kg_per_year / 1000).toFixed(1)} unit="tonnes/yr" />
+              <SummaryCard
+                label="CO₂ saved"
+                value={(report.data.co2_saved_kg_per_year / 1000).toFixed(1)}
+                unit="tonnes/yr"
+                provenanceKey="green.co2_avoided_kg"
+              />
               <SummaryCard label="Trees equivalent" value={report.data.trees_equivalent_per_year.toFixed(0)} unit="trees/yr" />
             </div>
           </section>
@@ -257,12 +268,17 @@ interface SummaryCardProps {
   label: string
   value: string
   unit: string
+  /** A key from GET /provenance - the label then grows a ⓘ opening the chain
+   * behind the figure (project O). */
+  provenanceKey?: string
 }
 
-function SummaryCard({ label, value, unit }: SummaryCardProps) {
+function SummaryCard({ label, value, unit, provenanceKey }: SummaryCardProps) {
   return (
     <div className="energy-report-card">
-      <span className="energy-report-card-label">{label}</span>
+      <span className="energy-report-card-label">
+        {provenanceKey ? <Provenanced valueKey={provenanceKey}>{label}</Provenanced> : label}
+      </span>
       <span className="energy-report-card-value">
         {value}
         {unit && <span className="energy-report-card-unit"> {unit}</span>}

@@ -1,4 +1,5 @@
 import { useTou } from '../lib/queries'
+import { Provenanced } from './Provenanced'
 
 /** Does this array produce during the expensive hours? (project G, 2026-07-25)
  *
@@ -49,7 +50,9 @@ export function TouPanel() {
           </span>
         </div>
         <div className="grid-context-stat">
-          <span className="grid-context-stat-label">อัตราเฉลี่ยถ่วงน้ำหนักที่แท้จริง</span>
+          <span className="grid-context-stat-label">
+            <Provenanced valueKey="tou.blended_rate_thb_per_kwh">อัตราเฉลี่ยถ่วงน้ำหนักที่แท้จริง</Provenanced>
+          </span>
           <strong>{nf4.format(data.blended_rate_thb_per_kwh)}</strong>
           <span className="grid-context-stat-sub">
             บาท/kWh · เทียบกับ {nf4.format(data.peak_rate_thb_per_kwh)} ที่ใช้อยู่

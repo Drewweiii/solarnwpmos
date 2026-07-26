@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { computeForecastKpi, pointsAhead, pointsForTomorrow } from '../lib/forecastKpi'
 import { formatHourIct } from '../lib/timeScrub'
 import type { ForecastPoint } from '../lib/types'
+import { Provenanced } from './Provenanced'
 
 /** The big-number block for the forecast itself (2026-07-25).
  *
@@ -39,12 +40,19 @@ interface TileProps {
   unit?: string
   sub?: string
   accent?: boolean
+  /** A key from GET /provenance. Set it and the tile's label grows a ⓘ that
+   * opens the chain behind the number (project O). Only the tiles whose figure
+   * actually has a registered chain get one - a ⓘ that opens an error would be
+   * worse than no ⓘ. */
+  provenanceKey?: string
 }
 
-function BigTile({ label, value, unit, sub, accent }: TileProps) {
+function BigTile({ label, value, unit, sub, accent, provenanceKey }: TileProps) {
   return (
     <div className={accent ? 'forecast-kpi-tile forecast-kpi-tile-accent' : 'forecast-kpi-tile'}>
-      <span className="forecast-kpi-tile-label">{label}</span>
+      <span className="forecast-kpi-tile-label">
+        {provenanceKey ? <Provenanced valueKey={provenanceKey}>{label}</Provenanced> : label}
+      </span>
       <span className="forecast-kpi-tile-value">
         {value}
         {unit && <span className="forecast-kpi-tile-unit"> {unit}</span>}
@@ -114,6 +122,7 @@ export function ForecastKpiBlock({ points, horizon, isLoading, hasError, nowIso 
             unit="kWh"
             sub={`จาก ${kpi.pointCount} จุดพยากรณ์ ทุก ${nf1.format(kpi.stepHours)} ชม.`}
             accent
+            provenanceKey="forecast.expected_energy_kwh"
           />
           <BigTile
             label="กำลังผลิตสูงสุดที่คาด"

@@ -31,6 +31,7 @@ import {
   getMoonPath,
   getPerformance,
   getPrecipitationConditions,
+  getProvenance,
   getSunPath,
   getUvHistory,
   getUvHourlyHistory,
@@ -175,6 +176,24 @@ export function useTou() {
     queryFn: () => getTou(token!),
     enabled: Boolean(token),
     staleTime: Infinity,
+  })
+}
+
+/** GET /provenance/{key} - the chain behind one published number (project O).
+ *
+ * `enabled` is the popover's open state, not a constant: a page can carry half
+ * a dozen traceable numbers and firing six requests on mount to populate popups
+ * nobody opened would cost more than the feature is worth. Once fetched it is
+ * cached for the session - a provenance chain only changes when somebody edits
+ * a setting, and publishing settings already invalidates every query.
+ */
+export function useProvenance(key: string, enabled: boolean) {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['provenance', key],
+    queryFn: () => getProvenance(key, token!),
+    enabled: Boolean(token) && enabled,
+    staleTime: 5 * 60 * 1000,
   })
 }
 

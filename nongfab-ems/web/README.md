@@ -3292,3 +3292,84 @@ twice to other recharts tooltips. Worth remembering as a repo-wide pattern:
 **never annotate a recharts formatter parameter, narrow inside the body
 instead.** Also worth remembering that `npm run test` does not typecheck - only
 `npm run build` does, so a green test run is not evidence that CI will pass.
+
+### 2026-07-26 - Forecast big-number block + four interface innovations (Track 1)
+
+Two rounds landed in one shift. The first was asked for as "นวัตกรรมใหม่ๆ ด้าน
+forecast day ahead กับ intraday … ให้มันมี block แสดงค่าตัวใหญ่ๆ", the second as
+"มีนวัตกรรมล้ำๆ เกี่ยวๆกับ interface web ไหม แบบทึ่งๆว้าวๆ". Track 1 built the
+interface round too, after the user reversed an earlier "เขียนสเปกไว้ให้เพื่อทำ"
+with "ทำเลยๆ" - see `HANDOFF_PROJECTS_LMNO_UI.md`, which is now partly
+superseded by what actually shipped.
+
+**`ForecastKpiBlock`** (`components/ForecastKpiBlock.tsx`, maths in
+`lib/forecastKpi.ts`) - four tiles about the forecast itself, readable across a
+room: expected energy, peak and when, uncertainty at the peak, productive hours.
+It follows the Day-ahead / Intra-day toggle rather than sitting on one of them,
+because the same four questions have different answers per horizon.
+
+Two honesty details in the maths. `inferStepHours()` takes the **median** gap
+between points, not the first gap and not an assumed hour - a single irregular
+gap then cannot rescale the whole energy total. And every tile renders `—`
+rather than `0` when it has nothing, because a confident "0 kWh" and "no
+forecast yet" look identical otherwise and only one of them is true. `nowIso` is
+injectable so the window-boundary tests do not fail at 07:00 ICT and nowhere
+else.
+
+**Project L - real sun shadows in the 3D scene** (`lib/sceneLighting.ts`,
+`Solar3DScene.tsx`). `<Canvas shadows>` plus a `castShadow` directional light on
+the real solar position, with `castShadow receiveShadow` on panels, building
+masses and legs. `shadowsWorthRendering()` skips the shadow pass below 3° sun
+elevation, where the map is all artifact; `shadowCameraExtent()` sizes the
+orthographic shadow camera from the real scene span instead of a magic number.
+
+This started as *cloud* shadows and was changed after checking what the data can
+support: the cloud feed is one site-wide scalar (two independent docstrings say
+so) and the per-pixel tiles live in MinIO, unreachable from Railway. Per-panel
+cloud shadows would have been fabrication in pixels. **The no-fabricated-data
+rule applies to graphics too** - a picture that renders more detail than the data
+supports is a false claim in the same way a made-up number is. Sun shadows are
+fully real and were entirely unused, so L became those.
+
+**Project M - WebXR AR/VR** (`lib/xr.ts`, `components/XrLaunchButtons.tsx`).
+AR drops the array on a table, VR puts the viewer inside it; the existing
+react-three-fiber scene is reused as-is. Support is probed **per mode** and each
+button appears only once its own mode answers yes -
+`isSessionSupported('immersive-ar')` and `'immersive-vr'` are genuinely
+different answers on one device. Nothing renders at all where WebXR is absent,
+which is every iPhone and iPad. The AR scale ratio is printed next to the
+buttons: an unlabelled tabletop model invites reading its size as the real one,
+which is the same overclaim as any unlabelled number.
+
+`createXRStore({ emulate: false })` is required - the default injects a WebXR
+emulator that reaches for `WebGL2RenderingContext`, which does not exist under
+jsdom, and that threw an unhandled rejection into every test importing the
+module.
+
+**Project N - voice input for น้อง Solar** (`lib/speech.ts`). The assistant could
+already speak (`lib/tts.ts`); now it can listen. `SPOKEN_TERM_FIXES` repairs the
+domain terms Thai dictation reliably mangles before the text reaches the
+assistant. `createSpeechListener()` returns `null` where the API is absent
+rather than throwing, so the caller's correct response - render no mic - is the
+easy one.
+
+**Project O - provenance inspector** (`components/Provenanced.tsx` + `.css`,
+`useProvenance`). Wrap any published figure and it grows a ⓘ that opens the
+chain behind it, with the **weakest link** as the headline. Wired onto all six
+chains the API ships: the Forecast KPI energy tile, the TOU blended rate, the
+verification skill score, Financial's simple payback, and Energy Report's annual
+energy and CO₂.
+
+One structural point: the fetching hook lives in `ProvenancePopover`, not in
+`Provenanced`. A closed ⓘ therefore costs a `useState` and nothing else - no
+query, no auth context - so wrapping a number in one cannot change how the host
+component behaves or what its tests must provide until somebody actually clicks.
+That is why adding ⓘ to `ForecastKpiBlock` did not force its bare-render tests
+to grow providers.
+
+Gates: oxlint clean (warnings only), 646 tests across 68 files, `tsc -b` + vite
+build clean. Reminder that cost an hour once and is worth repeating: **run the
+web suite with nothing listening on port 8000**. `ForecastPage` and
+`SettingsPage` tests do not mock `getVersion`, so a local dev API on that port
+gets really fetched, the deploy-id check fires, the auth provider logs the test
+user out, `role` goes null, and role-gated panels render as if for a viewer.

@@ -1189,3 +1189,92 @@ ForecastPage UV chart now shows the real hourly line when hourly data exists,
 falling back to the daily bar otherwise. Tested: `test_openmeteo_uv.py` +4,
 `test_local_store.py` +2, `test_routes_weather.py` +3; `forecast` local_store
 and `api` openmeteo/routes_weather suites pass, `ruff` clean.
+
+### 2026-07-26 - Four new read routes: ramp, evolution, interval/sky verification, provenance (Track 1)
+
+Four backend additions from the forecast-innovation round (projects A-D) and the
+interface round (project O). All viewer-level reads; none of them changes an
+existing response shape.
+
+**`GET /forecast/{zone}/ramp`** (`routes_ramp.py`, `nongfab_forecast.ramp`) -
+how fast output is about to change, not just how much of it there will be. A
+ramp is `Δkw / hours` between consecutive points, reported as a percentage of AC
+capacity per hour so a number is comparable across zones of different sizes.
+`ramps_from_series()` collapses duplicate timestamps first, because
+`forecast_history` can hold two rows for one target time mid-write.
+
+**`GET /forecast/{zone}/evolution`** (`routes_evolution.py`,
+`nongfab_forecast.evolution`) - how the forecast for one hour changed as that
+hour approached. This needed a **new table**: `forecast_history`'s primary key is
+`(zone, horizon, target_time)` with `INSERT OR REPLACE`, so only the freshest
+issuance for a target ever survives and the earlier ones - exactly the data this
+question is about - were being destroyed. Rather than change the serving
+contract, `local_store.record_forecast_evolution()` writes to a second table
+whose key includes `issued_at`, retained 14 days.
+`TargetEvolution.is_converging()` returns `None` below three issuances instead of
+guessing a trend from two points.
+
+**`GET /verification/{zone}` extended** - the published P10-P90 band is now
+scored, not just the line through it: PICP (coverage), PINAW (sharpness) and
+**pinball loss**. Deliberately *not* CRPS: with only two quantiles a CRPS-shaped
+number would be an approximation dressed as a proper score, and pinball is a
+proper scoring rule at the quantiles actually published. Nominal coverage is
+computed by `nominal_coverage_pct()` rather than inline, because
+`(0.95 - 0.05) * 100` is `89.99999999999999` in float and that string was going
+on screen. A second split reports metrics **by sky condition** (clear / partly /
+overcast, from the clear-sky index `kt = GHI / GHI_clearsky`), since one RMSE
+hides whether the model is bad overall or only bad under broken cloud. That
+split is wrapped in its own `try/except`: a pvlib failure then costs the sky
+table and not the whole verification response.
+
+**`GET /provenance` + `GET /provenance/{key}`** (`provenance.py`,
+`routes_provenance.py`) - click any published number, see the chain behind it:
+source -> model -> setting -> computation, each link carrying its `origin`.
+
+The one design rule worth restating here: **a setting's origin and note are
+never copied into `provenance.py`** - `resolve_step()` reads them from
+`settings_registry.BY_KEY` at request time. Hand-written provenance text would
+start lying the moment somebody edited the registry, and no test would catch it,
+which is precisely the failure this feature exists to prevent. A step naming a
+setting key that does not exist is a hard error at import
+(`validate_registry()`, called at module import) - it caught four wrong keys
+while the six entries were being written, which is the whole point.
+
+The headline is the **weakest link, not the average**: payback's chain contains
+an as-built degradation model and a user-confirmed BOI figure, but also a
+placeholder CAPEX, so it headlines `placeholder`. Averaging would flatter it.
+Viewer-level on purpose - being able to see that a number rests on a guess is
+exactly what a public dashboard should not hide behind a login.
+
+Six chains ship: `forecast.expected_energy_kwh` (derived),
+`tou.blended_rate_thb_per_kwh` (placeholder), `green.co2_avoided_kg`
+(literature), `financial.payback_years` (placeholder),
+`verification.skill_score` (tuning), `simulation.annual_energy_kwh`
+(literature).
+
+Route-order note repeated because it bit twice: new `/forecast/{zone}/...`
+routes must be registered **before** `routes_forecast`, or its `{horizon}`
+parameter swallows them.
+
+**What the provenance inspector caught on its first live run.** `zone.*.tilt_deg`
+and `zone.*.azimuth_deg` were marked `origin=as-built` in `settings_registry`,
+which rendered a blue "from the project's as-built/SLD documents" chip on two
+angles no document contains - `config/assets.yaml` carries `tilt_deg: null` and
+`azimuth_deg: null` for every zone, and `routes_orientation.py` has warned about
+exactly this on screen since it shipped. The registry and the orientation route
+were telling users opposite things about the same fact. Both origins are now
+`placeholder` with notes that say the angles have never been measured; the
+`ac_capacity_kw` / `dc_capacity_kwp` rows beside them stay `as-built`, because
+those figures really are as-built.
+
+Nothing computed changes - `origin` is honesty metadata, not an input. What
+changes is that `simulation.annual_energy_kwh` now headlines `placeholder`
+instead of `literature`, which is right: its shakiest input is an unmeasured
+tilt, not a literature loss coefficient.
+
+Also noted while checking, and deliberately **not** changed:
+`green.normal_rate_thb_per_kwh` (the PEA TOU Peak rate) is marked `literature`
+though `CLAUDE.md` records it as a real published figure the user supplied on
+2026-07-19. That direction of error under-claims rather than over-claims, and
+promoting a tariff to `confirmed` is the user's call, not a session's - flagged
+rather than edited.

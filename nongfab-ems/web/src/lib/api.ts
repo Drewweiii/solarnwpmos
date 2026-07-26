@@ -26,6 +26,7 @@ import type {
   MoonPathResponse,
   PerformanceResponse,
   PrecipitationConditionsResponse,
+  ProvenanceResponse,
   SimulateRequest,
   SettingsResponse,
   SourcesResponse,
@@ -296,3 +297,6 @@ export const getBifacial = (token: string): Promise<BifacialResponse> => request
 
 export const getTou = (token: string): Promise<TouResponse> => request('/tou', token)
 export const getOfficialSources = (token: string): Promise<SourcesResponse> => request('/sources', token)
+
+export const getProvenance = (key: string, token: string): Promise<ProvenanceResponse> =>
+  request(`/provenance/${encodeURIComponent(key)}`, token)

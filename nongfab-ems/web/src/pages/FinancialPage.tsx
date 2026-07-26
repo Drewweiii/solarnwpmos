@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CartesianGrid, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { FinancialUncertaintyPanel } from '../components/FinancialUncertaintyPanel'
+import { Provenanced } from '../components/Provenanced'
 import { ApiError } from '../lib/api'
 import { useFinancial } from '../lib/queries'
 import type { FinancialRequest } from '../lib/types'
@@ -214,6 +215,7 @@ export function FinancialPage() {
               label="Simple payback"
               value={financial.data.simple_payback_years != null ? financial.data.simple_payback_years.toFixed(1) : 'N/A'}
               unit="yr"
+              provenanceKey="financial.payback_years"
             />
             <KpiCard
               label="Discounted payback"
@@ -258,12 +260,19 @@ interface KpiCardProps {
   label: string
   value: string
   unit: string
+  /** A key from GET /provenance. Set it and the label grows a ⓘ opening the
+   * chain behind the figure (project O). Payback carries one because it is the
+   * headline number here and it rests on a placeholder CAPEX - the popover is
+   * where a reader finds that out. */
+  provenanceKey?: string
 }
 
-function KpiCard({ label, value, unit }: KpiCardProps) {
+function KpiCard({ label, value, unit, provenanceKey }: KpiCardProps) {
   return (
     <div className="kpi-card">
-      <span className="kpi-card-label">{label}</span>
+      <span className="kpi-card-label">
+        {provenanceKey ? <Provenanced valueKey={provenanceKey}>{label}</Provenanced> : label}
+      </span>
       <span className="kpi-card-value">
         {value}
         {unit && <span className="kpi-card-unit"> {unit}</span>}
