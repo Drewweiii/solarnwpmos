@@ -765,3 +765,26 @@
   padding: 4px 8px;
   border-radius: 6px;
 }
+
+/* AR Quick Look link, iOS only (project T, 2026-07-26). */
+.ios-ar {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+}
+
+.ios-ar-link img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.ios-ar-note {
+  font-size: 11px;
+  line-height: var(--lh-compact, 1.5);
+  text-align: right;
+  opacity: 0.85;
+  color: var(--text);
+  max-width: 280px;
+}

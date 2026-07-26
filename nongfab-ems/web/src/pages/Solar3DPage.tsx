@@ -370,9 +370,10 @@ export function Solar3DPage() {
         {geometry.isLoading && <p className="forecast-status">Loading geometry…</p>}
         {geometry.data && (
           <>
-            {/* Only renders on a device that can actually enter a session -
-                see XrLaunchButtons. iOS has no WebXR at all. */}
-            <XrLaunchButtons sceneSpan={sceneSpanM} />
+            {/* WebXR where the device supports it; on iPhone and iPad, which
+                have no WebXR at all, an AR Quick Look link instead. Renders
+                nothing on a device with neither - see XrLaunchButtons. */}
+            <XrLaunchButtons sceneSpan={sceneSpanM} zone={zone} />
             <Solar3DIconRail
               isPlaying={isPlaying}
               onPlayToggle={handlePlayToggle}

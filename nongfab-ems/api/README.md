@@ -1307,3 +1307,44 @@ that go through HTTP were the only ones to catch the route filtering zones on
 
 Year is clamped to 2000-2100: pvlib will happily return solar positions for
 year 3, and a poster of them would be a plausible-looking picture of nothing.
+
+### 2026-07-26 - `GET /ar/{zone}.usdz` - AR for iPhone and iPad (project T, Track 1)
+
+Project M's WebXR buttons deliberately never render on iOS, because Safari does
+not implement WebXR. Honest, and it left every iPhone and iPad with nothing.
+Apple's own mechanism is **AR Quick Look**: an `<a rel="ar">` pointing at a
+`.usdz`, handed to the system AR viewer. Same feature, entirely different
+plumbing.
+
+**No new dependency.** A USDZ is not a special binary - it is an uncompressed
+ZIP containing a USD layer, and USD has a plain-text form. `usdz.py` writes both
+in about 150 lines, rather than adding `usd-core`, a 30 MB wheel this service
+would carry on every deploy to emit one static-shaped file. The format's one
+hard constraint is alignment: every entry's *payload* must begin on a 64-byte
+boundary because Quick Look memory-maps the archive, and a misaligned layer is
+rejected outright rather than rendered badly - which from the outside looks
+exactly like "AR is broken on iPhone". `_aligned_zip` pads each local header's
+extra field to guarantee it, and a test asserts it per entry.
+
+**Token in the query string.** Quick Look fetches the URL itself, from outside
+the page's JavaScript, so no `Authorization` header can be attached. This repo
+already hit the identical constraint with WebSockets (`ws_chat.py`: "browser
+WebSocket clients can't set custom headers") and solved it the same way -
+`?token=`, decoded with the same `decode_access_token`. The endpoint is no less
+authenticated, only differently carried.
+
+The model is real surveyed panel positions and sizes with the zone's tilt and
+azimuth as the registry reports them, merged into a single mesh (600 separate
+prims for 600 identical rectangles would be a pointlessly large file), built
+from `generate_zone_layout` - the same call the 3D view uses, so the AR model
+and the on-screen scene cannot be built from different geometry. Scaled to a
+0.6 m tabletop, matching `web/src/lib/xr.ts`'s constant, with the scale written
+into the layer's own `doc` metadata as well as shown in the UI.
+
+**Verified as far as this environment allows, and no further.** The generated
+package was opened with the real `usd-core` library (installed locally for the
+check, *not* added to requirements): it parses as a stage, reports `upAxis = Y`
+and `metersPerUnit = 1`, resolves `/NongFab/Panels` as a mesh of 84 quads, and
+every entry is STORED and 64-byte aligned. What could not be checked here is
+whether AR Quick Look itself accepts it, which needs a real iPhone or iPad -
+that check is outstanding.

@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_en
 from . import (
     ingestion_scheduler,
     metrics,
+    routes_ar,
     routes_assets,
     routes_bifacial,
     routes_dc_ac,
@@ -254,6 +255,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     app.include_router(routes_evolution.router)
     app.include_router(routes_provenance.router)
     app.include_router(routes_poster.router)
+    app.include_router(routes_ar.router)
     app.include_router(routes_forecast.router)
     app.include_router(routes_simulate.router)
     app.include_router(routes_performance.router)

@@ -16,27 +16,27 @@ describe('XrLaunchButtons', () => {
   it('renders nothing at all where WebXR is absent - iPhone, plain desktop', async () => {
     // A button that does nothing on the device half the audience is holding
     // would be worse than no button.
-    const { container } = render(<XrLaunchButtons sceneSpan={240} />)
+    const { container } = render(<XrLaunchButtons sceneSpan={240} zone="GIS" />)
     await waitFor(() => expect(container).toBeEmptyDOMElement())
   })
 
   it('offers only the mode the device actually supports', async () => {
     withXr((mode) => mode === 'immersive-vr')
-    render(<XrLaunchButtons sceneSpan={240} />)
+    render(<XrLaunchButtons sceneSpan={240} zone="GIS" />)
     expect(await screen.findByText(/ดูแบบ VR/)).toBeInTheDocument()
     expect(screen.queryByText(/ดูแบบ AR/)).not.toBeInTheDocument()
   })
 
   it('offers both on a device that does both', async () => {
     withXr(() => true)
-    render(<XrLaunchButtons sceneSpan={240} />)
+    render(<XrLaunchButtons sceneSpan={240} zone="GIS" />)
     expect(await screen.findByText(/ดูแบบ AR/)).toBeInTheDocument()
     expect(screen.getByText(/ดูแบบ VR/)).toBeInTheDocument()
   })
 
   it('states the scale, so the tabletop model is not read as life-size', async () => {
     withXr(() => true)
-    render(<XrLaunchButtons sceneSpan={240} />)
+    render(<XrLaunchButtons sceneSpan={240} zone="GIS" />)
     expect(await screen.findByText(/1 : 400/)).toBeInTheDocument()
     expect(screen.getByText(/ไม่ใช่ขนาดจริง/)).toBeInTheDocument()
   })

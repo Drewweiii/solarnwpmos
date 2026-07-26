@@ -44,7 +44,7 @@ import type {
   Zone,
 } from './types'
 
-const API_BASE_URL: string = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+export const API_BASE_URL: string = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
 export class ApiError extends Error {
   status: number
@@ -304,3 +304,13 @@ export const getProvenance = (key: string, token: string): Promise<ProvenanceRes
 
 export const getPoster = (zone: string, token: string): Promise<PosterResponse> =>
   request(`/poster/${encodeURIComponent(zone)}`, token)
+
+/** Absolute URL for the zone's AR Quick Look model.
+ *
+ * The token rides in the query string because iOS hands this URL to the system
+ * AR viewer, which fetches it outside the page and cannot be given an
+ * Authorization header - the same constraint, and the same solution, as
+ * `chatSocketUrl` above.
+ */
+export const zoneUsdzUrl = (zone: string, token: string): string =>
+  `${API_BASE_URL}/ar/${encodeURIComponent(zone)}.usdz?token=${encodeURIComponent(token)}`
