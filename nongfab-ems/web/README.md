@@ -3373,3 +3373,69 @@ web suite with nothing listening on port 8000**. `ForecastPage` and
 `SettingsPage` tests do not mock `getVersion`, so a local dev API on that port
 gets really fetched, the deploy-id check fires, the auth provider logs the test
 user out, `role` goes null, and role-gated panels render as if for a viewer.
+
+### 2026-07-26 - Thai typography: a real font, and line heights that fit the script (project P, Track 1)
+
+Asked for as "งาน graphic design". The first pass was a survey, and the survey
+found defects rather than opportunities, so this is mostly a repair.
+
+**The site declared `<html lang="en">`** while its interface is almost entirely
+Thai. That is not cosmetic. Thai is written without spaces between words, so the
+browser needs the Thai dictionary line-breaker, and it selects that - along with
+font fallbacks - from `lang`. A screen reader was reading Thai in an English
+voice. Now `lang="th"`, plus the `<meta name="description">` that was missing
+entirely.
+
+**There was no Thai font.** `--sans` was `system-ui, 'Segoe UI', Roboto,
+sans-serif` - all Latin designs. Thai fell through to whatever the OS happened
+to carry: Leelawadee UI on Windows, Thonburi on macOS, something else again on
+Android. Every visitor saw a different typeface, and saw it next to a *second*
+unrelated typeface handling the Latin on the same line.
+
+Fixed by self-hosting **IBM Plex Sans Thai** - one superfamily covering both
+scripts with matching metrics, its Thai drawn by Cadson Demak in Bangkok.
+Weights 400/500/600/700, split into `thai` and `latin` unicode subsets, **118 KB
+total**, four of the eight preloaded. No CDN: this project loads nothing from a
+third party at runtime, a `fonts.googleapis.com` link would break behind the
+PTT facility firewall, and 118 KB is cheaper than that problem. SIL OFL 1.1, so
+`public/fonts/OFL.txt` ships with them - see `public/fonts/README.md`.
+
+**The line heights were Latin line heights.** Thai stacks up to four vertical
+levels on one line: below-base vowels, the base letters, above-base vowels, and
+tone marks above *those* - "สื้" is two levels tall above the baseline. Body was
+`145%` and `h2` was `118%`, at which tone marks were clipped outright. Now
+`--lh-body: 1.65`, `--lh-heading: 1.3`, `--lh-compact: 1.5` for bubbles and
+captions that still wrap, `--lh-tight: 1.2` reserved for display numerals, which
+have no marks to clear.
+
+**Tracking is gone.** The global `letter-spacing: 0.18px`, and the negative
+display tracking on `h1` (-1.68px) and `h2` (-0.24px), were tuned for a Latin
+system font. On Thai, tracking pulls marks away from the letters they belong to
+and breaks apart clusters the reader parses as one unit.
+
+**Italic is gone too, and this one was nearly a regression.** Four rules used
+`font-style: italic` for de-emphasis. This project sets `font-synthesis: none`
+and ships no italic face, so after the font change those four would have
+silently rendered upright - the declaration doing nothing while still looking
+intentional in the stylesheet. They are now de-emphasised by opacity and size,
+which is also the correct call independent of the bug: Thai never developed an
+italic form, and slanting it is a Latin convention imposed on a script that has
+no use for it.
+
+Also `table { font-variant-numeric: tabular-nums }` at the element level -
+around thirty individual value classes already declared it one at a time, and
+tables were the gap.
+
+Verified by rendering a before/after specimen through headless Chromium with the
+real woff2 files and looking at it: the mark-stress line (สื้ ปื่ ญื้ ฝั้ ตุ๊ ภู่
+เกี๊ยะ) stacks correctly with no tofu, and the 1.65 body has visible air where
+145% had marks nearly touching the line above. Both `unicode-range` values were
+diffed against what Google Fonts serves, character for character.
+
+One honest limit on that check: the "before" half of the specimen rendered in
+this Linux sandbox's Thai fallback, which is not what a Windows or macOS visitor
+would have seen. The "after" half is faithful, because the font is embedded -
+which is the entire point of the change.
+
+Gates: oxlint clean, 646 tests, `tsc -b` + vite build clean, fonts present in
+`dist/fonts/` and `lang="th"` in the built HTML.

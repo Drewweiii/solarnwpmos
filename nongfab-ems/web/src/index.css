@@ -10,6 +10,84 @@
   box-sizing: border-box;
 }
 
+/* IBM Plex Sans Thai, self-hosted (2026-07-26, project P).
+   See public/fonts/README.md for why it is self-hosted rather than linked from
+   a CDN, and OFL.txt for the licence this redistribution requires.
+
+   Split by unicode-range so a page downloads only the scripts it renders. The
+   `thai` range is what actually fixes the defect: the site used `system-ui`
+   alone, so Thai fell through to whatever the OS had - Leelawadee UI on
+   Windows, Thonburi on macOS - while Latin rendered in the system sans. Two
+   unrelated designs on the same line, different on every visitor's machine. */
+@font-face {
+  font-family: 'IBM Plex Sans Thai';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/plex-thai-400-thai.woff2') format('woff2');
+  unicode-range: U+02D7, U+0303, U+0331, U+0E01-0E5B, U+200C-200D, U+25CC;
+}
+@font-face {
+  font-family: 'IBM Plex Sans Thai';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/plex-thai-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Sans Thai';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/plex-thai-500-thai.woff2') format('woff2');
+  unicode-range: U+02D7, U+0303, U+0331, U+0E01-0E5B, U+200C-200D, U+25CC;
+}
+@font-face {
+  font-family: 'IBM Plex Sans Thai';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/plex-thai-500-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Sans Thai';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/plex-thai-600-thai.woff2') format('woff2');
+  unicode-range: U+02D7, U+0303, U+0331, U+0E01-0E5B, U+200C-200D, U+25CC;
+}
+@font-face {
+  font-family: 'IBM Plex Sans Thai';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/plex-thai-600-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Sans Thai';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/plex-thai-700-thai.woff2') format('woff2');
+  unicode-range: U+02D7, U+0303, U+0331, U+0E01-0E5B, U+200C-200D, U+25CC;
+}
+@font-face {
+  font-family: 'IBM Plex Sans Thai';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/plex-thai-700-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
   --text: #6b6375;
   --text-h: #08060d;
@@ -70,12 +148,40 @@
   --danger-bg: rgba(220, 38, 38, 0.1);
   --ok: #16a34a;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
+  /* The named Thai fallbacks matter even with the webfont shipped: if the
+     woff2 fails to load, the browser must still land on a real Thai face
+     rather than on `sans-serif`, which resolves to a Latin design that has no
+     Thai glyphs and forces per-character fallback mid-word. */
+  --sans: 'IBM Plex Sans Thai', 'Noto Sans Thai', 'Leelawadee UI', Thonburi, system-ui, 'Segoe UI', Roboto, sans-serif;
+  --heading: var(--sans);
   --mono: ui-monospace, Consolas, monospace;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
+  /* Line heights, and why they are what they are (2026-07-26, project P).
+
+     Thai stacks up to four vertical levels on one line: below-base vowels
+     (ุ ู), the base letters, above-base vowels (ิ ี ึ ื ั), and tone marks
+     sitting above THOSE (่ ้ ๊ ๋). A cluster like "สื้" is two levels tall
+     above the baseline. The site shipped `145%` on body and `118%` on h2,
+     which is comfortable for Latin and too tight for that - tone marks
+     collided with the descenders of the line above, and at h2's 118% they
+     were clipped outright. Thai typography guidance is 1.6-1.8 for body.
+
+     --lh-tight is for big display numerals only (KPI values, chart labels),
+     where the text is digits and has no marks to make room for. */
+  --lh-body: 1.65;
+  --lh-heading: 1.3;
+  --lh-tight: 1.2;
+  /* Small dense UI text that still wraps to more than one line - speech
+     bubbles, captions, status lines. Below the 1.65 body ideal so the bubbles
+     stay compact, above the 1.35 they used to carry, which was not enough
+     room for a tone mark. */
+  --lh-compact: 1.5;
+
+  font: 18px/var(--lh-body) var(--sans);
+  /* Thai is not letter-spaced. Tracking pulls the marks away from the base
+     letters they belong to and breaks up clusters the reader parses as one
+     unit; the previous 0.18px was tuned for the Latin-only system font. */
+  letter-spacing: normal;
   color-scheme: light dark;
   color: var(--text);
   background: var(--bg);
@@ -169,9 +275,12 @@ h2 {
   color: var(--text-h);
 }
 
+/* The negative tracking these two used to carry (-1.68px on h1, -0.24px on h2)
+   was Latin display styling. On Thai it pulls tone marks off the letters they
+   belong to, so it is gone rather than reduced. */
 h1 {
   font-size: 56px;
-  letter-spacing: -1.68px;
+  line-height: var(--lh-heading);
   margin: 32px 0;
   @media (max-width: 1024px) {
     font-size: 36px;
@@ -180,8 +289,7 @@ h1 {
 }
 h2 {
   font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
+  line-height: var(--lh-heading);
   margin: 0 0 8px;
   @media (max-width: 1024px) {
     font-size: 20px;
@@ -189,6 +297,13 @@ h2 {
 }
 p {
   margin: 0;
+}
+
+/* Numeric columns must not shuffle sideways as the dashboard polls. Roughly
+   thirty individual value classes already declare this one at a time; doing it
+   once at the element level covers every table without another thirty. */
+table {
+  font-variant-numeric: tabular-nums;
 }
 
 code,

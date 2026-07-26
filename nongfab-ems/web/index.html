@@ -1,10 +1,29 @@
 <!doctype html>
-<html lang="en">
+<!-- lang was "en" until 2026-07-26 (project P) while the interface is almost
+     entirely Thai. It is not cosmetic: the browser picks its line-breaking
+     rules and font fallbacks from it, Thai writes without spaces between words
+     so it needs the Thai dictionary breaker, and a screen reader was reading
+     Thai text in an English voice. -->
+<html lang="th">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PTT LNG Terminal 2 Nong Fab Solar Forecasting</title>
+    <meta
+      name="description"
+      content="ระบบพยากรณ์และวิเคราะห์การผลิตไฟฟ้าจากแสงอาทิตย์ 429 kWp ที่ PTT LNG Terminal 2 (หนองแฟบ) — พยากรณ์ล่วงหน้า วัดความแม่นยำจริง และตามรอยที่มาของทุกตัวเลขได้"
+    />
+    <!-- Only the weights that carry the first paint: 400 for body text and 600,
+         which this stylesheet uses more than all the others combined. Thai and
+         Latin are separate files and both are needed immediately, because
+         almost every screen mixes the two scripts in one sentence. 500 and 700
+         load on demand - preloading all eight would spend exactly the bandwidth
+         the subsetting exists to save. -->
+    <link rel="preload" href="/fonts/plex-thai-400-thai.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/plex-thai-400-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/plex-thai-600-thai.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/plex-thai-600-latin.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body>
     <div id="root"></div>

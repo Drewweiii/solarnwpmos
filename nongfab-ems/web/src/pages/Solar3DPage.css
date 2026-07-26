@@ -757,7 +757,7 @@
    stated scale invites reading its size as the real one. */
 .xr-launch-note {
   font-size: 11px;
-  line-height: 1.35;
+  line-height: var(--lh-compact, 1.5);
   text-align: right;
   opacity: 0.85;
   color: var(--text);

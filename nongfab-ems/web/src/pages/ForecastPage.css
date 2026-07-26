@@ -423,10 +423,15 @@
   color: var(--danger);
 }
 
+/* Italic was dropped here on 2026-07-26 (project P). Two reasons, and either
+   alone would be enough. Thai has no italic form - slanting it is a Latin
+   convention applied to a script that never developed one, and it damages the
+   letterforms. And this project ships no italic face plus `font-synthesis:
+   none`, so the declaration would have silently rendered upright anyway. The
+   de-emphasis these need is carried by opacity and size instead. */
 .forecast-status-caption {
   font-size: 12px;
   opacity: 0.75;
-  font-style: italic;
 }
 
 .weather-strip {
@@ -528,7 +533,6 @@
   font-size: 10.5px;
   color: var(--text);
   opacity: 0.6;
-  font-style: italic;
 }
 
 .solar-variable-chart {
