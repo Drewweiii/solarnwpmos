@@ -4,6 +4,7 @@ import { SolarAccessGauge } from '../components/SolarAccessGauge'
 import type { Solar3DSceneHandle } from '../components/Solar3DScene'
 import { Solar3DScene } from '../components/Solar3DScene'
 import { Solar3DIconRail } from '../components/Solar3DIconRail'
+import { XrLaunchButtons } from '../components/XrLaunchButtons'
 import { Solar3DAssistants } from '../components/Solar3DAssistants'
 import { HandSyncIndicator } from '../components/HandSyncIndicator'
 import { HandPreview } from '../components/HandPreview'
@@ -80,6 +81,7 @@ export function Solar3DPage() {
   const [timeOfDayMinutes, setTimeOfDayMinutes] = useState(5 * 60)
   const [isPlaying, setIsPlaying] = useState(false)
   const sceneRef = useRef<Solar3DSceneHandle>(null)
+
   // Whether the irradiance grid renders as colored points directly on the 3D
   // ground plane - literal single-image merge (2026-07-18) of what used to
   // be a separate MapLibre "Irradiance Map" section below the canvas (an
@@ -105,6 +107,16 @@ export function Solar3DPage() {
   const atIso = useMemo(() => buildAtIso(date, timeOfDayMinutes), [date, timeOfDayMinutes])
 
   const geometry = useGeometry(zone, atIso)
+  // Extent of the real panel footprint, in metres - the figure the AR scale
+  // note divides by. Taken from the same surveyed panel positions the scene is
+  // built from rather than a constant, so a zone change moves it.
+  const sceneSpanM = useMemo(() => {
+    const panels = geometry.data?.panels ?? []
+    if (panels.length === 0) return 0
+    const easts = panels.map((p) => p.east_m)
+    const norths = panels.map((p) => p.north_m)
+    return Math.max(Math.max(...easts) - Math.min(...easts), Math.max(...norths) - Math.min(...norths))
+  }, [geometry.data])
   const sunPath = useSunPath(zone, date)
   // Full 24h (unfiltered) lunar arc for the Moon marker - see MoonMarker's
   // own docstring for why this, unlike sunPath, is NOT daylight-filtered.
@@ -358,6 +370,9 @@ export function Solar3DPage() {
         {geometry.isLoading && <p className="forecast-status">Loading geometry…</p>}
         {geometry.data && (
           <>
+            {/* Only renders on a device that can actually enter a session -
+                see XrLaunchButtons. iOS has no WebXR at all. */}
+            <XrLaunchButtons sceneSpan={sceneSpanM} />
             <Solar3DIconRail
               isPlaying={isPlaying}
               onPlayToggle={handlePlayToggle}

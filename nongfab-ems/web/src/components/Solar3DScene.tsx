@@ -40,6 +40,8 @@ import {
 import { DEFAULT_HAND_TUNING, type HandTuning } from '../lib/handSettings'
 import type { IrradianceGridPoint, MoonPathPoint, Panel, PrecipitationIntensity, SunPathPoint } from '../lib/types'
 import { lightingForCloudCover, shadowCameraExtent, shadowsWorthRendering } from '../lib/sceneLighting'
+import { XR, useXR } from '@react-three/xr'
+import { tabletopScale, xrStore } from '../lib/xr'
 
 // Exposed to Solar3DPage's icon rail "reset camera" button - React 19 takes
 // `ref` as a plain prop (no forwardRef wrapper needed), see this component's
@@ -707,6 +709,18 @@ function IrradianceGroundOverlay({ points, originLat, originLon, markerRadiusM, 
       })}
     </group>
   )
+}
+
+
+/** Shrinks the scene to a tabletop while an immersive session is running
+ * (2026-07-26, project M). The scene is modelled in metres and the array spans
+ * hundreds of them, so at 1:1 an AR visitor stands inside a structure bigger
+ * than the room they are in. Outside a session the scale is exactly 1, so the
+ * ordinary desktop view is untouched. */
+function XrScaledScene({ sceneSpan, children }: { sceneSpan: number; children: React.ReactNode }) {
+  const inSession = useXR((state) => state.session !== undefined && state.session !== null)
+  const scale = inSession ? tabletopScale(sceneSpan) : 1
+  return <group scale={scale}>{children}</group>
 }
 
 interface CloudLayerProps {
@@ -1739,6 +1753,10 @@ export function Solar3DScene({
       style={{ touchAction: 'none' }}
       data-testid="solar3d-canvas"
     >
+      {/* Everything below renders identically on a desktop and inside an
+          immersive session - XR adds a session, it does not add a scene. */}
+      <XR store={xrStore}>
+      <XrScaledScene sceneSpan={bounds.full.span}>
       {/* Sky fill. Rises as cloud dims the sun: overcast is softer, not
           simply darker, and dropping the direct light alone would render a
           cloudy noon as dusk. */}
@@ -1878,6 +1896,8 @@ export function Solar3DScene({
         onToggleRun={onHandToggleRun}
         tuning={handTuning}
       />
+      </XrScaledScene>
+      </XR>
     </Canvas>
   )
 }

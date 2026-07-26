@@ -723,3 +723,45 @@
     min-height: 40px;
   }
 }
+
+/* AR/VR launch (2026-07-26, project M). Top-right so it never collides with
+   the icon rail's top-left column. */
+
+.xr-launch {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 240px;
+}
+
+.xr-launch-button {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text-h);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.xr-launch-button:hover {
+  border-color: var(--accent, #f0a500);
+}
+
+/* The scale note is load-bearing, not decoration: a tabletop model with no
+   stated scale invites reading its size as the real one. */
+.xr-launch-note {
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: right;
+  opacity: 0.85;
+  color: var(--text);
+  background: var(--card-bg);
+  padding: 4px 8px;
+  border-radius: 6px;
+}
