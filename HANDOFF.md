@@ -2502,3 +2502,89 @@ scoring rule: ขยายแถบเฉยๆ ไม่ช่วย ต่า�
 3. **ข้อมูลที่ขอ user แล้วยังไม่ได้ (6 ข้อเดิม)** — ไม่มีอะไรเปลี่ยน
 4. **ถาม user เรื่องอุปกรณ์เดโม AR** ถ้าจะเริ่มงาน M (iPhone ใช้ไม่ได้)
 5. **#151 ทำเว็บให้เป็นไทยทั้งหมด** — งานใหญ่ ยังไม่เริ่ม
+
+## 2026-07-26 (รอบที่ 3) — Track 1 ข้ามมาทำ Interface L/M/N/O จนจบ
+
+> ⚠️ **แท็กแทร็กสำคัญรอบนี้: Track 1 (เนื้อหาเชิงวิชาการ) เป็นคนทำงาน Track 2 ทั้งชุด**
+> user สั่ง "ทำเลยๆ" กลับคำจาก "เขียนสเปกไว้ให้เพื่อทำ" ที่ตอบไว้ก่อนหน้า
+> **เพื่อน (อีกบัญชี) อย่าทำ L/M/N/O ซ้ำ — เสร็จหมดแล้วทั้ง 4 ข้อ**
+> `HANDOFF_PROJECTS_LMNO_UI.md` ตกยุคไปแล้วบางส่วน ให้ยึด README กับโค้ดจริงแทน
+
+### สิ่งที่ทำเสร็จแล้ว (Completed Tasks)
+
+**รอบ Forecast (ตามที่ user ขอ "เน้นนวัตกรรมใหม่ๆ day-ahead + intra-day + block ตัวเลขใหญ่")**
+
+- **KPI block** `web/src/components/ForecastKpiBlock.tsx` + `web/src/lib/forecastKpi.ts` — 4 ไทล์ตัวใหญ่
+  (พลังงานที่คาด · พีคเท่าไรกี่โมง · ความไม่แน่นอน ณ พีค · ชั่วโมงที่จะผลิตไฟ) เปลี่ยนตามปุ่ม Day-ahead/Intra-day
+  · `inferStepHours()` ใช้ **ค่ามัธยฐาน** ของช่องว่างระหว่างจุด ไม่ใช่ช่องแรก · ไม่มีข้อมูลขึ้น `—` ไม่ใช่ `0`
+- **A. ตรวจแถบความเชื่อมั่นจริง** `forecast/verification.py` — PICP / PINAW / **pinball loss**
+  (จงใจไม่ใช้ CRPS เพราะมีแค่ 2 quantile) · `nominal_coverage_pct()` แก้ `89.99999999999999`
+- **C. แยกความแม่นตามสภาพฟ้า** `forecast/sky_condition.py` — ใช้ clear-sky index `kt = GHI/GHI_clearsky`
+  แยก clear/partly/overcast · ห่อ try/except ไว้ ถ้า pvlib พังจะเสียแค่ตารางนี้ ไม่ล้มทั้ง response
+- **B. Ramp forecast** `forecast/ramp.py` + `GET /forecast/{zone}/ramp` — Δkw/ชม. คิดเป็น % ของกำลัง AC
+- **D. Forecast evolution** `forecast/evolution.py` + `GET /forecast/{zone}/evolution`
+  · **ต้องสร้างตารางใหม่** `forecast_evolution` เพราะ `forecast_history` เป็น `INSERT OR REPLACE`
+  บน PK `(zone, horizon, target_time)` → คำพยากรณ์เก่าถูกทับทิ้งหมด ซึ่งคือข้อมูลที่ข้อ D ต้องใช้พอดี
+  · `is_converging()` คืน `None` ถ้ามีน้อยกว่า 3 issuance แทนที่จะเดาเทรนด์จาก 2 จุด
+
+**รอบ Interface (ตามที่ user ขอ "นวัตกรรมล้ำๆ ทึ่งๆว้าวๆ")**
+
+- **L. เงาจากดวงอาทิตย์จริง** `web/src/lib/sceneLighting.ts` + `Solar3DScene.tsx` — เปิด `<Canvas shadows>`
+  ใส่ `castShadow/receiveShadow` บนแผง/อาคาร/ขา · `shadowsWorthRendering()` ปิด shadow pass ต่ำกว่า 3°
+  · **เปลี่ยนจาก "เงาเมฆ" เป็น "เงาแดด" เพราะเงาเมฆทำแบบซื่อสัตย์ไม่ได้** (ดูรอบที่แล้ว)
+- **M. WebXR AR/VR** `web/src/lib/xr.ts` + `XrLaunchButtons.tsx` — เช็ค support **แยกทีละโหมด**
+  · iPhone/iPad ไม่ขึ้นปุ่มเลย (Safari ไม่มี WebXR) · **พิมพ์มาตราส่วนไว้ข้างปุ่ม** เพราะโมเดลตั้งโต๊ะไม่มีสเกลกำกับ
+  = การอ้างเกินจริงแบบเดียวกับตัวเลขที่ไม่มีที่มา · ต้องใช้ `createXRStore({ emulate: false })` ไม่งั้น jsdom พัง
+- **N. สั่งงานน้อง Solar ด้วยเสียง** `web/src/lib/speech.ts` — มี `tts.ts` (พูด) กับ intent engine อยู่แล้ว
+  เติมแค่ `SpeechRecognition` · `SPOKEN_TERM_FIXES` แก้ศัพท์ที่ dictation ไทยเพี้ยนก่อนเข้า intent matcher
+- **O. Provenance Inspector** (ชิ้นสุดท้าย รอบนี้) — `api/provenance.py` · `api/routes_provenance.py`
+  · `web/src/components/Provenanced.tsx` + `.css` · `useProvenance`
+  **คลิก ⓘ ข้างตัวเลขไหนก็ได้ → เห็นสายที่มา: แหล่งข้อมูล → โมเดล → ค่าที่ตั้งไว้ → การคำนวณ พร้อม origin ทุกขั้น**
+  ต่อไว้ครบทั้ง 6 สาย: KPI พลังงาน · อัตรา TOU เฉลี่ย · skill score · payback · annual energy · CO₂
+
+**O เจอบั๊กความซื่อสัตย์ในทะเบียน settings ตั้งแต่รันจริงครั้งแรก (แก้แล้วในคอมมิตเดียวกัน)**
+`zone.*.tilt_deg` กับ `zone.*.azimuth_deg` ถูกตั้ง `origin=as-built` → ขึ้นชิปสีฟ้า "จากเอกสาร as-built/SLD"
+บนมุมที่**ไม่มีเอกสารไหนระบุเลย** — `assets.yaml` เป็น `null` ทุกโซน และ `routes_orientation.py`
+เตือนเรื่องนี้บนหน้าจออยู่แล้วตั้งแต่แรก **ทะเบียนกับหน้า Orientation พูดคนละเรื่องกับผู้ใช้**
+→ แก้เป็น `placeholder` ทั้งคู่ (ส่วน `ac/dc_capacity` ข้างๆ ยังเป็น `as-built` ถูกแล้ว เพราะ 429 kWp เป็นค่าจริง)
+**ไม่มีตัวเลขคำนวณไหนเปลี่ยน** — `origin` เป็น metadata ความซื่อสัตย์ ไม่ใช่ input
+แต่ `simulation.annual_energy_kwh` เปลี่ยนหัวเรื่องจาก `literature` เป็น `placeholder` ซึ่งถูกกว่า
+
+### บริบทและสถานะปัจจุบัน (Current Context & State)
+
+- **กฎแกนของ O ที่ห้ามพัง**: origin/note ของ setting **ห้ามคัดลอกมาเก็บใน `provenance.py`**
+  `resolve_step()` อ่านสดจาก `settings_registry.BY_KEY` ตอน request · ถ้าเขียนมือไว้ พอมีคนแก้ทะเบียน
+  ข้อความจะเริ่มโกหกทันทีและไม่มีเทสต์จับได้ ซึ่งคือความพังที่ฟีเจอร์นี้เกิดมาเพื่อกันพอดี
+  · `validate_registry()` รันตอน import → คีย์ผิดพังตั้งแต่ build (จับคีย์ที่เดาผิดไป 4 ตัวตอนเขียน)
+- **หัวเรื่องคือ "ขั้นที่อ่อนที่สุดในสาย" ไม่ใช่ค่าเฉลี่ย** — payback มีทั้ง as-built และค่าที่ user ยืนยัน
+  แต่มี CAPEX เป็น placeholder ก็ต้องขึ้น placeholder
+- **`useProvenance` อยู่ใน `ProvenancePopover` ไม่ใช่ `Provenanced`** — ⓘ ที่ยังไม่เปิดจึงไม่ยิง query
+  และไม่แตะ auth context เลย ทำให้ห่อตัวเลขเพิ่มได้โดยไม่กระทบเทสต์ของ component เจ้าบ้าน
+- **`green.normal_rate_thb_per_kwh` ยังเป็น `literature`** ทั้งที่ CLAUDE.md บอกว่าอัตรา PEA เป็นของจริง
+  → **จงใจไม่แก้** เพราะเป็นการ under-claim (ปลอดภัยกว่า over-claim) และการเลื่อนเป็น `confirmed`
+  ควรเป็น user ตัดสิน ไม่ใช่ session — **ฝากถาม user ข้อนี้**
+- **CAPEX ฿30,000/kWp + WACC 8% ยังเป็นค่าประมาณ** (2 ข้อสุดท้ายที่เหลือ)
+  ⚠️ **อย่าเสนอราคาตลาดซ้ำ** — เสนอไปแล้ว 2026-07-25 และ user เลือกคงไว้เอง
+- ตัวเลขล่าสุด: settings **92 ค่า / 10 กลุ่ม** · api **408 tests** · web **646 tests / 68 ไฟล์** · forecast 234
+- **กับดัก sandbox ที่เสียเวลาไปแล้ว จำไว้**:
+  รันเทสต์ web ต้อง**ไม่มีอะไรฟังพอร์ต 8000** (ForecastPage/SettingsPage ไม่ mock `getVersion`
+  → ยิงไป API จริง → deploy-id เช็คไม่ตรง → auth logout → `role` เป็น null → แผงที่กันด้วย role เพี้ยน)
+  · `pkill -f <pattern>` ฆ่า shell ตัวเองถ้า pattern ตรงกับ command line ของตัวเอง
+  · `sleep` ต่อท้ายคำสั่งถูกบล็อก ต้องใช้ `until <เช็ค>; do sleep 5; done`
+  · เส้นทางใหม่ `/forecast/{zone}/...` ต้อง register **ก่อน** `routes_forecast` ไม่งั้น `{horizon}` กลืน
+  · `ruff check` ต้องใส่ `tests` ด้วย ไม่ใช่แค่ `src` (CI รัน ruff ก่อน pytest — เคยทำให้ 2 คอมมิตไม่ได้รันเทสต์เลย)
+
+### เป้าหมายและงานต่อไป (Next Steps for the Next Session)
+
+1. **เช็ค CI** ของคอมมิตรอบนี้ทั้งชุด (`c360d42` … `e92e392`) ว่าเขียวครบ
+2. **Live-verify บน Railway จริง** 3 แผงที่ยังไม่เคยเห็นของจริง: Ramp · Forecast Evolution · ⓘ Provenance
+   (ในเครื่องทดสอบ Ramp/Evolution ขึ้น "ยังไม่มีข้อมูล" ตามปกติ ต้องดูบนของจริง)
+   · ⓘ ยังไม่เคยเปิดบนเบราว์เซอร์จริงเลย — ในแซนด์บ็อกซ์ต่อ Postgres ไม่ได้ ตรวจได้แค่ผ่าน HTTP ตรงๆ กับ unit test
+3. **ถาม user 2 เรื่อง**: (ก) จะเลื่อน `green.normal_rate_thb_per_kwh` เป็น `confirmed` ไหม
+   (ข) จะเดโม AR ด้วยอุปกรณ์อะไร (iPhone ใช้ไม่ได้)
+4. **ข้อมูลที่ขอไปแล้วยังไม่ได้ (6 ข้อเดิม ไม่มีอะไรเปลี่ยน)**: อัตรา Off-Peak + วันหยุด กฟภ. ·
+   มุมเอียง/ทิศที่วัดจริง · albedo + ความสูงติดตั้ง · CAPEX + WACC · อัตรา demand charge + ประเภทผู้ใช้ไฟ ·
+   ขนาดสายสำหรับระยะ 1,130 m · พิกัดถัง LNG
+5. **งานที่ส่งให้เพื่อนแล้ว อย่าทำซ้ำ**: I (demand charge) · J (PV recycling) · K (power flow)
+   → `HANDOFF_PROJECTS_IJK.md`
+6. **#151 ทำเว็บให้เป็นไทยทั้งหมด** — งานใหญ่ ยังไม่เริ่ม ต้องถาม user ก่อนลงมือ
