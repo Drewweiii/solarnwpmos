@@ -858,3 +858,93 @@
   border-left: 3px solid #f59e0b;
   padding-left: 10px;
 }
+
+/* --- Forecast headline block (2026-07-25) ---------------------------------
+   Deliberately larger than `.kpi-card` above: that row reports the plant's
+   current state, this one reports what the forecast says, and the user asked
+   for the forecast numbers to be the ones you can read at a glance. The
+   accent tile carries the energy figure, which is the single number most
+   viewers come to this page for. */
+
+.forecast-kpi-block {
+  padding: 18px;
+  border-radius: 12px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+}
+
+.forecast-kpi-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.forecast-kpi-heading {
+  margin: 0;
+  font-size: 16px;
+  color: var(--text-h);
+}
+
+.forecast-kpi-window-note {
+  font-size: 12px;
+  opacity: 0.75;
+  color: var(--text);
+}
+
+.forecast-kpi-status {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.8;
+  color: var(--text);
+}
+
+.forecast-kpi-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px;
+}
+
+.forecast-kpi-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.forecast-kpi-tile-accent {
+  border-color: var(--accent, #f0a500);
+}
+
+.forecast-kpi-tile-label {
+  font-size: 13px;
+  color: var(--text);
+  opacity: 0.9;
+}
+
+/* The point of the block. clamp() so it stays readable on a phone without
+   overflowing the tile, and tabular figures so a value ticking up on a poll
+   doesn't make the whole row jitter sideways. */
+.forecast-kpi-tile-value {
+  font-size: clamp(28px, 4.2vw, 44px);
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+}
+
+.forecast-kpi-tile-unit {
+  font-size: 16px;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.forecast-kpi-tile-sub {
+  font-size: 12px;
+  opacity: 0.75;
+  color: var(--text);
+  min-height: 1.2em;
+}

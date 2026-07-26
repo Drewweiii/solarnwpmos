@@ -28,6 +28,7 @@ import { DcAcPanel } from '../components/DcAcPanel'
 import { GridCarbonPanel } from '../components/GridCarbonPanel'
 import { GridContextPanel } from '../components/GridContextPanel'
 import { OrientationPanel } from '../components/OrientationPanel'
+import { ForecastKpiBlock } from '../components/ForecastKpiBlock'
 import { useAuth } from '../lib/auth'
 import {
   buildCompetitionRows,
@@ -526,6 +527,19 @@ export function ForecastPage() {
           baseline) แทน ไม่ได้ทำนายมั่วๆ แต่ก็ยังไม่ใช่ ML ที่ train จากข้อมูลจริง (ดู caption ใต้กราฟเมื่อกำลังใช้โหมดสำรอง)
         </p>
       </details>
+
+      {/* What the forecast says, in numbers big enough to read at a glance -
+          placed above the current-state kpi-row because this page is a
+          forecasting page and those four tiles are all about right now. Fed
+          the latest poll's forward window rather than `forecastPoints` (which
+          accumulates past points across the session and would drag already-
+          happened hours into a "what's coming" figure). */}
+      <ForecastKpiBlock
+        points={latestForecastPoints}
+        horizon={horizonToggle}
+        isLoading={isLoading}
+        hasError={Boolean(forecastError)}
+      />
 
       <div className="kpi-row">
         <KpiCard label="Capacity" value={capacityKw.toFixed(1)} unit="kW" />
