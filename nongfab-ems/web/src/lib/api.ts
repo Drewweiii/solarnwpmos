@@ -35,6 +35,7 @@ import type {
   SunPathResponse,
   UvHistoryResponse,
   UvHourlyHistoryResponse,
+  EvolutionResponse,
   RampResponse,
   VerificationResponse,
   WeatherStripResponse,
@@ -154,6 +155,9 @@ export const getForecastVerification = (token: string, zone: string, days = 30):
 
 export const getForecastRamp = (token: string, zone: string, days = 30): Promise<RampResponse> =>
   request(`/forecast/${zone}/ramp?days=${days}`, token)
+
+export const getForecastEvolution = (token: string, zone: string, days = 7): Promise<EvolutionResponse> =>
+  request(`/forecast/${zone}/evolution?days=${days}`, token)
 
 export const getSoiling = (token: string, zone: string): Promise<SoilingResponse> => request(`/soiling/${zone}`, token)
 

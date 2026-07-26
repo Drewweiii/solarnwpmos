@@ -30,6 +30,7 @@ import { GridContextPanel } from '../components/GridContextPanel'
 import { OrientationPanel } from '../components/OrientationPanel'
 import { ForecastKpiBlock } from '../components/ForecastKpiBlock'
 import { RampPanel } from '../components/RampPanel'
+import { ForecastEvolutionPanel } from '../components/ForecastEvolutionPanel'
 import { useAuth } from '../lib/auth'
 import {
   buildCompetitionRows,
@@ -757,6 +758,7 @@ export function ForecastPage() {
       <GridContextPanel />
       <GridCarbonPanel />
       <RampPanel zone={zoneId} />
+      <ForecastEvolutionPanel zone={zoneId} />
       <OrientationPanel />
       <DcAcPanel />
       <BifacialPanel />

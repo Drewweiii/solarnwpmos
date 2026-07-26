@@ -503,6 +503,48 @@ export interface RampResponse {
   method_note: string
 }
 
+// GET /forecast/{zone}/evolution - how one hour's prediction moved as that hour
+// approached (2026-07-25). The main chart only ever shows the newest answer;
+// this shows every answer for one hour, which is how a reader tells a model
+// that knew early from one that guessed late and got lucky.
+export interface ForecastIssuance {
+  issued_at: string
+  lead_hours: number
+  pred_kw: number
+  lower_kw: number | null
+  upper_kw: number | null
+}
+
+export interface TargetEvolution {
+  target_time: string
+  n_issuances: number
+  issuances: ForecastIssuance[]
+  first_pred_kw: number | null
+  latest_pred_kw: number | null
+  // First issuance to last. Signed: too optimistic and too pessimistic are
+  // different stories.
+  total_revision_kw: number | null
+  // Widest gap between any two answers - NOT the same as the total revision.
+  // 180 -> 90 -> 175 nets to -5 kW and swung 90.
+  max_swing_kw: number | null
+  // Null below the minimum issuance count: a verdict from one revision is a
+  // verdict from a single data point.
+  is_converging: boolean | null
+}
+
+export interface EvolutionResponse {
+  available: boolean
+  zone: string
+  horizon: string
+  window_days: number
+  reason: string | null
+  min_issuances: number
+  highlight: TargetEvolution | null
+  n_targets_with_trend: number
+  collection_note: string
+  method_note: string
+}
+
 // GET /soiling/{zone} - the Soiling & Cleaning Advisor (2026-07-25). How dirty
 // the array is now, how fast it's getting dirtier, when rain last washed it,
 // what the dirt costs, and roughly when a wash is worth scheduling - all derived

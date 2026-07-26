@@ -273,6 +273,10 @@ def _persist_and_merge_history(
     if lookback_hours is None:
         return points
     store.record_forecast_points(zone, horizon, now, points)
+    # Keep this issuance alongside the earlier ones for the same hours, so the
+    # convergence view has something to show (project D, 2026-07-25).
+    # record_forecast_points above deliberately overwrites; this does not.
+    store.record_forecast_evolution(zone, horizon, now, points)
     since = now - timedelta(hours=lookback_hours)
     rows = store.forecast_history_points(zone, horizon, since)
     return [

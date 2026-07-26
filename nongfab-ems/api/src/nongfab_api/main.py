@@ -29,6 +29,7 @@ from . import (
     routes_dc_ac,
     routes_diagnostics,
     routes_energy_report,
+    routes_evolution,
     routes_expansion,
     routes_feedback,
     routes_financial,
@@ -248,6 +249,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     # unknown horizon (FastAPI matches in registration order).
     app.include_router(routes_verification.router)
     app.include_router(routes_ramp.router)
+    app.include_router(routes_evolution.router)
     app.include_router(routes_forecast.router)
     app.include_router(routes_simulate.router)
     app.include_router(routes_performance.router)

@@ -24,7 +24,7 @@ import sqlite3
 import threading
 from collections.abc import Iterable
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 
@@ -84,6 +84,27 @@ CREATE TABLE IF NOT EXISTS forecast_history (
     candidate_errors TEXT,
     PRIMARY KEY (zone, horizon, target_time)
 );
+
+-- Every issuance for a target hour, not just the freshest (2026-07-25).
+-- forecast_history above deliberately keeps ONE row per target hour, because
+-- serving a chart wants the best available forecast for each hour and an older
+-- issuance is strictly worse for that. But it means the question "how did the
+-- prediction for tomorrow noon change as tomorrow approached" cannot be asked
+-- of it at all - the earlier answers were overwritten the moment a better one
+-- arrived. This table keeps them, keyed on the issue time as well, purely so
+-- that question has somewhere to be asked. Nothing serves a forecast from here.
+CREATE TABLE IF NOT EXISTS forecast_evolution (
+    zone TEXT NOT NULL,
+    horizon TEXT NOT NULL,
+    target_time TEXT NOT NULL,
+    issued_at TEXT NOT NULL,
+    pred REAL NOT NULL,
+    lower REAL,
+    upper REAL,
+    PRIMARY KEY (zone, horizon, target_time, issued_at)
+);
+CREATE INDEX IF NOT EXISTS idx_forecast_evolution_target
+    ON forecast_evolution (zone, horizon, target_time);
 """
 
 
@@ -385,6 +406,57 @@ class RealDataStore:
             )
             conn.commit()
         return len(rows)
+
+    def record_forecast_evolution(
+        self, zone: str, horizon: str, issued_at: datetime, points: Iterable, retain_days: int = 14
+    ) -> int:
+        """Append this issuance's forward points, keeping earlier issuances for
+        the same hours (2026-07-25, project D).
+
+        Deliberately additive rather than a change to `record_forecast_points`:
+        that method's one-row-per-hour behaviour is what makes the served chart
+        show the best available forecast for every hour, and this table exists
+        only so the *superseded* answers survive somewhere to be compared.
+
+        Pruned on write to `retain_days` either side of the issue time. An
+        append-only table written on every poll would otherwise grow without
+        bound for a question nobody asks about last month.
+        """
+        rows = [
+            (
+                zone,
+                horizon,
+                p.timestamp.isoformat(),
+                issued_at.isoformat(),
+                float(p.pred),
+                None if getattr(p, "lower", None) is None else float(p.lower),
+                None if getattr(p, "upper", None) is None else float(p.upper),
+            )
+            for p in points
+        ]
+        if not rows:
+            return 0
+        cutoff = (issued_at - timedelta(days=retain_days)).isoformat()
+        with self._connect() as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO forecast_evolution "
+                "(zone, horizon, target_time, issued_at, pred, lower, upper) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+            conn.execute("DELETE FROM forecast_evolution WHERE target_time < ?", (cutoff,))
+            conn.commit()
+        return len(rows)
+
+    def forecast_evolution_rows(self, zone: str, horizon: str, since: datetime) -> list[tuple]:
+        """`(target_time, issued_at, pred, lower, upper)` for every issuance of
+        every target hour at or after `since`, oldest issue first."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT target_time, issued_at, pred, lower, upper FROM forecast_evolution "
+                "WHERE zone = ? AND horizon = ? AND target_time >= ? ORDER BY target_time, issued_at",
+                (zone, horizon, since.isoformat()),
+            ).fetchall()
+        return list(rows)
 
     def forecast_history_issuances(self, zone: str, horizon: str, since: datetime) -> list[tuple]:
         """Rows `(target_time, issued_at, pred, lower, upper)` for one
