@@ -177,3 +177,62 @@ describe('ForecastVerificationPanel interval section', () => {
     expect(screen.queryByText(/แถบความเชื่อมั่นที่เผยแพร่/)).not.toBeInTheDocument()
   })
 })
+
+// --- Sky-condition split (2026-07-25, project C) ----------------------------
+
+describe('ForecastVerificationPanel sky section', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  const bySky = [
+    { sky: 'clear', metrics: metrics({ n: 60, rmse_kw: 1.8, mae_kw: 1.1, mbe_kw: 0.2 }) },
+    { sky: 'partly_cloudy', metrics: metrics({ n: 40, rmse_kw: 6.4, mae_kw: 4.9, mbe_kw: 1.4 }) },
+    { sky: 'overcast', metrics: metrics({ n: 0, rmse_kw: 0, mae_kw: 0, mbe_kw: 0, skill_score: null }) },
+  ]
+
+  it('names the hardest sky condition instead of leaving it in the table', async () => {
+    vi.spyOn(api, 'getForecastVerification').mockResolvedValue({ ...base, by_sky: bySky })
+    renderPanel()
+    expect(await screen.findByText(/สภาพฟ้าที่ยากที่สุดตอนนี้คือ ⛅ มีเมฆบางส่วน/)).toBeInTheDocument()
+  })
+
+  it('keeps an empty condition visible rather than dropping the row', async () => {
+    // A missing row reads as "no errors under this sky", the opposite of "no
+    // data under this sky".
+    vi.spyOn(api, 'getForecastVerification').mockResolvedValue({ ...base, by_sky: bySky })
+    renderPanel()
+    expect(await screen.findByText('☁️ ฟ้าครึ้ม')).toBeInTheDocument()
+  })
+
+  it('reports the hours whose sky could not be determined', async () => {
+    vi.spyOn(api, 'getForecastVerification').mockResolvedValue({
+      ...base,
+      by_sky: bySky,
+      sky_unclassified_n: 7,
+    })
+    renderPanel()
+    expect(await screen.findByText(/อีก 7 ชั่วโมงระบุสภาพฟ้าไม่ได้/)).toBeInTheDocument()
+  })
+
+  it('says the split is unavailable when no hour could be classified', async () => {
+    vi.spyOn(api, 'getForecastVerification').mockResolvedValue({
+      ...base,
+      by_sky: [
+        { sky: 'clear', metrics: metrics({ n: 0 }) },
+        { sky: 'partly_cloudy', metrics: metrics({ n: 0 }) },
+        { sky: 'overcast', metrics: metrics({ n: 0 }) },
+      ],
+      sky_unclassified_n: 12,
+    })
+    renderPanel()
+    expect(await screen.findByText(/ยังแยกไม่ได้/)).toBeInTheDocument()
+  })
+
+  it('renders nothing extra against an older API that omits the block', async () => {
+    vi.spyOn(api, 'getForecastVerification').mockResolvedValue({ ...base })
+    renderPanel()
+    expect(await screen.findAllByText('0.390')).toHaveLength(2)
+    expect(screen.queryByText(/โมเดลพลาดตอนฟ้าเป็นแบบไหน/)).not.toBeInTheDocument()
+  })
+})

@@ -1007,3 +1007,9 @@
 .verify-interval-good {
   color: var(--success, #4a9d6b);
 }
+
+/* A sky bucket with no hours is greyed rather than dropped: an omitted row
+   reads as "this condition had no errors", which is the opposite of the truth. */
+.verify-sky-empty {
+  opacity: 0.5;
+}

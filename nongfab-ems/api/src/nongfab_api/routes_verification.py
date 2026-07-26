@@ -31,6 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from nongfab_common.assets import load_assets
 from nongfab_forecast.local_store import RealDataStore
 from nongfab_forecast.serving import GENERATED_POWER_HORIZON
+from nongfab_forecast.sky_condition import kt_by_hour
 from nongfab_forecast.verification import (
     IntervalMetrics,
     VerificationMetrics,
@@ -40,6 +41,7 @@ from nongfab_forecast.verification import (
     daylight_pairs,
     interval_metrics_by_lead,
     metrics_by_lead,
+    metrics_by_sky,
 )
 from pydantic import BaseModel
 
@@ -105,6 +107,20 @@ class IntervalLeadOut(BaseModel):
     interval: IntervalMetricsOut
 
 
+class SkyMetricsOut(BaseModel):
+    """Accuracy under one sky condition (project C, 2026-07-25)."""
+
+    sky: str
+    metrics: MetricsOut
+
+
+_SKY_NOTE = (
+    "แบ่งตาม clear-sky index (kt = GHI จริง ÷ GHI ท้องฟ้าใส) ของชั่วโมงนั้น "
+    "โดยใช้พยากรณ์อากาศรอบล่าสุดของแต่ละชั่วโมง ซึ่งเป็นข้อมูลชุดเดียวกับที่ฝั่ง 'ค่าจริง' ใช้ "
+    "เกณฑ์ฟ้าใส/ฟ้าครึ้มเป็นค่าตามธรรมเนียมงานวิจัย ไม่ใช่ค่าที่วัดที่ไซต์นี้ ปรับได้ในหน้า Settings"
+)
+
+
 _INTERVAL_NOTE = (
     "แถบความเชื่อมั่นที่โมเดลเผยแพร่ตั้งไว้ที่ควอนไทล์ 0.05/0.95 คือ 'ควรครอบคลุมความจริง 90%' "
     "ตัวเลข coverage ด้านล่างคือสัดส่วนที่ครอบคลุมได้จริงจากคำพยากรณ์ที่ออกไปแล้ว ไม่ใช่ค่า PICP ตอนเทรน "
@@ -134,10 +150,18 @@ class VerificationResponse(BaseModel):
     # headline point metrics (2026-07-25).
     interval: IntervalMetricsOut | None = None
     interval_by_lead: list[IntervalLeadOut] = []
+    # Accuracy split by sky condition (project C). Answers "when does this model
+    # fail?", which one site-wide RMSE cannot.
+    by_sky: list[SkyMetricsOut] = []
+    # Daylight pairs whose sky could not be determined (no NWP row for the hour,
+    # or a clear-sky reference too small to divide by). Reported rather than
+    # absorbed into a bucket - see verification.metrics_by_sky.
+    sky_unclassified_n: int = 0
     lead_time_note: str = _LEAD_NOTE
     reference_note: str = REFERENCE_NOTE
     interval_note: str = _INTERVAL_NOTE
     pinball_note: str = _PINBALL_NOTE
+    sky_note: str = _SKY_NOTE
 
 
 def _out(metrics: VerificationMetrics) -> MetricsOut:
@@ -169,6 +193,14 @@ def _interval_out(metrics: IntervalMetrics) -> IntervalMetricsOut:
 def _parse(when: str) -> datetime:
     parsed = datetime.fromisoformat(when)
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _site_lat_lon() -> tuple[float, float]:
+    """The plant's nominal centre, for the clear-sky reference. One site-wide
+    position is right here: the three zones sit within a few hundred metres of
+    each other, far closer than the resolution of any sky classification."""
+    site = load_assets().site.nominal_center
+    return site.lat, site.lon
 
 
 def _ac_capacity_kw(zone: str) -> float | None:
@@ -227,6 +259,25 @@ async def get_forecast_verification(
         )
 
     day_pairs = daylight_pairs(pairs, floor_kw=effective("diagnostics.daylight_floor_kw"))
+
+    # Sky condition per target hour, from the same NWP history the actual side
+    # is built on. Wrapped: this is the one part of the response that depends on
+    # a second store read plus a pvlib clear-sky run, and a failure there must
+    # cost the sky table only - not the accuracy figures that already computed
+    # fine.
+    try:
+        kt_lookup = kt_by_hour(store.nwp_history_df(), *_site_lat_lon())
+    except Exception:  # noqa: BLE001 - degrade to "no sky split", never 500 the whole route
+        kt_lookup = {}
+    sky_rows = metrics_by_sky(
+        day_pairs,
+        kt_lookup,
+        capacity,
+        clear_kt=effective("diagnostics.sky_clear_kt"),
+        overcast_kt=effective("diagnostics.sky_overcast_kt"),
+    )
+    unclassified = sky_rows[0][2] if sky_rows else 0
+
     return VerificationResponse(
         available=True,
         zone=zone,
@@ -244,4 +295,6 @@ async def get_forecast_verification(
             IntervalLeadOut(lead_bucket=label, interval=_interval_out(m))
             for label, m in interval_metrics_by_lead(day_pairs, capacity)
         ],
+        by_sky=[SkyMetricsOut(sky=label, metrics=_out(m)) for label, m, _ in sky_rows],
+        sky_unclassified_n=unclassified,
     )

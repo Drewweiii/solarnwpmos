@@ -37,6 +37,8 @@ from datetime import datetime
 
 import numpy as np
 
+from . import sky_condition
+
 # Hours below this output count as "night" for the daylight filter. A small
 # positive floor rather than exactly 0 so a hair of pre-dawn/post-dusk noise
 # doesn't drag a zone's metrics around.
@@ -159,6 +161,39 @@ def metrics_by_lead(
         in_bucket = [p for p in pairs if low <= p.lead_hours < high]
         out.append((label, compute_metrics(in_bucket, capacity_kw)))
     return out
+
+
+def metrics_by_sky(
+    pairs: list[ForecastActualPair],
+    kt_lookup: dict[datetime, float],
+    capacity_kw: float | None = None,
+    clear_kt: float = sky_condition.DEFAULT_CLEAR_KT,
+    overcast_kt: float = sky_condition.DEFAULT_OVERCAST_KT,
+) -> list[tuple[str, VerificationMetrics, int]]:
+    """Metrics split by sky condition, plus the count of pairs that could not be
+    classified at all.
+
+    Returns `(label, metrics, unclassified_n)` where `unclassified_n` repeats on
+    every row (it belongs to the whole split, not to any bucket). Hours with no
+    NWP row, or with a clear-sky reference too small to divide by, land there
+    rather than being forced into a bucket - a table that quietly absorbs the
+    hours it could not classify is worse than one that admits to them.
+
+    Every bucket is returned even when empty, for the same reason `metrics_by_lead`
+    does it: an omitted bucket looks like a bucket with no errors.
+    """
+    buckets: dict[str, list[ForecastActualPair]] = {label: [] for label in sky_condition.SKY_ORDER}
+    unclassified = 0
+    for pair in pairs:
+        label = sky_condition.sky_label_for(pair.target_time, kt_lookup, clear_kt, overcast_kt)
+        if label is None:
+            unclassified += 1
+            continue
+        buckets[label].append(pair)
+    return [
+        (label, compute_metrics(buckets[label], capacity_kw), unclassified)
+        for label in sky_condition.SKY_ORDER
+    ]
 
 
 # --- Scoring the published interval (2026-07-25) ----------------------------

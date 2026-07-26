@@ -25,6 +25,21 @@ class _Point:
         self.error = None
 
 
+class _Nwp:
+    """Matches what insert_nwp_points reads off each point."""
+
+    def __init__(self, valid_time: datetime, issue_time: datetime, ssrd_w_m2: float):
+        self.valid_time = valid_time
+        self.issue_time = issue_time
+        self.ssrd_w_m2 = ssrd_w_m2
+        self.temp2m_c = 30.0
+        self.wind10m_u_ms = 0.0
+        self.wind10m_v_ms = 0.0
+        self.relative_humidity_pct = 70.0
+        self.precip_mm = 0.0
+        self.source = "test"
+
+
 def _file_backed_app(engine, tmp_path):
     settings = Settings(
         jwt_secret_key="test-secret",
@@ -217,3 +232,69 @@ def test_verification_says_no_band_was_published_rather_than_zero_coverage(engin
     assert body["available"] is True
     assert body["daylight"]["n"] == 4  # the point forecast still scores fine
     assert body["interval"]["n"] == 0
+
+
+def test_verification_splits_accuracy_by_sky_condition(engine, tmp_path):
+    """Project C (2026-07-25): one site-wide RMSE averages an easy cloudless
+    morning together with a convective afternoon. Here the model is perfect on
+    the bright hours and badly wrong on the dark ones, so the split must show
+    that while the headline figure hides it."""
+    from nongfab_api.auth import create_access_token
+
+    app, settings = _file_backed_app(engine, tmp_path)
+    # Anchor on a bright midday hour (05:00Z = 12:00 ICT) so the clear-sky
+    # reference is large and kt is well defined for every hour used.
+    now = datetime.now(timezone.utc).replace(hour=5, minute=0, second=0, microsecond=0)
+
+    with TestClient(app) as client:
+        store = app.state.real_data_store
+        for h in range(1, 5):
+            target = now - timedelta(days=h)
+            bright = h <= 2
+            actual_kw = 40.0 if bright else 8.0
+            predicted = actual_kw if bright else actual_kw + 25.0
+            store.record_forecast_points("GIS", "hour", target - timedelta(hours=1), [_Point(target, predicted)])
+            store.record_forecast_points("GIS", GENERATED_POWER_HORIZON, target, [_Point(target, actual_kw)])
+            # The NWP row that decides the sky label for that hour: a bright
+            # 900 W/m2 midday reads as clear, 80 W/m2 at the same hour as overcast.
+            store.insert_nwp_points([_Nwp(target, target - timedelta(hours=1), 900.0 if bright else 80.0)])
+
+        token = create_access_token("tester", "viewer", settings, app.state.deploy_id)
+        resp = client.get("/forecast/GIS/verification?days=7", headers={"Authorization": f"Bearer {token}"})
+
+    body = resp.json()
+    assert body["available"] is True
+    labels = [row["sky"] for row in body["by_sky"]]
+    assert labels == ["clear", "partly_cloudy", "overcast"]
+    by_sky = {row["sky"]: row["metrics"] for row in body["by_sky"]}
+    # Bright hours: forecast was exact. Dark hours: 25 kW too high.
+    assert by_sky["clear"]["n"] == 2
+    assert by_sky["clear"]["rmse_kw"] == pytest.approx(0.0)
+    assert by_sky["overcast"]["n"] == 2
+    assert by_sky["overcast"]["rmse_kw"] == pytest.approx(25.0)
+    assert body["sky_note"]
+
+
+def test_verification_still_serves_metrics_when_the_sky_split_has_no_weather(engine, tmp_path):
+    """No NWP history at all: the accuracy figures must still come back, with
+    every hour reported as unclassified rather than the route failing."""
+    from nongfab_api.auth import create_access_token
+
+    app, settings = _file_backed_app(engine, tmp_path)
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+
+    with TestClient(app) as client:
+        store = app.state.real_data_store
+        for h in range(1, 4):
+            target = now - timedelta(hours=h)
+            store.record_forecast_points("GIS", "hour", target - timedelta(hours=1), [_Point(target, 30.0)])
+            store.record_forecast_points("GIS", GENERATED_POWER_HORIZON, target, [_Point(target, 28.0)])
+
+        token = create_access_token("tester", "viewer", settings, app.state.deploy_id)
+        resp = client.get("/forecast/GIS/verification?days=7", headers={"Authorization": f"Bearer {token}"})
+
+    body = resp.json()
+    assert body["available"] is True
+    assert body["daylight"]["n"] == 3
+    assert body["sky_unclassified_n"] == 3
+    assert all(row["metrics"]["n"] == 0 for row in body["by_sky"])

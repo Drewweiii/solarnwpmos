@@ -418,6 +418,14 @@ export interface VerificationIntervalLead {
   interval: VerificationIntervalMetrics
 }
 
+// Accuracy under one sky condition (2026-07-25). `sky` is a stable identifier
+// from the backend ("clear" | "partly_cloudy" | "overcast"), not display text -
+// the Thai label is chosen on this side.
+export interface VerificationSkyMetrics {
+  sky: string
+  metrics: VerificationMetrics
+}
+
 export interface VerificationResponse {
   available: boolean
   zone: string
@@ -436,6 +444,11 @@ export interface VerificationResponse {
   // every existing test fixture (CI #172/#173).
   interval?: VerificationIntervalMetrics | null
   interval_by_lead?: VerificationIntervalLead[]
+  by_sky?: VerificationSkyMetrics[]
+  // Daylight hours whose sky could not be determined - reported rather than
+  // absorbed into a bucket.
+  sky_unclassified_n?: number
+  sky_note?: string
   lead_time_note: string
   // States that the "actual" side is the physics estimate, not a meter - this
   // site has no metered generation at all.

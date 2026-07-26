@@ -139,6 +139,8 @@ export function ForecastVerificationPanel({ zone, days = 30 }: ForecastVerificat
 
       <IntervalSection data={data} />
 
+      <SkySection data={data} />
+
       <p className="forecast-status forecast-status-caption">
         <b>อ่านอย่างไร:</b> MAE/RMSE ยิ่งต่ำยิ่งดี · MBE เป็นบวก = โมเดลทำนาย<b>สูงเกินจริง</b> เป็นลบ = ทำนายต่ำเกินจริง ·
         Skill score &gt; 0 = เก่งกว่าการเดาว่า "อีก k ชั่วโมงจะเท่ากับตอนนี้" ซึ่งเป็น baseline มาตรฐานของงานพยากรณ์แสงอาทิตย์
@@ -247,6 +249,87 @@ function IntervalSection({ data }: { data: VerificationResponse }) {
 
       {data.interval_note && <p className="forecast-status forecast-status-caption">{data.interval_note}</p>}
       {data.pinball_note && <p className="forecast-status forecast-status-caption">{data.pinball_note}</p>}
+    </div>
+  )
+}
+
+/** Which skies does this model actually struggle with? (2026-07-25, project C)
+ *
+ * One RMSE per zone averages a cloudless January morning together with an
+ * afternoon of monsoon convection, and a model can look respectable by being
+ * good at the easy half. Splitting by clear-sky index is how solar-forecasting
+ * work is expected to report itself, and it answers the question a single
+ * number cannot: not "how big is the error" but "when is this model helpless".
+ *
+ * Buckets with no hours are still rendered, greyed: an omitted row reads as a
+ * condition with no errors rather than one with no data.
+ */
+const SKY_LABELS: Record<string, string> = {
+  clear: '☀️ ฟ้าใส',
+  partly_cloudy: '⛅ มีเมฆบางส่วน',
+  overcast: '☁️ ฟ้าครึ้ม',
+}
+
+function SkySection({ data }: { data: VerificationResponse }) {
+  const rows = data.by_sky
+  // Older API builds omit the block entirely.
+  if (!rows || rows.length === 0) return null
+
+  const scored = rows.filter((row) => row.metrics.n > 0)
+  if (scored.length === 0) {
+    return (
+      <p className="forecast-status forecast-status-caption">
+        <b>แยกตามสภาพฟ้า:</b> ยังแยกไม่ได้ — ยังไม่มีชั่วโมงไหนที่บอกสภาพฟ้าได้จากข้อมูลพยากรณ์อากาศที่เก็บไว้
+        {data.sky_unclassified_n ? ` (${data.sky_unclassified_n} ชั่วโมงระบุสภาพฟ้าไม่ได้)` : ''}
+      </p>
+    )
+  }
+
+  // The hardest condition by RMSE, among those that actually have hours. Named
+  // rather than left for the reader to spot in the table - it is the finding.
+  const worst = scored.reduce((a, b) => (b.metrics.rmse_kw > a.metrics.rmse_kw ? b : a))
+
+  return (
+    <div className="verify-interval">
+      <h4 className="verify-interval-title">โมเดลพลาดตอนฟ้าเป็นแบบไหน</h4>
+
+      <div className="verify-table-scroll">
+        <table className="verify-table">
+          <thead>
+            <tr>
+              <th scope="col">สภาพฟ้า</th>
+              <th scope="col">n (ชม.)</th>
+              <th scope="col">MAE (kW)</th>
+              <th scope="col">RMSE (kW)</th>
+              <th scope="col">อคติ MBE (kW)</th>
+              <th scope="col">Skill</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.sky} className={row.metrics.n === 0 ? 'verify-sky-empty' : undefined}>
+                <th scope="row">{SKY_LABELS[row.sky] ?? row.sky}</th>
+                <td>{row.metrics.n}</td>
+                <td>{row.metrics.n === 0 ? '—' : row.metrics.mae_kw.toFixed(2)}</td>
+                <td>{row.metrics.n === 0 ? '—' : row.metrics.rmse_kw.toFixed(2)}</td>
+                <td>
+                  {row.metrics.n === 0
+                    ? '—'
+                    : `${row.metrics.mbe_kw >= 0 ? '+' : ''}${row.metrics.mbe_kw.toFixed(2)}`}
+                </td>
+                <td>{row.metrics.skill_score == null ? '—' : row.metrics.skill_score.toFixed(3)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="forecast-status forecast-status-caption">
+        <b>สภาพฟ้าที่ยากที่สุดตอนนี้คือ {SKY_LABELS[worst.sky] ?? worst.sky}</b> (RMSE {worst.metrics.rmse_kw.toFixed(2)} kW จาก{' '}
+        {worst.metrics.n} ชั่วโมง) — ตัวเลข RMSE รวมของทั้งไซต์กลบเรื่องนี้ไว้ เพราะเฉลี่ยวันฟ้าใสที่ทำนายง่ายเข้าไปด้วย
+        {data.sky_unclassified_n ? ` · อีก ${data.sky_unclassified_n} ชั่วโมงระบุสภาพฟ้าไม่ได้ จึงไม่ถูกนับในตารางนี้` : ''}
+      </p>
+      {data.sky_note && <p className="forecast-status forecast-status-caption">{data.sky_note}</p>}
     </div>
   )
 }

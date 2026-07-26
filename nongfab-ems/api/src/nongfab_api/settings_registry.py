@@ -714,6 +714,35 @@ SPECS: tuple[SettingSpec, ...] = (
         origin=ORIGIN_TUNING,
         note="ชั่วโมงที่ทั้งค่าทำนายและค่าจริงต่ำกว่านี้ถือเป็นกลางคืน ไม่นำมาคิด",
     ),
+    # The sky-condition split (project C, 2026-07-25). These two are DEFINITIONS,
+    # not measurements - no observation at Nong Fab could pin them down, because
+    # "clear" is a word we choose the meaning of. Exposed so a reader who prefers
+    # a different partition can move the line and watch the table change rather
+    # than argue with a constant compiled into the backend.
+    SettingSpec(
+        key="diagnostics.sky_clear_kt",
+        group=GROUP_DIAGNOSTICS,
+        label="เกณฑ์ 'ฟ้าใส' (clear-sky index)",
+        unit="kt",
+        default=0.70,
+        minimum=0.4,
+        maximum=1.0,
+        step=0.01,
+        origin=ORIGIN_LITERATURE,
+        note="kt = GHI จริง ÷ GHI ท้องฟ้าใส · ตั้งแต่ค่านี้ขึ้นไปนับเป็นฟ้าใส (ค่าที่งานวิจัยนิยมใช้ ไม่ใช่ค่าที่วัดที่ไซต์นี้)",
+    ),
+    SettingSpec(
+        key="diagnostics.sky_overcast_kt",
+        group=GROUP_DIAGNOSTICS,
+        label="เกณฑ์ 'ฟ้าครึ้ม' (clear-sky index)",
+        unit="kt",
+        default=0.30,
+        minimum=0.05,
+        maximum=0.6,
+        step=0.01,
+        origin=ORIGIN_LITERATURE,
+        note="ต่ำกว่าค่านี้นับเป็นฟ้าครึ้ม · ระหว่างสองเกณฑ์คือมีเมฆบางส่วน",
+    ),
     SettingSpec(
         key="diagnostics.cloud_max_age_minutes",
         group=GROUP_DIAGNOSTICS,
