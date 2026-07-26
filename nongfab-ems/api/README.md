@@ -1278,3 +1278,32 @@ though `CLAUDE.md` records it as a real published figure the user supplied on
 2026-07-19. That direction of error under-claims rather than over-claims, and
 promoting a tariff to `confirmed` is the user's call, not a session's - flagged
 rather than edited.
+
+### 2026-07-26 - `GET /poster/{zone}` - a year of light, as data (project S, Track 1)
+
+Feeds one generated image (see `web/README.md`'s matching entry): a radial dial
+of 365 rays, each spanning that day's sunrise to sunset, months coloured by
+output.
+
+**What shaped the endpoint was a constraint, not a design.** The obvious poster
+is 365 × 24 cells coloured by generation. This project's annual energy model is
+twelve representative days - `nongfab_simulation.pipeline.monthly_ac_energy_estimates`
+says so itself - so painting 8,760 cells would invent 8,748 values nobody
+computed. The response therefore carries two layers at two openly different
+resolutions and labels both: `days` is per-day and exact (pvlib sunrise/sunset
+and solar-noon elevation at the site's real coordinates - astronomy, not
+measurement), `months` is per-month and modelled. There is deliberately **no
+per-day energy field**, so the frontend has nothing to colour a fake gradient
+with, and a test asserts its absence.
+
+Times are converted to ICT before serialising. That is the one bug this route
+could plausibly have shipped: UTC sunrise at Nong Fab lands around 23:37 the
+previous day, which looks odd rather than wrong, so a test pins every sunrise
+between 05:00 and 07:00 local.
+
+`build_poster` is importable and tested directly, which is why the two tests
+that go through HTTP were the only ones to catch the route filtering zones on
+`zone.zone_id` - a field that does not exist. The real one is `zone.id`.
+
+Year is clamped to 2000-2100: pvlib will happily return solar positions for
+year 3, and a poster of them would be a plausible-looking picture of nothing.

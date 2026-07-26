@@ -1346,3 +1346,40 @@ export interface ProvenanceIndexResponse {
   intro: string
   keys: string[]
 }
+
+/** GET /poster/{zone} — "หนึ่งปีของแสงที่หนองแฟบ" (project S, 2026-07-26).
+ *
+ * Two honestly different resolutions in one payload: `days` is per-day and
+ * exact (pvlib astronomy at the site's real coordinates), `months` is per-month
+ * and modelled. The poster draws shape from the first and colour from the
+ * second, and says so. */
+export interface PosterDay {
+  day_of_year: number
+  sunrise_hour: number | null
+  sunset_hour: number | null
+  daylight_hours: number | null
+  noon_elevation_deg: number | null
+}
+
+export interface PosterMonth {
+  month: number
+  label: string
+  ac_energy_kwh: number
+  is_rainy_season: boolean
+  days_in_month: number
+}
+
+export interface PosterResponse {
+  zone: string
+  year: number
+  lat: number
+  lon: number
+  days: PosterDay[]
+  months: PosterMonth[]
+  annual_ac_energy_kwh: number
+  longest_day: number
+  shortest_day: number
+  geometry_note: string
+  energy_note: string
+  why_note: string
+}

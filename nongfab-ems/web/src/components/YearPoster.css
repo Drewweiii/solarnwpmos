@@ -1,0 +1,132 @@
+/* "หนึ่งปีของแสงที่หนองแฟบ" (project S, 2026-07-26).
+
+   Fixed dark ink on a fixed cream field rather than theme tokens. This is a
+   poster meant to be downloaded and dropped into a slide or a document, and an
+   SVG whose colours depended on which theme the browser happened to be in when
+   the button was pressed would be a different file every time. The frame around
+   it follows the theme; the artwork does not. */
+
+.year-poster {
+  margin-top: 20px;
+}
+
+.year-poster-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.year-poster-download {
+  padding: 6px 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--text-h);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.year-poster-download:hover,
+.year-poster-download:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.year-poster-frame {
+  max-width: 620px;
+  margin: 10px auto 14px;
+}
+
+.year-poster-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 12px;
+}
+
+.year-poster-bg {
+  fill: #14110c;
+}
+
+.year-poster-ring {
+  fill: none;
+  stroke: rgba(255, 246, 224, 0.14);
+  stroke-width: 1;
+}
+
+.year-poster-ring-label,
+.year-poster-month-label,
+.year-poster-centre-sub,
+.year-poster-centre-title {
+  fill: #f6efe0;
+  font-family: var(--sans);
+  text-anchor: middle;
+}
+
+.year-poster-ring-label {
+  font-size: 11px;
+  opacity: 0.5;
+}
+
+.year-poster-month-rule {
+  stroke: rgba(255, 246, 224, 0.22);
+  stroke-width: 1;
+}
+
+.year-poster-month-label {
+  font-size: 17px;
+  font-weight: 600;
+  opacity: 0.9;
+  dominant-baseline: middle;
+}
+
+.year-poster-centre-title {
+  font-size: 44px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.year-poster-centre-sub {
+  font-size: 13px;
+  opacity: 0.72;
+}
+
+.year-poster-legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 0.78rem;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.year-poster-swatch {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+
+.year-poster-swatch-dry {
+  background: hsl(38 92% 52%);
+}
+
+.year-poster-swatch-rain {
+  background: hsl(196 62% 52%);
+}
+
+/* Halo, so the hour scale stays readable where it crosses the January spokes.
+   SVG's paint-order lets one text node carry its own backdrop - cheaper and
+   sharper than placing a rect behind each label. */
+.year-poster-ring-label {
+  paint-order: stroke;
+  stroke: #14110c;
+  stroke-width: 3.5px;
+  stroke-linejoin: round;
+}

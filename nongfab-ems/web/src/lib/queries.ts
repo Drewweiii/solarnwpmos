@@ -30,6 +30,7 @@ import {
   getIrradianceMap,
   getMoonPath,
   getPerformance,
+  getPoster,
   getPrecipitationConditions,
   getProvenance,
   getSunPath,
@@ -213,6 +214,19 @@ export function useProvenanceMany(keys: string[], enabled: boolean) {
       enabled: Boolean(token) && enabled,
       staleTime: 5 * 60 * 1000,
     })),
+  })
+}
+
+/** GET /poster/{zone} - a year of sunrise/sunset geometry plus twelve monthly
+ * energy figures (project S). 365 days of astronomy is a real pvlib run per
+ * request, and none of it changes within a year, so it is cached hard. */
+export function usePoster(zone: string) {
+  const { token } = useAuth()
+  return useQuery({
+    queryKey: ['poster', zone],
+    queryFn: () => getPoster(zone, token!),
+    enabled: Boolean(token),
+    staleTime: Infinity,
   })
 }
 

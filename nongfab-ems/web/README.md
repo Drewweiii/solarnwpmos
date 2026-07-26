@@ -3546,3 +3546,63 @@ dark, and `present` reports a computed base of 22px with visibly darker series
 colours.
 
 Gates: oxlint clean, 669 tests across 72 files (+17), `tsc -b` + vite build clean.
+
+### 2026-07-26 - "หนึ่งปีของแสงที่หนองแฟบ": a poster made of this site's own year (project S, Track 1)
+
+`GET /poster/{zone}` plus `YearPoster.tsx` produce one image: a radial dial
+where each of the year's 365 days is a ray running from that day's sunrise to
+its sunset, with the twelve months coloured by output. Downloads as SVG.
+
+**The honesty constraint is what shaped it.** The obvious poster is a 365 × 24
+grid of cells coloured by generation - genuinely beautiful, and a lie. This
+project's annual energy model *is twelve representative days*, one per calendar
+month, scaled by that month's real day count; `monthly_ac_energy_estimates`
+says so in its own docstring. Smearing that into 8,760 coloured cells would
+invent 8,748 values nobody computed. The rule recorded during project L applies
+unchanged: **a picture that renders more detail than the data supports is
+fabrication, just in pixels.**
+
+So the image carries two layers at two openly different resolutions, and prints
+which is which:
+
+* **shape — per day, exact.** Sunrise, sunset and solar-noon elevation for every
+  day, from pvlib at Nong Fab's real 12.71°N 101.15°E. Astronomy, not
+  measurement: as exact as the coordinates. This is what gives the dial its
+  seasonal breathing.
+* **colour — per month, modelled.** Twelve AC energy figures, warm gold for the
+  dry season and cool blue for มิ.ย.–ต.ค., labelled as monthly wherever they
+  appear.
+
+Colour intensity is scaled against the best month **from zero**, not stretched
+between weakest and strongest. Nong Fab's months only range about 8.4k–11.2k
+kWh, so a min-max stretch would render a 25% spread as the full colour range and
+make the seasons look far more dramatic than they are. The comparatively flat
+result is the honest one, and it is itself the finding: this site's output
+barely varies across the year.
+
+Longest and shortest day are read off the computed series rather than assumed to
+be the solstices - they come out at day 171 (20 มิ.ย.) and day 354 (20 ธ.ค.).
+
+The API tests are checkable facts about this latitude rather than smoke tests:
+day length swings 11.4h–12.9h (an equatorial site would be flat at 12h, a
+European one would swing far wider), solar noon runs 54°–79°, and every sunrise
+must fall between 05:00 and 07:00 **local** - the one bug this route could
+plausibly ship is leaving the times in UTC, which would be seven hours off and
+merely look odd.
+
+Two things came out of rendering it with real data and looking at the picture.
+The hour-scale labels sit in a column on the upward vertical - the only place a
+radial axis can be read - and seven of them collided with each other and with
+the January rays; now five, with an SVG `paint-order` halo so they survive
+crossing the artwork. And the poster's palette is deliberately **fixed** rather
+than themed: it is meant to be downloaded into a slide, and an SVG whose colours
+depended on which theme the browser happened to be in would be a different file
+every time.
+
+One caught mistake worth recording: the route first filtered zones on
+`zone.zone_id`, a field that does not exist - the real one is `zone.id`. Only
+the two tests that go through HTTP caught it, because `build_poster` never
+touches the registry.
+
+Gates: oxlint clean, 678 web tests across 73 files (+9), `tsc -b` + vite build
+clean, api 416 tests (+8), ruff clean.

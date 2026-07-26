@@ -25,6 +25,7 @@ import type {
   IrradianceMapResponse,
   MoonPathResponse,
   PerformanceResponse,
+  PosterResponse,
   PrecipitationConditionsResponse,
   ProvenanceResponse,
   SimulateRequest,
@@ -300,3 +301,6 @@ export const getOfficialSources = (token: string): Promise<SourcesResponse> => r
 
 export const getProvenance = (key: string, token: string): Promise<ProvenanceResponse> =>
   request(`/provenance/${encodeURIComponent(key)}`, token)
+
+export const getPoster = (zone: string, token: string): Promise<PosterResponse> =>
+  request(`/poster/${encodeURIComponent(zone)}`, token)

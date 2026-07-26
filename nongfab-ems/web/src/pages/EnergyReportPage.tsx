@@ -6,6 +6,7 @@ import { ExpansionPlannerPanel } from '../components/ExpansionPlannerPanel'
 import { PrintReport } from '../components/PrintReport'
 import { Provenanced } from '../components/Provenanced'
 import { SoilingAdvisorPanel } from '../components/SoilingAdvisorPanel'
+import { YearPoster } from '../components/YearPoster'
 import { SLDViewer } from '../components/SLDViewer'
 import { ZoneSelector } from '../components/ZoneSelector'
 import { useEnergyReport, useZones } from '../lib/queries'
@@ -218,6 +219,8 @@ export function EnergyReportPage() {
               </p>
             </div>
           </section>
+
+          <YearPoster zone={zone} />
 
           <section className="energy-report-section" aria-label="Environmental impact">
             <h2>Environmental impact</h2>

@@ -39,6 +39,7 @@ from . import (
     routes_irradiance_map,
     routes_orientation,
     routes_performance,
+    routes_poster,
     routes_provenance,
     routes_ramp,
     routes_savings,
@@ -252,6 +253,7 @@ def create_app(settings: Settings | None = None, engine: AsyncEngine | None = No
     app.include_router(routes_ramp.router)
     app.include_router(routes_evolution.router)
     app.include_router(routes_provenance.router)
+    app.include_router(routes_poster.router)
     app.include_router(routes_forecast.router)
     app.include_router(routes_simulate.router)
     app.include_router(routes_performance.router)
