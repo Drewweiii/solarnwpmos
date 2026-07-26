@@ -39,6 +39,7 @@ import {
 } from '../lib/handControl'
 import { DEFAULT_HAND_TUNING, type HandTuning } from '../lib/handSettings'
 import type { IrradianceGridPoint, MoonPathPoint, Panel, PrecipitationIntensity, SunPathPoint } from '../lib/types'
+import { lightingForCloudCover, shadowCameraExtent, shadowsWorthRendering } from '../lib/sceneLighting'
 
 // Exposed to Solar3DPage's icon rail "reset camera" button - React 19 takes
 // `ref` as a plain prop (no forwardRef wrapper needed), see this component's
@@ -146,7 +147,15 @@ function PanelMesh({ panel, tiltDeg, azimuthDeg, color, baseY }: PanelMeshProps)
 
   return (
     <group position={[panel.east_m, baseY, -panel.north_m]} rotation={[0, -azimuthRad, 0]}>
-      <mesh rotation={[-tiltRad, 0, 0]} position={[0, (panel.slant_height_m / 2) * Math.sin(tiltRad), 0]}>
+      {/* castShadow is what produces inter-row self-shading, and that shadow
+          is real: surveyed corners, real row pitch, real tilt, real sun. It is
+          the same geometry annual_shading_loss_pct turns into a percentage. */}
+      <mesh
+        rotation={[-tiltRad, 0, 0]}
+        position={[0, (panel.slant_height_m / 2) * Math.sin(tiltRad), 0]}
+        castShadow
+        receiveShadow
+      >
         <boxGeometry args={[panel.width_m * 0.92, thickness, panel.slant_height_m * 0.92]} />
         <meshStandardMaterial color={color} />
       </mesh>
@@ -188,7 +197,7 @@ function BuildingMass({ minEast, maxEast, minNorth, maxNorth, mountType }: Build
     return (
       <group>
         {corners.map(([e, n]) => (
-          <mesh key={`${e}-${n}`} position={[e, GROUND_MOUNT_CLEARANCE_M / 2, -n]}>
+          <mesh key={`${e}-${n}`} position={[e, GROUND_MOUNT_CLEARANCE_M / 2, -n]} castShadow receiveShadow>
             <cylinderGeometry args={[legRadius * 0.5, legRadius * 0.5, GROUND_MOUNT_CLEARANCE_M, 8]} />
             <meshStandardMaterial color="#374151" />
           </mesh>
@@ -203,7 +212,11 @@ function BuildingMass({ minEast, maxEast, minNorth, maxNorth, mountType }: Build
 
   return (
     <group>
-      <mesh position={[centerEast, baseY + height / 2, -centerNorth]}>
+      {/* Casts, but note BUILDING_HEIGHT_M is documented as "Not a measured
+          value" - so a building's shadow LENGTH is only as real as that
+          assumption. The panels' own shadows are the ones from surveyed
+          geometry; the on-screen caption has to keep the two apart. */}
+      <mesh position={[centerEast, baseY + height / 2, -centerNorth]} castShadow receiveShadow>
         <boxGeometry args={[width, height, depth]} />
         <meshStandardMaterial color={isPier ? '#4b5563' : '#6b7280'} />
       </mesh>
@@ -292,6 +305,11 @@ interface SunMarkerProps {
   wrapStartMs: number | null
   wrapEndMs: number | null
   onAnimatedTimeChange?: (atIso: string) => void
+  // Site-wide Himawari cloud reading. Dims the sun and lifts the ambient
+  // fill - it cannot shape a shadow, see sceneLighting's own docstring.
+  cloudOpacityPct?: number | null
+  // Half-width of the shadow camera box, from the scene's own span.
+  shadowExtent: number
 }
 
 // Renders the sun marker + its directional light, and (while playing)
@@ -317,6 +335,8 @@ function SunMarker({
   wrapStartMs,
   wrapEndMs,
   onAnimatedTimeChange,
+  cloudOpacityPct = null,
+  shadowExtent,
 }: SunMarkerProps) {
   const groupRef = useRef<Group>(null)
   const lightRef = useRef<DirectionalLight>(null)
@@ -349,7 +369,15 @@ function SunMarker({
     }
     if (lightRef.current) {
       lightRef.current.position.set(x, y, z)
-      lightRef.current.intensity = Math.max(0.2, Math.sin((elevationDeg * Math.PI) / 180))
+      // Elevation sets how strong the sun is; cloud cover then dims it. Both
+      // are real readings - see sceneLighting.lightingForCloudCover for why
+      // cloud can only dim the whole site here and never shape a shadow.
+      const { directional } = lightingForCloudCover(cloudOpacityPct)
+      lightRef.current.intensity = Math.max(0.2, Math.sin((elevationDeg * Math.PI) / 180)) * directional
+      // Shadows off below (and just above) the horizon: there is nothing to
+      // cast from at night, and at a grazing sun they stretch to a smear that
+      // costs the entire shadow map to render.
+      lightRef.current.castShadow = shadowsWorthRendering(elevationDeg)
     }
 
     if (isPlaying && onAnimatedTimeChange) {
@@ -363,7 +391,26 @@ function SunMarker({
 
   return (
     <>
-      <directionalLight ref={lightRef} intensity={0.5} />
+      {/* The one light in this scene that casts. Its shadow camera is an
+          orthographic box sized to the array (see shadowCameraExtent): too
+          small and the far rows lose their shadows, too large and the crisp
+          row-on-row shadow turns into a grey smear. */}
+      <directionalLight
+        ref={lightRef}
+        intensity={0.5}
+        castShadow
+        shadow-mapSize-width={1024}
+        shadow-mapSize-height={1024}
+        shadow-camera-left={-shadowExtent}
+        shadow-camera-right={shadowExtent}
+        shadow-camera-top={shadowExtent}
+        shadow-camera-bottom={-shadowExtent}
+        shadow-camera-near={0.5}
+        shadow-camera-far={shadowExtent * 6}
+        // Without a bias the panels shadow-acne themselves into stripes at low
+        // sun, which reads as a rendering fault rather than as shading.
+        shadow-bias={-0.0005}
+      />
       <group ref={groupRef}>
         {/* Soft outer glow first (semi-transparent, no depth-write so it
             never occludes the solid core behind it) - a bare small sphere
@@ -1047,7 +1094,7 @@ function NaturalGround({ center, span, marine }: NaturalGroundProps) {
   if (marine) {
     return (
       <group ref={groupRef}>
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center[0], -0.05, -center[1]]}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center[0], -0.05, -center[1]]} receiveShadow>
           <planeGeometry args={[size, size]} />
           <meshStandardMaterial color="#1b4f73" metalness={0.55} roughness={0.25} />
         </mesh>
@@ -1067,7 +1114,9 @@ function NaturalGround({ center, span, marine }: NaturalGroundProps) {
         <planeGeometry args={[size, size]} />
         <meshStandardMaterial color="#6b5a3e" roughness={1} />
       </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center[0], -0.04, -center[1]]}>
+      {/* The grass patch is what the panels' shadows actually land on, so it
+          is the one that has to receive them. */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center[0], -0.04, -center[1]]} receiveShadow>
         <planeGeometry args={[span * 1.15, span * 1.15]} />
         <meshStandardMaterial color="#4f7a3a" roughness={0.95} />
       </mesh>
@@ -1674,6 +1723,7 @@ export function Solar3DScene({
 
   return (
     <Canvas
+      shadows
       camera={{
         position: [
           focusCenterScene[0] + bounds.focus.span * 0.9,
@@ -1689,7 +1739,10 @@ export function Solar3DScene({
       style={{ touchAction: 'none' }}
       data-testid="solar3d-canvas"
     >
-      <ambientLight intensity={0.6} />
+      {/* Sky fill. Rises as cloud dims the sun: overcast is softer, not
+          simply darker, and dropping the direct light alone would render a
+          cloudy noon as dusk. */}
+      <ambientLight intensity={lightingForCloudCover(cloudOpacityPct ?? null).ambient} />
 
       {/* Realistic base ground (water for Jetty's over-sea trestle, land for
           GIS/ISB - see NaturalGround's docstring for why that split is real
@@ -1787,6 +1840,8 @@ export function Solar3DScene({
         wrapStartMs={wrapStartMs}
         wrapEndMs={wrapEndMs}
         onAnimatedTimeChange={onAnimatedTimeChange}
+        cloudOpacityPct={cloudOpacityPct ?? null}
+        shadowExtent={shadowCameraExtent(bounds.focus.span)}
       />
       {moonPathLine.length > 1 && <Line points={moonPathLine} color="#94a3b8" lineWidth={1} />}
       <MoonMarker
