@@ -197,6 +197,25 @@ export function useProvenance(key: string, enabled: boolean) {
   })
 }
 
+/** Several provenance chains at once, for the printed report's appendix
+ * (project Q). Same lazy contract as `useProvenance`: nothing is fetched until
+ * `enabled` flips, which happens when somebody actually asks to print.
+ *
+ * `useQueries` rather than a loop of `useQuery` because the key list is data,
+ * not a constant - the caller passes whichever figures its page publishes.
+ */
+export function useProvenanceMany(keys: string[], enabled: boolean) {
+  const { token } = useAuth()
+  return useQueries({
+    queries: keys.map((key) => ({
+      queryKey: ['provenance', key],
+      queryFn: () => getProvenance(key, token!),
+      enabled: Boolean(token) && enabled,
+      staleTime: 5 * 60 * 1000,
+    })),
+  })
+}
+
 export function useBifacial() {
   const { token } = useAuth()
   return useQuery({

@@ -1,0 +1,192 @@
+/* Printing, and saving as PDF (2026-07-26, project Q).
+ *
+ * Before this file the project had no `@media print` rule anywhere, so
+ * Ctrl+P on the Energy Report produced the dashboard: navigation bar, floating
+ * mascot, chat widget, buttons that do nothing on paper, and - for anyone
+ * whose OS is in dark mode - white text on a dark field, which prints as an
+ * unreadable page and a great deal of toner.
+ *
+ * The target is a document somebody can hand to a committee, so the rules
+ * below are ordered the way the problems appear: get the chrome off the page,
+ * force it light, control where pages break, then add the parts that exist
+ * only on paper (the cover block and the provenance appendix).
+ */
+
+@media print {
+  /* 1. Force light. A visitor reading in dark mode must not print their
+     screen. Overriding the tokens rather than the rules means every component
+     follows without any of them knowing about printing.
+
+     EVERY token the dark-mode block sets has to be answered here. A first pass
+     overrode eight of them and the printed proof showed `<code>` as black text
+     on the dark-mode `--code-bg`, unreadable - and the chart series would have
+     printed in their dark-mode variants, which are lightened for a dark field
+     and wash out on white paper. So the full set is restated, matching the
+     light values in index.css, with only the handful below deliberately
+     different for ink. */
+  :root {
+    --text: #1a1a1a; /* darker than the screen's #6b6375: paper has no backlight */
+    --text-h: #000;
+    --bg: #fff;
+    --card-bg: #fff; /* not the screen's tinted #f9f8fb - a grey card block wastes toner */
+    --border: #b8b8bd;
+    --code-bg: #f1f0ea;
+    --shadow: none;
+    --accent: #6d28d9;
+    --accent-bg: transparent;
+    --accent-border: rgba(109, 40, 217, 0.5);
+    --social-bg: transparent;
+    --danger: #b91c1c;
+    --danger-bg: transparent;
+    --ok: #15803d;
+
+    /* Chart series, back to the light-mode values. These encode meaning, so
+       they cannot be left in their dark-field variants. */
+    --chart-forecast: #2563eb;
+    --chart-pi: #059669;
+    --chart-rainy: #f59e0b;
+    --chart-lgbm: #16a34a;
+    --chart-rf: #f59e0b;
+    --chart-sumk: #0d9488;
+    --chart-minute: #dc2626;
+    --chart-error: #78716c;
+    --chart-actual-today: #db2777;
+    --chart-actual-past: #92400e;
+    --chart-irradiance: #ca8a04;
+    --chart-clearsky: #0ea5e9;
+    --chart-temp: #ea580c;
+    --chart-rh: #0891b2;
+    --chart-wind: #475569;
+    --chart-cosz: #4f46e5;
+    --chart-khat: #65a30d;
+    --chart-uv: #7c3aed;
+    --chart-salt: #0d9488;
+    --chart-aod: #b45309;
+    --chart-pm25: #db2777;
+    --chart-pm10: #9333ea;
+    --chart-dust: #a16207;
+
+    color-scheme: light;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #1a1a1a !important;
+  }
+
+  /* Chart series carry meaning, so their colour has to survive the browser's
+     default "save ink" behaviour. */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    box-shadow: none !important;
+  }
+
+  /* 2. Everything that is navigation, chrome, or an affordance you cannot use
+     on paper. `.print-hide` is the escape hatch for anything a page wants to
+     drop without earning its own selector here. */
+  .app-header,
+  .app-footer,
+  .app-nav,
+  .mascot-wrap,
+  .assistant-panel,
+  .assistant-play-panel,
+  .visitor-network-root,
+  .notification-toast,
+  .site-credit,
+  .print-hide,
+  .prov-button,
+  .xr-launch,
+  .solar3d-icon-rail,
+  button {
+    display: none !important;
+  }
+
+  .app-shell,
+  .app-main {
+    display: block;
+    padding: 0;
+    margin: 0;
+    max-width: none;
+  }
+
+  /* 3. Page geometry. A4 because that is what a Thai office prints on. */
+  @page {
+    size: A4 portrait;
+    margin: 16mm 14mm 18mm;
+  }
+
+  body {
+    font-size: 10.5pt;
+  }
+
+  h1 {
+    font-size: 20pt;
+    margin: 0 0 4mm;
+  }
+
+  h2 {
+    font-size: 13pt;
+    margin: 0 0 2mm;
+  }
+
+  h3 {
+    font-size: 11pt;
+  }
+
+  /* A heading stranded at the foot of a page with its section overleaf is the
+     single most common way a printed report looks unedited. */
+  h1,
+  h2,
+  h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  section,
+  .kpi-card,
+  .energy-report-card,
+  .forecast-kpi-tile,
+  .prov-appendix-entry {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  table {
+    break-inside: auto;
+  }
+
+  tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group; /* repeat headers on every page of a long table */
+  }
+
+  /* Horizontal scrollers are a screen affordance; on paper they clip the
+     content that is scrolled out of view. */
+  .verify-table-scroll,
+  .forecast-chart-scroll,
+  [style*='overflow-x'] {
+    overflow: visible !important;
+  }
+
+  a {
+    text-decoration: none;
+    color: inherit;
+  }
+
+  /* 4. The parts that exist only on paper. */
+  .print-only {
+    display: block !important;
+  }
+}
+
+/* Print-only content is hidden on screen. Kept outside the print block so the
+   rule applies by default and `@media print` only has to turn it back on. */
+.print-only {
+  display: none;
+}

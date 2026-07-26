@@ -3,6 +3,7 @@ import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis
 import { EnergySavingsTable } from '../components/EnergySavingsTable'
 import { EnergyManagementPanel } from '../components/EnergyManagementPanel'
 import { ExpansionPlannerPanel } from '../components/ExpansionPlannerPanel'
+import { PrintReport } from '../components/PrintReport'
 import { Provenanced } from '../components/Provenanced'
 import { SoilingAdvisorPanel } from '../components/SoilingAdvisorPanel'
 import { SLDViewer } from '../components/SLDViewer'
@@ -55,6 +56,11 @@ export function EnergyReportPage() {
     <div className="energy-report-page">
       <div className="energy-report-controls">
         <ZoneSelector value={zone} onChange={setZone} includeAll={false} />
+        <PrintReport
+          title="รายงานพลังงาน — ระบบผลิตไฟฟ้าจากแสงอาทิตย์"
+          subtitle={`โซน ${zone}`}
+          valueKeys={['simulation.annual_energy_kwh', 'green.co2_avoided_kg']}
+        />
       </div>
 
       {report.isLoading && <p className="forecast-status">Loading energy report…</p>}

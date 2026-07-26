@@ -255,3 +255,10 @@
   opacity: 0.75;
   line-height: 1.6;
 }
+
+/* Print button row (project Q, 2026-07-26). */
+.financial-print-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}

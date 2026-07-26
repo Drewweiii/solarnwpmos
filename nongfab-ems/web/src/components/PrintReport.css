@@ -1,0 +1,111 @@
+/* Print report button + the paper-only cover and appendix (project Q). */
+
+.print-report-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--text-h);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.print-report-button:hover,
+.print-report-button:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.print-report-status {
+  margin-left: 0.6rem;
+  font-size: 0.78rem;
+  color: var(--text);
+  opacity: 0.75;
+}
+
+@media print {
+  .print-cover {
+    border-bottom: 2px solid #000;
+    padding-bottom: 4mm;
+    margin-bottom: 6mm;
+  }
+
+  .print-cover-title {
+    font-size: 20pt;
+    margin: 0 0 1mm;
+  }
+
+  .print-cover-subtitle {
+    font-size: 11pt;
+    margin: 0 0 2mm;
+  }
+
+  .print-cover-meta {
+    font-size: 9pt;
+    opacity: 0.8;
+  }
+
+  /* The appendix is a document in its own right, so it starts on a fresh
+     sheet rather than trailing off the bottom of the last chart. */
+  .print-appendix {
+    break-before: page;
+    page-break-before: always;
+  }
+
+  .print-appendix-heading {
+    font-size: 14pt;
+    border-bottom: 1px solid #000;
+    padding-bottom: 2mm;
+    margin-bottom: 3mm;
+  }
+
+  .print-appendix-intro {
+    font-size: 9.5pt;
+    margin-bottom: 5mm;
+  }
+
+  .prov-appendix-entry {
+    margin-bottom: 5mm;
+    padding-bottom: 3mm;
+    border-bottom: 1px dotted #999;
+  }
+
+  .print-appendix-label {
+    font-size: 11pt;
+    margin: 0 0 1mm;
+  }
+
+  .print-appendix-unit {
+    font-weight: 400;
+    opacity: 0.75;
+  }
+
+  .print-appendix-weakest {
+    font-size: 9.5pt;
+    margin: 0 0 2mm;
+  }
+
+  .print-appendix-steps {
+    margin: 0 0 2mm;
+    padding-left: 6mm;
+    font-size: 9pt;
+  }
+
+  .print-appendix-steps li {
+    margin-bottom: 1.5mm;
+  }
+
+  .print-appendix-origin {
+    opacity: 0.85;
+  }
+
+  .print-appendix-caveat {
+    font-size: 9pt;
+    padding: 1.5mm 2mm;
+    border-left: 2px solid #000;
+  }
+}

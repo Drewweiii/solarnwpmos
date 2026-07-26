@@ -3439,3 +3439,50 @@ which is the entire point of the change.
 
 Gates: oxlint clean, 646 tests, `tsc -b` + vite build clean, fonts present in
 `dist/fonts/` and `lang="th"` in the built HTML.
+
+### 2026-07-26 - Printing, and a report whose every figure carries its origin (project Q, Track 1)
+
+There was no `@media print` rule anywhere in this project. Ctrl+P on the Energy
+Report produced the dashboard: navigation bar, floating mascot, chat widget,
+buttons that do nothing on paper - and for anyone whose OS is in dark mode,
+white text on a dark field, which prints unreadable and empties a toner
+cartridge doing it. `src/print.css` fixes that, and `PrintReport.tsx` adds the
+part that is actually new.
+
+**The appendix is the feature.** A printed dashboard loses exactly the thing
+this project spends its effort on. On screen a reader clicks ⓘ and finds out
+that the payback figure rests on a placeholder CAPEX; on paper that context is
+gone and the number reads as fact. So the printed version carries a
+**provenance appendix** - each figure the page publishes, the chain behind it,
+each link's origin, and the caveat - generated from the same `/provenance`
+registry the ⓘ popovers read. Nothing is transcribed into a template, so the
+appendix cannot drift from the registry the way a hand-written methodology
+section would.
+
+Entries are ordered **weakest-first**: a reader skimming should meet the
+figures needing caution before the solid ones. If a chain fails to load the
+appendix says so - one that silently dropped a figure would be worse than no
+appendix, because the reader would have no way to know it was incomplete.
+
+Fetching is lazy and gated on the print click, and `window.print()` is only
+called once every chain has settled - printing mid-flight would produce a
+report whose appendix said "loading". Financial's placeholder banner is
+deliberately **not** `.print-hide`: a printed investment analysis that dropped
+its own caveat would be the most misleading page this project could produce.
+
+**Forcing light needed all 37 tokens, not the eight that seemed enough.** The
+first pass overrode `--text`, `--bg`, `--card-bg` and a few others. Rendering a
+real PDF through headless Chromium *with the browser in dark mode* showed
+`<code>` as near-black text on the dark-mode `--code-bg`, and would have printed
+all 23 chart series in their dark-field variants, which are lightened for a
+dark background and wash out on white paper. The print block now answers every
+token the dark-mode block sets; a small script diffs the two lists so the next
+person adding a colour finds out.
+
+Verification was an actual PDF, not an inspection. Headless Chromium, dark
+colour scheme, real built CSS, `page.pdf()`: chrome absent, page light, `<code>`
+readable, Thai rendering in the project-P font. The PDF came out **two pages**
+for content that fits on one, which is how the appendix's `break-before: page`
+was confirmed to fire.
+
+Gates: oxlint clean, 652 tests across 69 files (+6), `tsc -b` + vite build clean.

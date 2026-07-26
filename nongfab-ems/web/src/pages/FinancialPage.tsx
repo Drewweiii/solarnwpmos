@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CartesianGrid, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { FinancialUncertaintyPanel } from '../components/FinancialUncertaintyPanel'
+import { PrintReport } from '../components/PrintReport'
 import { Provenanced } from '../components/Provenanced'
 import { ApiError } from '../lib/api'
 import { useFinancial } from '../lib/queries'
@@ -58,6 +59,16 @@ export function FinancialPage() {
 
   return (
     <div className="financial-page">
+      <div className="financial-print-row">
+        <PrintReport
+          title="รายงานการวิเคราะห์การลงทุน"
+          subtitle="NPV · IRR · LCOE · ระยะเวลาคืนทุน"
+          valueKeys={['financial.payback_years', 'simulation.annual_energy_kwh', 'tou.blended_rate_thb_per_kwh']}
+        />
+      </div>
+      {/* The placeholder banner is deliberately NOT .print-hide: a printed
+          investment analysis that dropped its own caveat would be the most
+          misleading page this project could produce. */}
       <div className="financial-placeholder-banner" role="note">
         ⚠ All cost/tariff/rate assumptions below are documented placeholders, not confirmed figures for this project (Thailand's
         20% corporate tax rate, the PEA tariff and the BOI holiday are confirmed) - CAPEX and WACC are still estimates, so adjust
