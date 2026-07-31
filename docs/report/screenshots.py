@@ -77,6 +77,17 @@ async def login(page) -> None:
     # after 30s. domcontentloaded plus an explicit settle is the right wait for
     # an app with persistent sockets.
     await page.goto(WEB, wait_until="domcontentloaded")
+
+    # Start from empty storage every run. A token minted by a PREVIOUS API
+    # process is rejected by the next one - each boot generates a fresh
+    # deploy_id and /version mismatches invalidate the session on purpose. The
+    # symptom is subtle and misleading: the page still shows a signed-in user in
+    # the header, but every query 401s, so the whole dashboard sits on
+    # "Loading..." with a capacity of 0.0. Clearing here rather than trusting
+    # the login form, whose fill silently no-ops when a stale session makes the
+    # form absent.
+    await page.evaluate("() => { localStorage.clear(); sessionStorage.clear(); }")
+    await page.reload(wait_until="domcontentloaded")
     await page.wait_for_timeout(2500)
     await dismiss_overlays(page)
     try:
@@ -90,9 +101,29 @@ async def login(page) -> None:
     await dismiss_overlays(page)
 
 
-async def shot(page, path: str, name: str, wait_ms: int = 3500, full: bool = False) -> None:
+async def select_zone(page, zone: str = "GIS") -> None:
+    """Pick a real zone rather than the default "รวม (All)" tab.
+
+    useForecast is deliberately disabled for the ALL pseudo-zone (the aggregate
+    is assembled by a different hook), so a capture taken on the default tab
+    shows a forecast panel that never resolves. A named zone is also the more
+    informative figure for the report: it is a real array with real numbers
+    rather than a total.
+    """
+    try:
+        chip = page.get_by_role("button", name=zone, exact=True).first
+        if await chip.count():
+            await chip.click()
+            await page.wait_for_timeout(1200)
+    except Exception:
+        pass
+
+
+async def shot(page, path: str, name: str, wait_ms: int = 3500, full: bool = False, zone: str | None = None) -> None:
     await page.goto(f"{WEB}{path}", wait_until="domcontentloaded")
     await dismiss_overlays(page)
+    if zone:
+        await select_zone(page, zone)
     # Charts animate in and data arrives asynchronously; capturing too early
     # produces a figure full of empty panels that misrepresents the product.
     await page.wait_for_timeout(wait_ms)
@@ -107,8 +138,8 @@ async def main() -> None:
 
         await login(page)
         await shot(page, "/", "s1-dashboard")
-        await shot(page, "/forecast", "s2-forecast", wait_ms=5000)
-        await shot(page, "/forecast", "s3-forecast-full", wait_ms=5000, full=True)
+        await shot(page, "/forecast", "s2-forecast", wait_ms=12000, zone="GIS")
+        await shot(page, "/forecast", "s3-forecast-full", wait_ms=12000, full=True, zone="GIS")
         await shot(page, "/energy-report", "s4-energy-report", full=True)
         await shot(page, "/3d", "s5-3d-view", wait_ms=7000)
         await shot(page, "/settings", "s6-settings", full=True)
@@ -119,7 +150,7 @@ async def main() -> None:
             viewport={"width": 390, "height": 844}, device_scale_factor=3, is_mobile=True, has_touch=True
         )
         await login(mobile)
-        await shot(mobile, "/forecast", "s7-mobile-forecast", wait_ms=5000)
+        await shot(mobile, "/forecast", "s7-mobile-forecast", wait_ms=12000, zone="GIS")
 
         await browser.close()
 
