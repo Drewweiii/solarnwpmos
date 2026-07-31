@@ -2,3 +2,7 @@
 # ingested weather store the local API writes while the captures are taken.
 # Rebuilt on every run and specific to whoever ran it.
 .tmp-*.db
+# KaTeX is copied in from npm at build time by build.py; ~1 MB of fonts that
+# does not belong in git when one command regenerates it.
+katex/
+__pycache__/
