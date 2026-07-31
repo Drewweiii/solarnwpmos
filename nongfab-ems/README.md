@@ -1,3 +1,19 @@
+---
+title: Nong Fab Solar EMS API
+emoji: ☀️
+colorFrom: yellow
+colorTo: blue
+sdk: docker
+app_port: 8000
+pinned: false
+---
+
+<!-- The YAML block above is Hugging Face Spaces configuration, added
+     2026-07-26 when the API moved off Railway. It is inert everywhere else -
+     GitHub renders it as front matter and ignores it. `app_port: 8000` matches
+     the Dockerfile's `${PORT:-8000}` fallback; without it HF assumes 7860 and
+     every request 404s against a container that is actually listening. -->
+
 # Nong Fab Solar EMS
 
 Energy Management System for the PTT LNG Nong Fab solar plant, Rayong

@@ -200,6 +200,27 @@ jobs:
       - run: cp .env.example .env
       - run: docker compose config --quiet
 
+  hf-dockerfile-in-sync:
+    name: Hugging Face Dockerfile matches api/Dockerfile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # nongfab-ems/Dockerfile is the Hugging Face Space entrypoint and is a
+      # copy of api/Dockerfile below its header comment (HF only builds a
+      # `Dockerfile` at the Space root, and its builder may not follow
+      # symlinks). Duplication that nobody checks is duplication that drifts,
+      # and the failure mode is the production API silently running a stale
+      # image - so the copy is asserted here instead of trusted.
+      - name: The copy must match api/Dockerfile below its header
+        run: |
+          cd nongfab-ems
+          tail -n +17 Dockerfile > /tmp/hf-body
+          if ! diff -u api/Dockerfile /tmp/hf-body; then
+            echo "::error::nongfab-ems/Dockerfile has drifted from api/Dockerfile."
+            echo "Edit api/Dockerfile, then re-copy: cp api/Dockerfile Dockerfile and re-add the header."
+            exit 1
+          fi
+
   docker-build-api:
     name: build api/ Docker image
     runs-on: ubuntu-latest
