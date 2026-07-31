@@ -1,0 +1,4 @@
+# Runtime state for serve.sh: the JWT signing key, the SQLite database of users
+# and chat, and the two log files. Local to whoever runs the stopgap, and the
+# secret must never be committed.
+.state/
