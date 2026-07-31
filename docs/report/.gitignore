@@ -1,0 +1,4 @@
+# Runtime scratch from screenshots.py: the seeded auth database and the
+# ingested weather store the local API writes while the captures are taken.
+# Rebuilt on every run and specific to whoever ran it.
+.tmp-*.db
