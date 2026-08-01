@@ -6,3 +6,4 @@
 # does not belong in git when one command regenerates it.
 katex/
 __pycache__/
+.tmp-*.db

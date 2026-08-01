@@ -137,7 +137,7 @@ async def main() -> None:
         page = await browser.new_page(viewport=VIEWPORT, device_scale_factor=2)
 
         await login(page)
-        await shot(page, "/", "s1-dashboard")
+        await shot(page, "/", "s1-dashboard", wait_ms=9000, zone="GIS")
         await shot(page, "/forecast", "s2-forecast", wait_ms=12000, zone="GIS")
         await shot(page, "/forecast", "s3-forecast-full", wait_ms=12000, full=True, zone="GIS")
         await shot(page, "/energy-report", "s4-energy-report", full=True)
